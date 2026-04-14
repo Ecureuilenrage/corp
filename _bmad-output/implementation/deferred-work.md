@@ -1,0 +1,83 @@
+# Deferred Work
+
+## Deferred from: code review Epic 1 Stories 1.1-1.4 (2026-04-09)
+
+- **D-01 Non-atomicite journal-fichier.** Un crash entre `appendEvent` et `repository.save` cree un etat irreconciliable: le journal dit "mission creee" mais `findById` retourne null. Correctif possible: rendre `readMissionResume` resilient a l'absence de snapshot quand le journal contient l'etat via `payload.mission`. Fichiers concernes: `create-mission.ts`, `update-mission-lifecycle.ts`, `read-mission-resume.ts`.
+
+- **D-02 resume-view mis a jour indirectement.** `updateMissionLifecycle` ecrit `mission-status` explicitement mais delegue `resume-view` a `readMissionResume` (reconstruction). L'asymetrie est fragile si une future surface appelle le service lifecycle sans lire le resume ensuite. Fichiers concernes: `update-mission-lifecycle.ts`, `read-mission-resume.ts`.
+
+- **D-03 ensureMissionWorkspaceInitialized dupliquee 3 fois.** Trois implementations differentes dans `create-mission.ts:106`, `update-mission-lifecycle.ts:179`, `read-mission-resume.ts:161`. La version de `create-mission` verifie `resume-view`, les deux autres non. A factoriser dans la couche storage ou dans un helper partage.
+
+- **D-04 filterMissionEntities inclut les entites sans missionId.** Dans `read-mission-resume.ts:330-346`, les entites sans champ `missionId` passent le filtre et apparaissent dans le resume de toutes les missions. Pas de consequence actuelle (projections vides), mais risque reel quand l'Epic 2 introduira les tickets. Verifier et ajuster le filtre avant la Story 2.1.
+
+- **D-05 TOCTOU dans les helpers de creation de fichiers.** `ensureAppendOnlyEventLog` et `writeFileIfMissing` ont une fenetre de race entre `access()` et `writeFile()`. Risque faible en V1 mono-operateur. Correctif possible: utiliser `writeFile` avec `flag: 'wx'` (exclusive create).
+
+- **D-06 findById unchecked cast `as Mission`.** `FileMissionRepository.findById` fait un `JSON.parse(...) as Mission` sans validation de schema. Un fichier `mission.json` corrompu ou d'un schema different est silencieusement accepte. Ajouter un garde `isMission()` au moment de la lecture.
+
+## Deferred from: code review of story-3-2 (2026-04-11)
+
+- **D-07 Ecritures non-atomiques dans resolve-approval-request.ts.** Meme pattern que D-01: appendEvent → save × 3 → rewriteReadModels sans rollback. Un crash entre appendEvent et les saves suivants laisse le journal et les read models divergents. Pattern pre-existant identique a run-ticket.ts.
+- **D-08 readApprovalQueue catch block avale EACCES.** `FILE_SYSTEM_ERROR_CODES` ne contient que EPERM, EMFILE, ENOSPC. Un EACCES (permission denied) tombe dans le bloc generique et produit un message "irreconciliable" sans cause reelle. Pattern pre-existant de story 3.1.
+- **D-09 --root whitespace-only passe la validation CLI.** `resolveRootDir` ne trim pas la valeur; `--root "   "` est accepte et produit une erreur filesystem obscure en aval. Pre-existant dans le parser CLI commun.
+- **D-10 Gaps de tests AC1/AC4 non couverts par story 3.2.** (a) Pas de test verifiant l'ordre event-before-projection (architecture rule 4.1). (b) AC4 rebuild teste uniquement la corruption JSON, pas l'absence de fichier (ENOENT) ni la divergence structurelle.
+
+## Deferred from: code review of story-3-4 (2026-04-12)
+
+- **D-11 Type guards dupliques entre audit-log-projection.ts et read-mission-audit.ts.** ~6 fonctions identiques (isApprovalRequest, isArtifact, isTicket, isExecutionAttempt, isWorkspaceIsolationMetadata, isApprovalDecision) copiees entre packages/journal et packages/mission-kernel. Risque de derive si une definition de contrat evolue. A factoriser dans un module shared ou dans packages/contracts.
+- **D-12 readSourceReferences nested scan court-circuite sur le 1er objet imbrique.** Dans artifact-index-projection.ts:184-200, le scan retourne des que le premier objet imbrique contient approvalId ou decisionRef. Si un payload contient plusieurs objets imbriques avec des references reparties (ex. artifact.approvalId et decision.decisionRef), la decisionRef est perdue. Pre-existant, pas introduit par 3.4.
+- **D-14 `--ticket-id` filtre les evenements mission-level.** Dans read-mission-audit.ts:77, le filtre `entry.ticketId === options.ticketId` exclut les evenements sans ticketId (mission.created, mission.paused, etc.). AC 2 demande une vue "mission-centrique" meme filtree. Decision produit a prendre: faut-il inclure les evenements mission-level quand on filtre par ticket?
+- **D-13 toPublicSource ne masque que openai/codex.** Dans artifact-index-projection.ts:205-220, seuls les noms contenant "openai" ou "codex" sont remplaces par "execution-adapter". Un futur adaptateur vendor (ex. "anthropic_api", "azure_openai_proxy") passerait en clair dans la CLI et les projections. Pre-existant, pas introduit par 3.4.
+
+## Deferred from: code review 2 of story-3-4 (2026-04-12)
+
+- **D-15 Compat workspaces pre-3.4: ensureMissionWorkspaceInitialized verifie audit-log.json.** `Object.keys(DEFAULT_PROJECTIONS)` inclut desormais `audit-log`. Les workspaces crees avant 3.4 n'ont pas `audit-log.json` et echouent avec "Workspace mission non initialise". Correctif: re-executer `corp mission bootstrap`. Pattern pre-existant (meme mecanisme pour chaque nouvelle projection).
+- **D-16 isExecutionAttempt rejette workspaceIsolationId: null.** Dans audit-log-projection.ts:697 et read-mission-audit.ts:507, le type guard exige `typeof workspaceIsolationId === "string"` sans branche null. Si un attempt a `workspaceIsolationId: null`, le guard retourne false et l'attemptId est perdu dans l'entree d'audit. Pre-existant cross-package.
+- **D-17 Ecritures non-atomiques sur Windows (writeProjectionSnapshot).** `writeFile` n'est pas atomique sur Windows. Deux processus CLI concurrents ecrivant `audit-log.json` peuvent produire du JSON tronque. Correctif: pattern temp-file + rename. Concern infra pre-existant pour toutes les projections.
+- **D-18 Erreurs OS brutes non catchees dans readEventLog.** Une erreur EACCES ou EIO sur `events.jsonl` remonte comme erreur OS brute au lieu du message "Workspace mission non initialise". Pre-existant pour tous les chemins de lecture du journal.
+- **D-19 O(n) rebuild a chaque lecture audit.** `loadMissionAuditContext` relit systematiquement le journal complet, tous les tickets et artefacts, reconstruit la projection et deep-compare. Par conception V1; a optimiser si le journal depasse quelques milliers d'evenements.
+
+## Deferred from: code review of story-4-1 (2026-04-12)
+
+- **D-20 `statSync` synchrone dans un pipeline async.** `validateResolvedLocalRef` utilise `statSync` dans un module appele depuis `readExtensionRegistrationFile` (async). Bloque la boucle d'evenements sur un chemin reseau lent. Choix de design coherent pour la validation pure offline V1.
+- **D-21 `normalizeOpaqueExtensionReference` duplique `normalizeOpaqueReferences` de ticket-runtime.** Les deux font trim + dedupe. Compatibilite fonctionnelle OK mais pas de lien de dependance partage. Risque de derive si l'une evolue. Reorganisation architecturale hors scope story 4.1.
+- **D-22 Chemins UNC Windows non reconnus par `isAbsoluteReference` sur Linux.** `path.isAbsolute("\\\\server\\share")` retourne false en POSIX. Le regex de secours ne couvre que les lettres de lecteur. Auto-correction via echec `statSync` en pratique.
+- **D-23 `validateExtensionRegistration` sans `baseDir`/`sourcePath` accepte silencieusement les refs manquantes.** La verification filesystem est opt-in via `baseDir`. La CLI passe toujours `sourcePath`. L'API publique devrait documenter cette semantique.
+- **D-24 Symlink cyclique produit un diagnostic `missing_local_ref` trompeur.** `statSync` sur un lien cyclique leve ELOOP, absorbe dans le catch generique comme "ref manquante". Cas tres niche.
+- **D-25 `packages/capability-registry` sans `package.json`.** Le package utilise des imports relatifs directs vers `contracts`. Pattern architectural pre-existant du monorepo.
+
+## Deferred from: code review of story-4-5 (2026-04-13)
+
+- **D-26 `localRefs` obligatoire meme pour capabilities MCP.** `RegisteredCapability.localRefs` est non-optionnel; les capabilities MCP portent un `localRefs` vide semantiquement trompeur. Pre-existant dans le contrat `registered-capability.ts:31`.
+- **D-27 TOCTOU entre `access()` et ecriture dans `ensureCapabilityWorkspaceInitialized`.** Le pre-check via `access()` est purement indicatif; entre la verification et le `mkdir`/`writeFile` dans `save()`, les repertoires peuvent disparaitre. Le `save()` interne throw une erreur brute sans le message d'aide. Acceptable V1 CLI mono-utilisateur.
+- **D-28 `localeCompare` locale-sensitive sur timestamps ISO.** Le sort dans `audit-log-projection.ts:63-65` utilise `localeCompare` qui peut reordonner les events sous certaines locales non-standard. Correctif: comparer avec `<`/`>` ou forcer la locale `"en"`.
+- **D-29 Ecritures projection concurrentes non-atomiques.** `writeProjectionSnapshot` utilise `writeFile` sans pattern temp+rename. Deux processus CLI concurrents peuvent corrompre le JSON. Meme pattern que D-17.
+- **D-30 Test seam mutable au niveau module dans `run-ticket.ts`.** `setRunTicketDependenciesForTesting` est un singleton mutable; les overrides peuvent fuiter entre tests paralleles. Pre-existant.
+- **D-31 Type guards dupliques (residuel F6).** Meme pattern que D-11: `isCapabilityInvocationDetails` et les autres guards sont toujours dupliques entre `audit-log-projection.ts` et `read-mission-audit.ts`. L'interface est extraite dans contracts, mais les guards runtime restent copies.
+- **D-32 `limit` negatif retourne tous les entries dans `readMissionAudit`.** `read-mission-audit.ts:80-82` — un `limit: -1` passe le guard `> 0` sans erreur et retourne tout. Pre-existant.
+- **D-33 `rootDir` undefined resolu vers CWD.** `path.resolve(undefined)` dans `resolveWorkspaceLayout` retombe sur `process.cwd()` sans erreur. Pre-existant dans tous les points d'entree qui appellent `resolveWorkspaceLayout`.
+- **D-34 `readEventLog` sans guard ENOENT.** Un `events.jsonl` supprime apres init crash toutes les commandes qui lisent le journal. Meme concern que D-18.
+- **D-35 `appendFile` concurrent sur Windows NTFS.** Les appels `appendFile` concurrents peuvent entrelacer des octets et corrompre le JSONL. Meme concern que D-17/D-10.
+- **D-36 Divergence journal/read-model dans le catch block de `run-ticket.ts:483-503`.** Apres un echec adaptateur, les events d'artefacts sont persistes dans le journal mais les `eventIds`/`artifactIds` mis a jour ne sont jamais sauves dans `mission.json`/`ticket.json` car le re-throw intervient avant `persistRunTransition`.
+- **D-37 `assertSafeStorageIdentifier` n'interdit pas les caracteres reserves Windows.** Les caracteres `:`, `<`, `>`, `|`, `?`, `*`, `"` et les noms reserves (`CON`, `NUL`, `PRN`, etc.) ne sont pas rejetes. Sur Windows, `mkdir`/`writeFile` echouent avec des erreurs OS opaques au lieu du message "Identifiant invalide".
+- **D-38 Bare catch dans `ensureMissionAuditWorkspaceInitialized`.** Meme pattern que F7 (corrige dans `extension-command.ts`), mais non corrige dans `read-mission-audit.ts:177-190`. `EACCES`, `EIO`, `EMFILE` sont tous reportes comme "Workspace non initialise".
+- **D-39 `resolveEventKind` produit titre vide pour types edge-case.** Un event type vide ou commencant par `.` produit `kind='event'` et `title=''` dans l'audit. Pre-existant.
+
+## Deferred from: code review of story-4-3 (2026-04-13)
+
+- **D-40 Bypass symlink dans `assertSkillPackLocalBoundary`.** `path.resolve()` ne resout pas les symlinks; un lien symbolique dans un skill pack peut pointer hors du `rootDir` sans etre detecte. Correctif: utiliser `fs.realpath()` pour resoudre les chemins avant comparaison. Meme concern que D-24, s'applique a tous les registres.
+- **D-41 Injection via metadonnees dans le brief LLM.** `displayName`, `description` et les chemins de `localRefs` sont concatenes sans echappement dans le brief envoye a l'adaptateur. Un skill pack avec un `displayName` contenant `\n` ou `|` peut corrompre le format du brief. Pattern pre-existant (s'applique aussi a `mission.title`, `ticket.goal`).
+- **D-42 Chemins absolus locaux exposes dans le brief API externe.** `formatSkillPackSummary` inclut `rootDir`, `references`, `metadataFile` et `scripts` en chemins absolus dans la requete envoyee a l'API OpenAI. Fuite de structure locale du filesystem. Pattern pre-existant (`workspacePath` est aussi absolu).
+- **D-43 Race condition TOCTOU dans `save()` du registre skill-pack.** Fenetre entre `findByPackRef` (null) et `mkdir(skillPackDir)` ou un enregistrement concurrent identique peut etre rejete a tort comme "concurrent" au lieu de "unchanged". Gere par EEXIST sur mkdir, acceptable V1 mono-operateur.
+- **D-44 JSON deserialise sans validation de schema dans `findByPackRef`.** `JSON.parse(...) as RegisteredSkillPack` sans validation runtime. Un fichier corrompu mais syntaxiquement valide produit un objet partiel. Meme concern que D-06, s'applique a tous les repositories.
+- **D-45 Sensibilite a la casse du `packRef` sur macOS/Windows.** Sur les FS case-insensitive, `Pack.Triage` et `pack.triage` pointent vers le meme repertoire mais sont des packRefs differents en memoire. Meme concern que D-37 (differences comportementales cross-OS).
+- **D-46 Noms reserves Windows non bloques par `assertSafeStorageIdentifier`.** Valeurs comme `CON`, `PRN`, `NUL` etc. passent la validation mais echouent sur Windows. Meme concern que D-37.
+- **D-47 `deepStrictEqualForComparison` peut boucler sur refs circulaires.** `normalizeValueForComparison()` est recursive sans protection contre les cycles. JSON.parse ne peut pas produire de cycles, mais une mutation en memoire le pourrait. Pre-existant dans `structural-compare.ts`.
+- **D-48 `statSync` dans validate-extension masque les erreurs EACCES.** Le catch generique dans `validateResolvedLocalRef` traite EACCES comme "ref manquante" au lieu de "permission refusee". Meme concern que D-24.
+
+## Deferred from: code review of story-4-4 (2026-04-14)
+
+- **D-49 Race condition TOCTOU dans selectMissionExtensions.** Meme pattern que D-01/D-07: read-validate-write sans verrou. Deux appels concurrents `extension select` sur la meme mission produisent deux evenements dans le journal mais le dernier writer gagne sur `mission.json`. Pre-existant pour toutes les ecritures mission/ticket.
+- **D-50 TOCTOU dans run-ticket.ts entre les deux ensureTicketExtensionsAllowedByMission.** Le ticket n'est pas relu entre le premier check (debut de `runTicket`) et le second (juste avant `adapter.launch`). Un `updateTicket` concurrent peut elargir les refs du ticket sans que le second check le detecte. Pre-existant, fenetre etroite.
+- **D-51 Approbation sans re-validation registre workspace.** `resolve-approval-request.ts` verifie les refs contre `mission.authorizedExtensions` mais ne revalide pas contre le registre workspace. Si une capability est deregistree entre `extension select` et l'approbation, l'approbation passe mais le run echouera au preflight. Pre-existant (seul `selectMissionExtensions` et `run-ticket` lisent le registre).
+- **D-52 Sensibilite a la casse des identifiants capability/skill pack.** `ensureTicketExtensionsAllowedByMission` utilise `Set.has()` qui est case-sensitive. `normalizeOpaqueReferences` ne normalise pas la casse (trim + dedupe seulement). Meme concern que D-45, s'applique a tout le pipeline extension.
+- **D-53 Type guards dupliques entre audit-log-projection.ts et read-mission-audit.ts (residuel).** Meme concern que D-11/D-31. Toujours non factorise.

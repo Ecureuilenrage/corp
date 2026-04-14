@@ -1,0 +1,1060 @@
+{
+  "generated_at": "2026-04-08T09:11:28.899Z",
+  "repo_root": "C:\\Dev\\PRJET\\Openclaw\\openclaw-main",
+  "repo_name": "openclaw",
+  "tech_stack": [
+    "Node.js ESM monorepo",
+    "TypeScript core runtime",
+    "pnpm workspace",
+    "Lit + Vite control UI",
+    "Swift packages for macOS/iOS/shared kit",
+    "Kotlin/Android companion stubs",
+    "Vitest-based test matrix",
+    "Plugin-first extension architecture"
+  ],
+  "source_metrics": {
+    "source_file_count": 12174,
+    "by_extension": {
+      ".ts": 10664,
+      ".swift": 617,
+      ".json": 409,
+      ".kt": 139,
+      ".mjs": 123,
+      ".sh": 92,
+      ".yml": 41,
+      ".js": 17,
+      ".yaml": 17,
+      ".mts": 14,
+      ".py": 9,
+      "": 7,
+      ".plist": 7,
+      ".kts": 4,
+      ".toml": 3,
+      ".xcconfig": 3,
+      ".cjs": 2,
+      ".jsonc": 2,
+      ".ps1": 1,
+      ".sandbox": 1,
+      ".sandbox-browser": 1,
+      ".sandbox-common": 1
+    },
+    "by_top_level": {
+      "src": 6163,
+      "extensions": 3987,
+      "apps": 761,
+      "scripts": 288,
+      "ui": 268,
+      "test": 199,
+      "vendor": 153,
+      "(root)": 130,
+      "packages": 117,
+      "docs": 30,
+      "Swabble": 29,
+      ".github": 27,
+      "skills": 11,
+      ".pi": 5,
+      ".agents": 3,
+      ".vscode": 2,
+      "test-fixtures": 1
+    },
+    "by_batch": {
+      "batch-06-extensions-channels": 2620,
+      "batch-01-core-runtime-cli": 2267,
+      "batch-02-agent-runtime-tools": 1769,
+      "batch-07-extensions-providers-memory-media": 1623,
+      "batch-03-gateway-control-plane": 991,
+      "batch-04-plugin-platform-sdk": 875,
+      "batch-10-tooling-tests-release": 768,
+      "batch-08-shared-swift-mobile-kit": 427,
+      "batch-09-macos-companion": 363,
+      "batch-05-ui-control-surfaces": 318,
+      "batch-11-vendor-a2ui": 153
+    },
+    "tests": 4129,
+    "entrypoints": 13
+  },
+  "workspace": {
+    "root_package": {
+      "name": "openclaw",
+      "version": "2026.4.9",
+      "type": "module",
+      "package_manager": "pnpm@10.32.1",
+      "bin": {
+        "openclaw": "openclaw.mjs"
+      }
+    },
+    "workspace_manifest_present": true,
+    "workspace_manifest_excerpt": "packages:\n  - .\n  - ui\n  - packages/*\n  - extensions/*\n\nminimumReleaseAge: 2880\n\nminimumReleaseAgeExclude:\n  - \"acpx\"\n  - \"openclaw\"\n  - \"@buape/carbon\"\n  - \"vite\"\n  - \"@cloudflare/workers-types\"\n  - \"@mariozechner/*\"\n  - \"@typescript/native-preview*\"\n  - \"@oxlint/*\"\n  - \"@oxfmt/*\"\n  - \"sqlite-vec\"\n  - \"sqlite-vec-*\"",
+    "workspace_packages": [
+      {
+        "path": "extensions/acpx/package.json",
+        "name": "@openclaw/acpx",
+        "private": null,
+        "type": "module"
+      },
+      {
+        "path": "extensions/alibaba/package.json",
+        "name": "@openclaw/alibaba-provider",
+        "private": true,
+        "type": "module"
+      },
+      {
+        "path": "extensions/amazon-bedrock-mantle/package.json",
+        "name": "@openclaw/amazon-bedrock-mantle-provider",
+        "private": true,
+        "type": "module"
+      },
+      {
+        "path": "extensions/amazon-bedrock/package.json",
+        "name": "@openclaw/amazon-bedrock-provider",
+        "private": true,
+        "type": "module"
+      },
+      {
+        "path": "extensions/anthropic-vertex/package.json",
+        "name": "@openclaw/anthropic-vertex-provider",
+        "private": true,
+        "type": "module"
+      },
+      {
+        "path": "extensions/anthropic/package.json",
+        "name": "@openclaw/anthropic-provider",
+        "private": true,
+        "type": "module"
+      },
+      {
+        "path": "extensions/arcee/package.json",
+        "name": "@openclaw/arcee-provider",
+        "private": true,
+        "type": "module"
+      },
+      {
+        "path": "extensions/bluebubbles/package.json",
+        "name": "@openclaw/bluebubbles",
+        "private": null,
+        "type": "module"
+      },
+      {
+        "path": "extensions/brave/package.json",
+        "name": "@openclaw/brave-plugin",
+        "private": true,
+        "type": "module"
+      },
+      {
+        "path": "extensions/browser/package.json",
+        "name": "@openclaw/browser-plugin",
+        "private": true,
+        "type": "module"
+      },
+      {
+        "path": "extensions/byteplus/package.json",
+        "name": "@openclaw/byteplus-provider",
+        "private": true,
+        "type": "module"
+      },
+      {
+        "path": "extensions/chutes/package.json",
+        "name": "@openclaw/chutes-provider",
+        "private": true,
+        "type": "module"
+      },
+      {
+        "path": "extensions/cloudflare-ai-gateway/package.json",
+        "name": "@openclaw/cloudflare-ai-gateway-provider",
+        "private": true,
+        "type": "module"
+      },
+      {
+        "path": "extensions/comfy/package.json",
+        "name": "@openclaw/comfy-provider",
+        "private": true,
+        "type": "module"
+      },
+      {
+        "path": "extensions/copilot-proxy/package.json",
+        "name": "@openclaw/copilot-proxy",
+        "private": true,
+        "type": "module"
+      },
+      {
+        "path": "extensions/deepgram/package.json",
+        "name": "@openclaw/deepgram-provider",
+        "private": true,
+        "type": "module"
+      },
+      {
+        "path": "extensions/deepseek/package.json",
+        "name": "@openclaw/deepseek-provider",
+        "private": true,
+        "type": "module"
+      },
+      {
+        "path": "extensions/diagnostics-otel/package.json",
+        "name": "@openclaw/diagnostics-otel",
+        "private": null,
+        "type": "module"
+      },
+      {
+        "path": "extensions/diffs/package.json",
+        "name": "@openclaw/diffs",
+        "private": true,
+        "type": "module"
+      },
+      {
+        "path": "extensions/discord/package.json",
+        "name": "@openclaw/discord",
+        "private": null,
+        "type": "module"
+      },
+      {
+        "path": "extensions/duckduckgo/package.json",
+        "name": "@openclaw/duckduckgo-plugin",
+        "private": true,
+        "type": "module"
+      },
+      {
+        "path": "extensions/elevenlabs/package.json",
+        "name": "@openclaw/elevenlabs-speech",
+        "private": true,
+        "type": "module"
+      },
+      {
+        "path": "extensions/exa/package.json",
+        "name": "@openclaw/exa-plugin",
+        "private": true,
+        "type": "module"
+      },
+      {
+        "path": "extensions/fal/package.json",
+        "name": "@openclaw/fal-provider",
+        "private": true,
+        "type": "module"
+      },
+      {
+        "path": "extensions/feishu/package.json",
+        "name": "@openclaw/feishu",
+        "private": null,
+        "type": "module"
+      },
+      {
+        "path": "extensions/firecrawl/package.json",
+        "name": "@openclaw/firecrawl-plugin",
+        "private": true,
+        "type": "module"
+      },
+      {
+        "path": "extensions/fireworks/package.json",
+        "name": "@openclaw/fireworks-provider",
+        "private": true,
+        "type": "module"
+      },
+      {
+        "path": "extensions/github-copilot/package.json",
+        "name": "@openclaw/github-copilot-provider",
+        "private": true,
+        "type": "module"
+      },
+      {
+        "path": "extensions/google/package.json",
+        "name": "@openclaw/google-plugin",
+        "private": true,
+        "type": "module"
+      },
+      {
+        "path": "extensions/googlechat/package.json",
+        "name": "@openclaw/googlechat",
+        "private": true,
+        "type": "module"
+      },
+      {
+        "path": "extensions/groq/package.json",
+        "name": "@openclaw/groq-provider",
+        "private": true,
+        "type": "module"
+      },
+      {
+        "path": "extensions/huggingface/package.json",
+        "name": "@openclaw/huggingface-provider",
+        "private": true,
+        "type": "module"
+      },
+      {
+        "path": "extensions/image-generation-core/package.json",
+        "name": "@openclaw/image-generation-core",
+        "private": true,
+        "type": "module"
+      },
+      {
+        "path": "extensions/imessage/package.json",
+        "name": "@openclaw/imessage",
+        "private": true,
+        "type": "module"
+      },
+      {
+        "path": "extensions/irc/package.json",
+        "name": "@openclaw/irc",
+        "private": null,
+        "type": "module"
+      },
+      {
+        "path": "extensions/kilocode/package.json",
+        "name": "@openclaw/kilocode-provider",
+        "private": true,
+        "type": "module"
+      },
+      {
+        "path": "extensions/kimi-coding/package.json",
+        "name": "@openclaw/kimi-provider",
+        "private": true,
+        "type": "module"
+      },
+      {
+        "path": "extensions/line/package.json",
+        "name": "@openclaw/line",
+        "private": true,
+        "type": "module"
+      },
+      {
+        "path": "extensions/litellm/package.json",
+        "name": "@openclaw/litellm-provider",
+        "private": true,
+        "type": "module"
+      },
+      {
+        "path": "extensions/llm-task/package.json",
+        "name": "@openclaw/llm-task",
+        "private": true,
+        "type": "module"
+      },
+      {
+        "path": "extensions/lobster/package.json",
+        "name": "@openclaw/lobster",
+        "private": null,
+        "type": "module"
+      },
+      {
+        "path": "extensions/matrix/package.json",
+        "name": "@openclaw/matrix",
+        "private": null,
+        "type": "module"
+      },
+      {
+        "path": "extensions/mattermost/package.json",
+        "name": "@openclaw/mattermost",
+        "private": null,
+        "type": "module"
+      },
+      {
+        "path": "extensions/media-understanding-core/package.json",
+        "name": "@openclaw/media-understanding-core",
+        "private": true,
+        "type": "module"
+      },
+      {
+        "path": "extensions/memory-core/package.json",
+        "name": "@openclaw/memory-core",
+        "private": true,
+        "type": "module"
+      },
+      {
+        "path": "extensions/memory-lancedb/package.json",
+        "name": "@openclaw/memory-lancedb",
+        "private": null,
+        "type": "module"
+      },
+      {
+        "path": "extensions/memory-wiki/package.json",
+        "name": "@openclaw/memory-wiki",
+        "private": true,
+        "type": "module"
+      },
+      {
+        "path": "extensions/microsoft-foundry/package.json",
+        "name": "@openclaw/microsoft-foundry",
+        "private": true,
+        "type": "module"
+      },
+      {
+        "path": "extensions/microsoft/package.json",
+        "name": "@openclaw/microsoft-speech",
+        "private": true,
+        "type": "module"
+      },
+      {
+        "path": "extensions/minimax/package.json",
+        "name": "@openclaw/minimax-provider",
+        "private": true,
+        "type": "module"
+      },
+      {
+        "path": "extensions/mistral/package.json",
+        "name": "@openclaw/mistral-provider",
+        "private": true,
+        "type": "module"
+      },
+      {
+        "path": "extensions/moonshot/package.json",
+        "name": "@openclaw/moonshot-provider",
+        "private": true,
+        "type": "module"
+      },
+      {
+        "path": "extensions/msteams/package.json",
+        "name": "@openclaw/msteams",
+        "private": null,
+        "type": "module"
+      },
+      {
+        "path": "extensions/nextcloud-talk/package.json",
+        "name": "@openclaw/nextcloud-talk",
+        "private": null,
+        "type": "module"
+      },
+      {
+        "path": "extensions/nostr/package.json",
+        "name": "@openclaw/nostr",
+        "private": null,
+        "type": "module"
+      },
+      {
+        "path": "extensions/nvidia/package.json",
+        "name": "@openclaw/nvidia-provider",
+        "private": true,
+        "type": "module"
+      },
+      {
+        "path": "extensions/ollama/package.json",
+        "name": "@openclaw/ollama-provider",
+        "private": true,
+        "type": "module"
+      },
+      {
+        "path": "extensions/open-prose/package.json",
+        "name": "@openclaw/open-prose",
+        "private": true,
+        "type": "module"
+      },
+      {
+        "path": "extensions/openai/package.json",
+        "name": "@openclaw/openai-provider",
+        "private": true,
+        "type": "module"
+      },
+      {
+        "path": "extensions/opencode-go/package.json",
+        "name": "@openclaw/opencode-go-provider",
+        "private": true,
+        "type": "module"
+      },
+      {
+        "path": "extensions/opencode/package.json",
+        "name": "@openclaw/opencode-provider",
+        "private": true,
+        "type": "module"
+      },
+      {
+        "path": "extensions/openrouter/package.json",
+        "name": "@openclaw/openrouter-provider",
+        "private": true,
+        "type": "module"
+      },
+      {
+        "path": "extensions/openshell/package.json",
+        "name": "@openclaw/openshell-sandbox",
+        "private": true,
+        "type": "module"
+      },
+      {
+        "path": "extensions/perplexity/package.json",
+        "name": "@openclaw/perplexity-plugin",
+        "private": true,
+        "type": "module"
+      },
+      {
+        "path": "extensions/qa-channel/package.json",
+        "name": "@openclaw/qa-channel",
+        "private": true,
+        "type": "module"
+      },
+      {
+        "path": "extensions/qa-lab/package.json",
+        "name": "@openclaw/qa-lab",
+        "private": true,
+        "type": "module"
+      },
+      {
+        "path": "extensions/qianfan/package.json",
+        "name": "@openclaw/qianfan-provider",
+        "private": true,
+        "type": "module"
+      },
+      {
+        "path": "extensions/qqbot/package.json",
+        "name": "@openclaw/qqbot",
+        "private": false,
+        "type": "module"
+      },
+      {
+        "path": "extensions/qwen/package.json",
+        "name": "@openclaw/qwen-provider",
+        "private": true,
+        "type": "module"
+      },
+      {
+        "path": "extensions/runway/package.json",
+        "name": "@openclaw/runway-provider",
+        "private": true,
+        "type": "module"
+      },
+      {
+        "path": "extensions/searxng/package.json",
+        "name": "@openclaw/searxng-plugin",
+        "private": true,
+        "type": "module"
+      },
+      {
+        "path": "extensions/sglang/package.json",
+        "name": "@openclaw/sglang-provider",
+        "private": true,
+        "type": "module"
+      },
+      {
+        "path": "extensions/signal/package.json",
+        "name": "@openclaw/signal",
+        "private": true,
+        "type": "module"
+      },
+      {
+        "path": "extensions/slack/package.json",
+        "name": "@openclaw/slack",
+        "private": true,
+        "type": "module"
+      },
+      {
+        "path": "extensions/speech-core/package.json",
+        "name": "@openclaw/speech-core",
+        "private": true,
+        "type": "module"
+      },
+      {
+        "path": "extensions/stepfun/package.json",
+        "name": "@openclaw/stepfun-provider",
+        "private": true,
+        "type": "module"
+      },
+      {
+        "path": "extensions/synology-chat/package.json",
+        "name": "@openclaw/synology-chat",
+        "private": null,
+        "type": "module"
+      },
+      {
+        "path": "extensions/synthetic/package.json",
+        "name": "@openclaw/synthetic-provider",
+        "private": true,
+        "type": "module"
+      },
+      {
+        "path": "extensions/tavily/package.json",
+        "name": "@openclaw/tavily-plugin",
+        "private": true,
+        "type": "module"
+      },
+      {
+        "path": "extensions/telegram/package.json",
+        "name": "@openclaw/telegram",
+        "private": true,
+        "type": "module"
+      },
+      {
+        "path": "extensions/tlon/package.json",
+        "name": "@openclaw/tlon",
+        "private": null,
+        "type": "module"
+      },
+      {
+        "path": "extensions/together/package.json",
+        "name": "@openclaw/together-provider",
+        "private": true,
+        "type": "module"
+      },
+      {
+        "path": "extensions/twitch/package.json",
+        "name": "@openclaw/twitch",
+        "private": null,
+        "type": "module"
+      },
+      {
+        "path": "extensions/venice/package.json",
+        "name": "@openclaw/venice-provider",
+        "private": true,
+        "type": "module"
+      },
+      {
+        "path": "extensions/vercel-ai-gateway/package.json",
+        "name": "@openclaw/vercel-ai-gateway-provider",
+        "private": true,
+        "type": "module"
+      },
+      {
+        "path": "extensions/video-generation-core/package.json",
+        "name": "@openclaw/video-generation-core",
+        "private": true,
+        "type": "module"
+      },
+      {
+        "path": "extensions/vllm/package.json",
+        "name": "@openclaw/vllm-provider",
+        "private": true,
+        "type": "module"
+      },
+      {
+        "path": "extensions/voice-call/package.json",
+        "name": "@openclaw/voice-call",
+        "private": null,
+        "type": "module"
+      },
+      {
+        "path": "extensions/volcengine/package.json",
+        "name": "@openclaw/volcengine-provider",
+        "private": true,
+        "type": "module"
+      },
+      {
+        "path": "extensions/vydra/package.json",
+        "name": "@openclaw/vydra-provider",
+        "private": true,
+        "type": "module"
+      },
+      {
+        "path": "extensions/webhooks/package.json",
+        "name": "@openclaw/webhooks",
+        "private": true,
+        "type": "module"
+      },
+      {
+        "path": "extensions/whatsapp/package.json",
+        "name": "@openclaw/whatsapp",
+        "private": null,
+        "type": "module"
+      },
+      {
+        "path": "extensions/xai/package.json",
+        "name": "@openclaw/xai-plugin",
+        "private": true,
+        "type": "module"
+      },
+      {
+        "path": "extensions/xiaomi/package.json",
+        "name": "@openclaw/xiaomi-provider",
+        "private": true,
+        "type": "module"
+      },
+      {
+        "path": "extensions/zai/package.json",
+        "name": "@openclaw/zai-provider",
+        "private": true,
+        "type": "module"
+      },
+      {
+        "path": "extensions/zalo/package.json",
+        "name": "@openclaw/zalo",
+        "private": null,
+        "type": "module"
+      },
+      {
+        "path": "extensions/zalouser/package.json",
+        "name": "@openclaw/zalouser",
+        "private": null,
+        "type": "module"
+      },
+      {
+        "path": "package.json",
+        "name": "openclaw",
+        "private": null,
+        "type": "module"
+      },
+      {
+        "path": "packages/clawdbot/package.json",
+        "name": "clawdbot",
+        "private": null,
+        "type": "module"
+      },
+      {
+        "path": "packages/memory-host-sdk/package.json",
+        "name": "@openclaw/memory-host-sdk",
+        "private": true,
+        "type": "module"
+      },
+      {
+        "path": "packages/moltbot/package.json",
+        "name": "moltbot",
+        "private": null,
+        "type": "module"
+      },
+      {
+        "path": "packages/plugin-package-contract/package.json",
+        "name": "@openclaw/plugin-package-contract",
+        "private": true,
+        "type": "module"
+      },
+      {
+        "path": "packages/plugin-sdk/package.json",
+        "name": "@openclaw/plugin-sdk",
+        "private": true,
+        "type": "module"
+      },
+      {
+        "path": "ui/package.json",
+        "name": "openclaw-control-ui",
+        "private": true,
+        "type": "module"
+      }
+    ]
+  },
+  "entrypoints": [
+    {
+      "path": "apps/ios/Sources/OpenClawApp.swift",
+      "batch_id": "batch-08-shared-swift-mobile-kit",
+      "package_context": "apps/ios/project.yml"
+    },
+    {
+      "path": "apps/macos/Package.swift",
+      "batch_id": "batch-09-macos-companion",
+      "package_context": "apps/macos/Package.swift"
+    },
+    {
+      "path": "apps/macos/Sources/OpenClaw/MenuBar.swift",
+      "batch_id": "batch-09-macos-companion",
+      "package_context": "apps/macos/Package.swift"
+    },
+    {
+      "path": "apps/macos/Sources/OpenClawMacCLI/EntryPoint.swift",
+      "batch_id": "batch-09-macos-companion",
+      "package_context": "apps/macos/Package.swift"
+    },
+    {
+      "path": "apps/shared/OpenClawKit/Package.swift",
+      "batch_id": "batch-08-shared-swift-mobile-kit",
+      "package_context": "apps/shared/OpenClawKit/Package.swift"
+    },
+    {
+      "path": "openclaw.mjs",
+      "batch_id": "batch-01-core-runtime-cli",
+      "package_context": "openclaw"
+    },
+    {
+      "path": "packages/plugin-sdk/src/plugin-entry.ts",
+      "batch_id": "batch-04-plugin-platform-sdk",
+      "package_context": "@openclaw/plugin-sdk"
+    },
+    {
+      "path": "packages/plugin-sdk/src/provider-entry.ts",
+      "batch_id": "batch-04-plugin-platform-sdk",
+      "package_context": "@openclaw/plugin-sdk"
+    },
+    {
+      "path": "src/entry.ts",
+      "batch_id": "batch-01-core-runtime-cli",
+      "package_context": "openclaw"
+    },
+    {
+      "path": "src/index.ts",
+      "batch_id": "batch-01-core-runtime-cli",
+      "package_context": "openclaw"
+    },
+    {
+      "path": "src/library.ts",
+      "batch_id": "batch-01-core-runtime-cli",
+      "package_context": "openclaw"
+    },
+    {
+      "path": "Swabble/Package.swift",
+      "batch_id": "batch-08-shared-swift-mobile-kit",
+      "package_context": "Swabble/Package.swift"
+    },
+    {
+      "path": "ui/src/main.ts",
+      "batch_id": "batch-05-ui-control-surfaces",
+      "package_context": "openclaw-control-ui"
+    }
+  ],
+  "presence": {
+    "docs_dir": true,
+    "qa_dir": true,
+    "scripts_dir": true,
+    "test_dir": true,
+    "ui_dir": true,
+    "apps_dir": true,
+    "extensions_dir": true,
+    "vendor_dir": true
+  },
+  "import_graph": {
+    "rows": 12174,
+    "import_edges": 51192,
+    "internal_import_edges": 38914,
+    "hubs": {
+      "highest_indegree": [
+        {
+          "path": "src/config/config.ts",
+          "count": 1472,
+          "batch_id": "batch-01-core-runtime-cli"
+        },
+        {
+          "path": "src/shared/string-coerce.ts",
+          "count": 926,
+          "batch_id": "batch-01-core-runtime-cli"
+        },
+        {
+          "path": "src/plugin-sdk/text-runtime.ts",
+          "count": 607,
+          "batch_id": "batch-04-plugin-platform-sdk"
+        },
+        {
+          "path": "src/plugin-sdk/config-runtime.ts",
+          "count": 454,
+          "batch_id": "batch-04-plugin-platform-sdk"
+        },
+        {
+          "path": "src/runtime.ts",
+          "count": 316,
+          "batch_id": "batch-01-core-runtime-cli"
+        },
+        {
+          "path": "src/utils.ts",
+          "count": 247,
+          "batch_id": "batch-01-core-runtime-cli"
+        },
+        {
+          "path": "src/plugins/types.ts",
+          "count": 235,
+          "batch_id": "batch-04-plugin-platform-sdk"
+        },
+        {
+          "path": "src/channels/plugins/types.ts",
+          "count": 224,
+          "batch_id": "batch-03-gateway-control-plane"
+        },
+        {
+          "path": "src/routing/session-key.ts",
+          "count": 210,
+          "batch_id": "batch-03-gateway-control-plane"
+        },
+        {
+          "path": "src/plugins/runtime.ts",
+          "count": 199,
+          "batch_id": "batch-04-plugin-platform-sdk"
+        },
+        {
+          "path": "src/agents/agent-scope.ts",
+          "count": 185,
+          "batch_id": "batch-02-agent-runtime-tools"
+        },
+        {
+          "path": "src/infra/errors.ts",
+          "count": 184,
+          "batch_id": "batch-01-core-runtime-cli"
+        },
+        {
+          "path": "src/config/sessions.ts",
+          "count": 182,
+          "batch_id": "batch-01-core-runtime-cli"
+        },
+        {
+          "path": "src/plugin-sdk/runtime-env.ts",
+          "count": 173,
+          "batch_id": "batch-04-plugin-platform-sdk"
+        },
+        {
+          "path": "src/config/types.ts",
+          "count": 137,
+          "batch_id": "batch-01-core-runtime-cli"
+        },
+        {
+          "path": "src/utils/message-channel.ts",
+          "count": 132,
+          "batch_id": "batch-01-core-runtime-cli"
+        },
+        {
+          "path": "src/auto-reply/templating.ts",
+          "count": 128,
+          "batch_id": "batch-02-agent-runtime-tools"
+        },
+        {
+          "path": "src/logging/subsystem.ts",
+          "count": 126,
+          "batch_id": "batch-01-core-runtime-cli"
+        },
+        {
+          "path": "src/channels/plugins/index.ts",
+          "count": 122,
+          "batch_id": "batch-03-gateway-control-plane"
+        },
+        {
+          "path": "src/test-utils/env.ts",
+          "count": 122,
+          "batch_id": "batch-10-tooling-tests-release"
+        },
+        {
+          "path": "src/agents/model-selection.ts",
+          "count": 118,
+          "batch_id": "batch-02-agent-runtime-tools"
+        },
+        {
+          "path": "src/plugin-sdk/plugin-entry.ts",
+          "count": 113,
+          "batch_id": "batch-04-plugin-platform-sdk"
+        },
+        {
+          "path": "src/agents/auth-profiles.ts",
+          "count": 110,
+          "batch_id": "batch-02-agent-runtime-tools"
+        },
+        {
+          "path": "src/config/types.secrets.ts",
+          "count": 107,
+          "batch_id": "batch-01-core-runtime-cli"
+        },
+        {
+          "path": "src/test-utils/channel-plugins.ts",
+          "count": 105,
+          "batch_id": "batch-10-tooling-tests-release"
+        }
+      ],
+      "highest_outdegree": [
+        {
+          "path": "src/agents/pi-embedded-runner/run/attempt.ts",
+          "count": 104,
+          "batch_id": "batch-02-agent-runtime-tools"
+        },
+        {
+          "path": "src/gateway/server.impl.ts",
+          "count": 99,
+          "batch_id": "batch-03-gateway-control-plane"
+        },
+        {
+          "path": "src/agents/pi-embedded-runner/compact.ts",
+          "count": 79,
+          "batch_id": "batch-02-agent-runtime-tools"
+        },
+        {
+          "path": "src/plugin-sdk/matrix.ts",
+          "count": 64,
+          "batch_id": "batch-04-plugin-platform-sdk"
+        },
+        {
+          "path": "src/plugin-sdk/msteams.ts",
+          "count": 56,
+          "batch_id": "batch-04-plugin-platform-sdk"
+        },
+        {
+          "path": "test/vitest-scoped-config.test.ts",
+          "count": 53,
+          "batch_id": "batch-10-tooling-tests-release"
+        },
+        {
+          "path": "src/plugin-sdk/core.ts",
+          "count": 51,
+          "batch_id": "batch-04-plugin-platform-sdk"
+        },
+        {
+          "path": "extensions/telegram/src/channel.ts",
+          "count": 49,
+          "batch_id": "batch-06-extensions-channels"
+        },
+        {
+          "path": "src/plugin-sdk/infra-runtime.ts",
+          "count": 49,
+          "batch_id": "batch-04-plugin-platform-sdk"
+        },
+        {
+          "path": "src/plugin-sdk/mattermost.ts",
+          "count": 49,
+          "batch_id": "batch-04-plugin-platform-sdk"
+        },
+        {
+          "path": "ui/src/ui/app-render.ts",
+          "count": 48,
+          "batch_id": "batch-05-ui-control-surfaces"
+        },
+        {
+          "path": "src/agents/agent-command.ts",
+          "count": 47,
+          "batch_id": "batch-02-agent-runtime-tools"
+        },
+        {
+          "path": "src/agents/pi-embedded-runner/run.ts",
+          "count": 46,
+          "batch_id": "batch-02-agent-runtime-tools"
+        },
+        {
+          "path": "extensions/discord/src/channel.ts",
+          "count": 43,
+          "batch_id": "batch-06-extensions-channels"
+        },
+        {
+          "path": "src/plugin-sdk/googlechat.ts",
+          "count": 43,
+          "batch_id": "batch-04-plugin-platform-sdk"
+        },
+        {
+          "path": "extensions/slack/src/channel.ts",
+          "count": 42,
+          "batch_id": "batch-06-extensions-channels"
+        },
+        {
+          "path": "src/plugin-sdk/bluebubbles.ts",
+          "count": 42,
+          "batch_id": "batch-04-plugin-platform-sdk"
+        },
+        {
+          "path": "src/plugin-sdk/nextcloud-talk.ts",
+          "count": 42,
+          "batch_id": "batch-04-plugin-platform-sdk"
+        },
+        {
+          "path": "src/flows/doctor-health-contributions.ts",
+          "count": 41,
+          "batch_id": "batch-02-agent-runtime-tools"
+        },
+        {
+          "path": "src/gateway/server-methods/chat.ts",
+          "count": 41,
+          "batch_id": "batch-03-gateway-control-plane"
+        },
+        {
+          "path": "src/plugin-sdk/feishu.ts",
+          "count": 41,
+          "batch_id": "batch-04-plugin-platform-sdk"
+        },
+        {
+          "path": "src/plugin-sdk/zalo.ts",
+          "count": 41,
+          "batch_id": "batch-04-plugin-platform-sdk"
+        },
+        {
+          "path": "src/plugins/types.ts",
+          "count": 41,
+          "batch_id": "batch-04-plugin-platform-sdk"
+        },
+        {
+          "path": "src/auto-reply/reply/agent-runner.ts",
+          "count": 40,
+          "batch_id": "batch-02-agent-runtime-tools"
+        },
+        {
+          "path": "src/auto-reply/reply/get-reply-run.ts",
+          "count": 40,
+          "batch_id": "batch-02-agent-runtime-tools"
+        }
+      ]
+    }
+  },
+  "coverage": {
+    "source_files": 12174,
+    "assigned_files": 12174,
+    "unassigned_files": 0,
+    "unassigned_paths": [],
+    "complete": true
+  }
+}

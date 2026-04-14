@@ -1,0 +1,27 @@
+{
+  "schemaVersion": "corp.extension.v1",
+  "seamType": "execution_adapter",
+  "id": " ext.adapter.codex.responses.local ",
+  "displayName": "Adapter responses local",
+  "version": "0.1.0",
+  "permissions": [" cli.run ", "cli.run", "fs.read"],
+  "constraints": ["local_only", "workspace_scoped", " local_only "],
+  "metadata": {
+    "description": "Declare un adaptateur d'execution local sans fuite vendor.",
+    "owner": "core-platform",
+    "tags": ["adapter", "local"]
+  },
+  "localRefs": {
+    "rootDir": ".",
+    "entrypoint": "./adapters/codex-responses/index.js",
+    "references": ["./docs/adapter.md"],
+    "metadataFile": "./metadata/adapter.json",
+    "scripts": []
+  },
+  "executionAdapter": {
+    "adapterRuntimeId": " codex_responses ",
+    "launchMode": "foreground_or_background",
+    "supportsBackground": true,
+    "requiredEnvNames": [" OPENAI_API_KEY ", "CORP_CODEX_RESPONSES_MODEL", "OPENAI_API_KEY"]
+  }
+}

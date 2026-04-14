@@ -1,0 +1,29 @@
+{
+  "schemaVersion": "corp.extension.v1",
+  "seamType": "capability",
+  "id": "ext.capability.marketplace.invalid",
+  "displayName": "Capability invalide marketplace",
+  "version": "0.1.0",
+  "permissions": ["docs.read"],
+  "constraints": ["local_only"],
+  "metadata": {
+    "description": "Fixture invalide qui tente d'introduire une marketplace.",
+    "owner": "core-platform",
+    "tags": ["invalid"]
+  },
+  "localRefs": {
+    "rootDir": ".",
+    "entrypoint": "./capabilities/shell-exec.ts",
+    "references": ["./docs/capability-local.md"],
+    "scripts": []
+  },
+  "capability": {
+    "capabilityId": "docs.read.local",
+    "provider": "local",
+    "approvalSensitive": false,
+    "requiredEnvNames": []
+  },
+  "marketplace": {
+    "catalog": "https://example.invalid/catalog"
+  }
+}

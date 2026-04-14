@@ -1,0 +1,77 @@
+﻿# generated: 2026-04-08T21:20:40+02:00
+# last_updated: 2026-04-09T10:38:10.9838282+02:00
+# project: corp
+# project_key: NOKEY
+# tracking_system: file-system
+# story_location: C:/Dev/PRJET/corp/_bmad-output/implementation
+#
+# STATUS DEFINITIONS:
+# ==================
+# Epic Status:
+#   - backlog: Epic not yet started
+#   - in-progress: Epic actively being worked on
+#   - done: All stories in epic completed
+#
+# Epic Status Transitions:
+#   - backlog -> in-progress: Automatically when first story is created
+#   - in-progress -> done: Manually when all stories reach 'done' status
+#
+# Story Status:
+#   - backlog: Story only exists in epic file
+#   - ready-for-dev: Story file created in implementation folder
+#   - in-progress: Developer actively working on implementation
+#   - review: Ready for code review
+#   - done: Story completed
+#
+# Retrospective Status:
+#   - optional: Can be completed but not required
+#   - done: Retrospective has been completed
+#
+# WORKFLOW NOTES:
+# ===============
+# - Epic transitions to 'in-progress' automatically when first story is created
+# - Stories can be worked in parallel if team capacity allows
+# - SM typically creates the next story after the previous one is 'done'
+# - Dev moves a story to 'review' before it can become 'done'
+
+generated: "2026-04-08T21:20:40+02:00"
+last_updated: "2026-04-14T16:45:00.0000000+02:00"
+project: "corp"
+project_key: "NOKEY"
+tracking_system: "file-system"
+story_location: "C:/Dev/PRJET/corp/_bmad-output/implementation"
+
+development_status:
+  epic-1: done
+  1-1-initialiser-la-cli-v1-et-le-stockage-local-de-mission: done
+  1-2-creer-une-mission-persistante-avec-objectif-et-criteres-de-succes: done
+  1-3-consulter-l-etat-courant-et-le-resume-de-reprise-d-une-mission: done
+  1-4-mettre-en-pause-relancer-ou-cloturer-une-mission-sans-perdre-l-historique: done
+  epic-1-retrospective: done
+  epic-2: done
+  2-1-creer-un-ticket-delegable-avec-owner-dependances-et-contraintes-explicites: done
+  2-2-reprioriser-modifier-et-annuler-un-ticket-en-cours-de-mission: done
+  2-3-lancer-une-tentative-d-execution-isolee-via-l-adaptateur-prioritaire: done
+  2-4-suivre-l-avancement-et-les-blocages-d-un-ticket-depuis-la-mission: done
+  2-5-enregistrer-les-artefacts-decisions-et-evenements-produits-par-un-ticket: done
+  2-6-corriger-les-guards-de-statuts-terminaux-et-le-filtre-des-tickets-ouverts: done
+  2-7-fiabiliser-le-mecanisme-central-de-projection-rewritemissionreadmodels: done
+  2-8-corriger-le-flow-d-execution-ticket-transitions-adaptateur-et-atomicite: done
+  2-9-corriger-la-detection-et-l-enregistrement-d-artefacts: done
+  2-10-combler-les-gaps-de-tests-et-corriger-les-bugs-edge-case-restants: done
+  2-11-corriger-bugs-tests-et-ecarts-epic-2: done
+  epic-2-retrospective: done
+  epic-3: done
+  3-1-ouvrir-une-file-d-approbation-pour-les-actions-sensibles: done
+  3-2-approuver-refuser-ou-differer-une-demande-avec-garde-fous-auditablement: done
+  3-3-reprendre-une-mission-interrompue-a-partir-d-un-resume-fiable: done
+  3-4-consulter-un-journal-d-audit-structure-et-l-origine-de-chaque-sortie: done
+  3-5-comparer-l-etat-courant-aux-criteres-de-succes-et-relancer-uniquement-la-partie-impactee: done
+  epic-3-retrospective: done
+  epic-4: in-progress
+  4-1-publier-le-contrat-de-registration-des-extensions-v1: done
+  4-2-enregistrer-une-capability-locale-avec-permissions-et-contraintes-explicites: done
+  4-5-corriger-findings-review-registre-capability: done
+  4-3-charger-un-skill-pack-local-dans-le-cadre-d-une-mission: done
+  4-4-selectionner-les-extensions-autorisees-par-mission-et-tracer-leur-usage-en-cli: done
+  epic-4-retrospective: done

@@ -1,0 +1,1839 @@
+{
+  "generated_at": "2026-04-08T10:38:30.861448+00:00",
+  "repo_root": "C:/Dev/PRJET/chatdev/ChatDev-main",
+  "batch_order": [
+    "01-core-config-schema",
+    "02-workflow-orchestration",
+    "03-node-edge-runtime",
+    "04-agent-runtime",
+    "05-function-tooling-and-mcp",
+    "06-server-api-and-sessions",
+    "07-shared-utils",
+    "08-frontend-vue-console",
+    "09-yaml-surface",
+    "10-tests-docs-infra"
+  ],
+  "batches": [
+    {
+      "batch_id": "01-core-config-schema",
+      "title": "Core Config, Schema, Bootstrap",
+      "purpose": "Charge, valide et normalise la surface YAML en `GraphConfig` via registres et modeles Pydantic.",
+      "doc": "analysis/batches/01-core-config-schema.md",
+      "file_count": 39,
+      "loc": 7127,
+      "entrypoints": [
+        "run.py",
+        "runtime/bootstrap/schema.py",
+        "check/check.py"
+      ],
+      "paths": [
+        "check/__init__.py",
+        "check/check.py",
+        "check/check_workflow.py",
+        "check/check_yaml.py",
+        "entity/__init__.py",
+        "entity/config_loader.py",
+        "entity/configs/__init__.py",
+        "entity/configs/base.py",
+        "entity/configs/dynamic_base.py",
+        "entity/configs/edge/__init__.py",
+        "entity/configs/edge/dynamic_edge_config.py",
+        "entity/configs/edge/edge.py",
+        "entity/configs/edge/edge_condition.py",
+        "entity/configs/edge/edge_processor.py",
+        "entity/configs/graph.py",
+        "entity/configs/node/__init__.py",
+        "entity/configs/node/agent.py",
+        "entity/configs/node/human.py",
+        "entity/configs/node/literal.py",
+        "entity/configs/node/loop_counter.py",
+        "entity/configs/node/loop_timer.py",
+        "entity/configs/node/memory.py",
+        "entity/configs/node/node.py",
+        "entity/configs/node/passthrough.py",
+        "entity/configs/node/python_runner.py",
+        "entity/configs/node/skills.py",
+        "entity/configs/node/subgraph.py",
+        "entity/configs/node/thinking.py",
+        "entity/configs/node/tooling.py",
+        "entity/enum_options.py",
+        "entity/enums.py",
+        "entity/graph_config.py",
+        "entity/messages.py",
+        "entity/tool_spec.py",
+        "run.py",
+        "runtime/bootstrap/schema.py",
+        "schema_registry/__init__.py",
+        "schema_registry/registry.py",
+        "tools/export_design_template.py"
+      ],
+      "top_files": [
+        {
+          "path": "run.py",
+          "importance_score": 12,
+          "kind": "python"
+        },
+        {
+          "path": "entity/configs/node/agent.py",
+          "importance_score": 11,
+          "kind": "python"
+        },
+        {
+          "path": "entity/configs/node/memory.py",
+          "importance_score": 10,
+          "kind": "python"
+        },
+        {
+          "path": "check/check.py",
+          "importance_score": 9,
+          "kind": "python"
+        },
+        {
+          "path": "entity/configs/node/subgraph.py",
+          "importance_score": 9,
+          "kind": "python"
+        },
+        {
+          "path": "entity/configs/edge/dynamic_edge_config.py",
+          "importance_score": 8,
+          "kind": "python"
+        },
+        {
+          "path": "entity/configs/edge/edge_condition.py",
+          "importance_score": 8,
+          "kind": "python"
+        },
+        {
+          "path": "entity/configs/edge/edge_processor.py",
+          "importance_score": 8,
+          "kind": "python"
+        },
+        {
+          "path": "entity/configs/node/tooling.py",
+          "importance_score": 8,
+          "kind": "python"
+        },
+        {
+          "path": "check/check_workflow.py",
+          "importance_score": 7,
+          "kind": "python"
+        },
+        {
+          "path": "entity/configs/base.py",
+          "importance_score": 7,
+          "kind": "python"
+        },
+        {
+          "path": "entity/configs/dynamic_base.py",
+          "importance_score": 7,
+          "kind": "python"
+        },
+        {
+          "path": "entity/configs/graph.py",
+          "importance_score": 7,
+          "kind": "python"
+        },
+        {
+          "path": "entity/configs/node/node.py",
+          "importance_score": 7,
+          "kind": "python"
+        },
+        {
+          "path": "entity/enums.py",
+          "importance_score": 7,
+          "kind": "python"
+        },
+        {
+          "path": "entity/messages.py",
+          "importance_score": 7,
+          "kind": "python"
+        },
+        {
+          "path": "schema_registry/registry.py",
+          "importance_score": 7,
+          "kind": "python"
+        },
+        {
+          "path": "tools/export_design_template.py",
+          "importance_score": 7,
+          "kind": "python"
+        },
+        {
+          "path": "entity/config_loader.py",
+          "importance_score": 6,
+          "kind": "python"
+        },
+        {
+          "path": "entity/configs/node/skills.py",
+          "importance_score": 6,
+          "kind": "python"
+        }
+      ]
+    },
+    {
+      "batch_id": "02-workflow-orchestration",
+      "title": "Workflow Orchestration, Topology, Execution",
+      "purpose": "Construit le graphe executable, detecte les cycles, prepare le contexte runtime et orchestre lexecution.",
+      "doc": "analysis/batches/02-workflow-orchestration.md",
+      "file_count": 21,
+      "loc": 3890,
+      "entrypoints": [
+        "workflow/graph.py",
+        "runtime/sdk.py",
+        "workflow/graph_context.py"
+      ],
+      "paths": [
+        "runtime/sdk.py",
+        "workflow/__init__.py",
+        "workflow/cycle_manager.py",
+        "workflow/executor/__init__.py",
+        "workflow/executor/cycle_executor.py",
+        "workflow/executor/dag_executor.py",
+        "workflow/executor/dynamic_edge_executor.py",
+        "workflow/executor/parallel_executor.py",
+        "workflow/executor/resource_manager.py",
+        "workflow/graph.py",
+        "workflow/graph_context.py",
+        "workflow/graph_manager.py",
+        "workflow/hooks/__init__.py",
+        "workflow/hooks/workspace_artifact.py",
+        "workflow/runtime/__init__.py",
+        "workflow/runtime/execution_strategy.py",
+        "workflow/runtime/result_archiver.py",
+        "workflow/runtime/runtime_builder.py",
+        "workflow/runtime/runtime_context.py",
+        "workflow/subgraph_loader.py",
+        "workflow/topology_builder.py"
+      ],
+      "top_files": [
+        {
+          "path": "runtime/sdk.py",
+          "importance_score": 14,
+          "kind": "python"
+        },
+        {
+          "path": "workflow/hooks/workspace_artifact.py",
+          "importance_score": 7,
+          "kind": "python"
+        },
+        {
+          "path": "workflow/runtime/execution_strategy.py",
+          "importance_score": 7,
+          "kind": "python"
+        },
+        {
+          "path": "workflow/executor/resource_manager.py",
+          "importance_score": 6,
+          "kind": "python"
+        },
+        {
+          "path": "workflow/graph_manager.py",
+          "importance_score": 6,
+          "kind": "python"
+        },
+        {
+          "path": "workflow/subgraph_loader.py",
+          "importance_score": 6,
+          "kind": "python"
+        },
+        {
+          "path": "workflow/cycle_manager.py",
+          "importance_score": 5,
+          "kind": "python"
+        },
+        {
+          "path": "workflow/runtime/runtime_builder.py",
+          "importance_score": 5,
+          "kind": "python"
+        },
+        {
+          "path": "workflow/runtime/runtime_context.py",
+          "importance_score": 5,
+          "kind": "python"
+        },
+        {
+          "path": "workflow/executor/cycle_executor.py",
+          "importance_score": 4,
+          "kind": "python"
+        },
+        {
+          "path": "workflow/executor/dag_executor.py",
+          "importance_score": 4,
+          "kind": "python"
+        },
+        {
+          "path": "workflow/executor/dynamic_edge_executor.py",
+          "importance_score": 4,
+          "kind": "python"
+        },
+        {
+          "path": "workflow/runtime/result_archiver.py",
+          "importance_score": 4,
+          "kind": "python"
+        },
+        {
+          "path": "workflow/executor/parallel_executor.py",
+          "importance_score": 3,
+          "kind": "python"
+        },
+        {
+          "path": "workflow/graph_context.py",
+          "importance_score": 3,
+          "kind": "python"
+        },
+        {
+          "path": "workflow/runtime/__init__.py",
+          "importance_score": 3,
+          "kind": "python"
+        },
+        {
+          "path": "workflow/topology_builder.py",
+          "importance_score": 3,
+          "kind": "python"
+        },
+        {
+          "path": "workflow/__init__.py",
+          "importance_score": 2,
+          "kind": "python"
+        },
+        {
+          "path": "workflow/executor/__init__.py",
+          "importance_score": 2,
+          "kind": "python"
+        },
+        {
+          "path": "workflow/graph.py",
+          "importance_score": 2,
+          "kind": "python"
+        }
+      ]
+    },
+    {
+      "batch_id": "03-node-edge-runtime",
+      "title": "Node And Edge Runtime",
+      "purpose": "Implemente le runtime des noeuds non-agent et la mecanique des aretes, splitters et processors.",
+      "doc": "analysis/batches/03-node-edge-runtime.md",
+      "file_count": 30,
+      "loc": 2342,
+      "entrypoints": [
+        "runtime/node/builtin_nodes.py",
+        "runtime/node/executor/factory.py",
+        "runtime/edge/conditions/builtin_types.py"
+      ],
+      "paths": [
+        "functions/edge/conditions.py",
+        "functions/edge_processor/transformers.py",
+        "runtime/__init__.py",
+        "runtime/edge/__init__.py",
+        "runtime/edge/conditions/__init__.py",
+        "runtime/edge/conditions/base.py",
+        "runtime/edge/conditions/builtin_types.py",
+        "runtime/edge/conditions/function_manager.py",
+        "runtime/edge/conditions/keyword_manager.py",
+        "runtime/edge/conditions/registry.py",
+        "runtime/edge/processors/__init__.py",
+        "runtime/edge/processors/base.py",
+        "runtime/edge/processors/builtin_types.py",
+        "runtime/edge/processors/function_processor.py",
+        "runtime/edge/processors/regex_processor.py",
+        "runtime/edge/processors/registry.py",
+        "runtime/node/__init__.py",
+        "runtime/node/builtin_nodes.py",
+        "runtime/node/executor/__init__.py",
+        "runtime/node/executor/base.py",
+        "runtime/node/executor/factory.py",
+        "runtime/node/executor/human_executor.py",
+        "runtime/node/executor/literal_executor.py",
+        "runtime/node/executor/loop_counter_executor.py",
+        "runtime/node/executor/loop_timer_executor.py",
+        "runtime/node/executor/passthrough_executor.py",
+        "runtime/node/executor/python_executor.py",
+        "runtime/node/executor/subgraph_executor.py",
+        "runtime/node/registry.py",
+        "runtime/node/splitter.py"
+      ],
+      "top_files": [
+        {
+          "path": "runtime/edge/conditions/registry.py",
+          "importance_score": 8,
+          "kind": "python"
+        },
+        {
+          "path": "runtime/edge/processors/registry.py",
+          "importance_score": 8,
+          "kind": "python"
+        },
+        {
+          "path": "functions/edge/conditions.py",
+          "importance_score": 7,
+          "kind": "python"
+        },
+        {
+          "path": "runtime/node/executor/base.py",
+          "importance_score": 7,
+          "kind": "python"
+        },
+        {
+          "path": "runtime/node/registry.py",
+          "importance_score": 7,
+          "kind": "python"
+        },
+        {
+          "path": "runtime/node/splitter.py",
+          "importance_score": 7,
+          "kind": "python"
+        },
+        {
+          "path": "runtime/edge/conditions/base.py",
+          "importance_score": 6,
+          "kind": "python"
+        },
+        {
+          "path": "runtime/edge/conditions/function_manager.py",
+          "importance_score": 5,
+          "kind": "python"
+        },
+        {
+          "path": "runtime/edge/processors/base.py",
+          "importance_score": 5,
+          "kind": "python"
+        },
+        {
+          "path": "runtime/edge/processors/function_processor.py",
+          "importance_score": 5,
+          "kind": "python"
+        },
+        {
+          "path": "runtime/node/builtin_nodes.py",
+          "importance_score": 5,
+          "kind": "python"
+        },
+        {
+          "path": "runtime/node/executor/python_executor.py",
+          "importance_score": 5,
+          "kind": "python"
+        },
+        {
+          "path": "functions/edge_processor/transformers.py",
+          "importance_score": 4,
+          "kind": "python"
+        },
+        {
+          "path": "runtime/edge/conditions/keyword_manager.py",
+          "importance_score": 4,
+          "kind": "python"
+        },
+        {
+          "path": "runtime/edge/processors/regex_processor.py",
+          "importance_score": 4,
+          "kind": "python"
+        },
+        {
+          "path": "runtime/node/executor/__init__.py",
+          "importance_score": 4,
+          "kind": "python"
+        },
+        {
+          "path": "runtime/node/executor/human_executor.py",
+          "importance_score": 4,
+          "kind": "python"
+        },
+        {
+          "path": "runtime/node/executor/literal_executor.py",
+          "importance_score": 4,
+          "kind": "python"
+        },
+        {
+          "path": "runtime/node/executor/loop_counter_executor.py",
+          "importance_score": 4,
+          "kind": "python"
+        },
+        {
+          "path": "runtime/node/executor/loop_timer_executor.py",
+          "importance_score": 4,
+          "kind": "python"
+        }
+      ]
+    },
+    {
+      "batch_id": "04-agent-runtime",
+      "title": "Agent Runtime, Providers, Memory, Skills",
+      "purpose": "Porte le coeur agentique: execution des agents, providers de modeles, memoires, thinking et skills locales.",
+      "doc": "analysis/batches/04-agent-runtime.md",
+      "file_count": 31,
+      "loc": 6200,
+      "entrypoints": [
+        "runtime/node/executor/agent_executor.py",
+        "runtime/node/agent/providers/builtin_providers.py",
+        "runtime/node/agent/memory/builtin_stores.py"
+      ],
+      "paths": [
+        ".agents/skills/greeting-demo/SKILL.md",
+        ".agents/skills/python-scratchpad/SKILL.md",
+        ".agents/skills/python-scratchpad/references/examples.md",
+        ".agents/skills/rest-api-caller/SKILL.md",
+        ".agents/skills/rest-api-caller/references/examples.md",
+        "runtime/node/agent/__init__.py",
+        "runtime/node/agent/memory/__init__.py",
+        "runtime/node/agent/memory/blackboard_memory.py",
+        "runtime/node/agent/memory/builtin_stores.py",
+        "runtime/node/agent/memory/embedding.py",
+        "runtime/node/agent/memory/file_memory.py",
+        "runtime/node/agent/memory/mem0_memory.py",
+        "runtime/node/agent/memory/memory_base.py",
+        "runtime/node/agent/memory/registry.py",
+        "runtime/node/agent/memory/simple_memory.py",
+        "runtime/node/agent/providers/__init__.py",
+        "runtime/node/agent/providers/base.py",
+        "runtime/node/agent/providers/builtin_providers.py",
+        "runtime/node/agent/providers/gemini_provider.py",
+        "runtime/node/agent/providers/openai_provider.py",
+        "runtime/node/agent/providers/response.py",
+        "runtime/node/agent/skills/__init__.py",
+        "runtime/node/agent/skills/manager.py",
+        "runtime/node/agent/thinking/__init__.py",
+        "runtime/node/agent/thinking/builtin_thinking.py",
+        "runtime/node/agent/thinking/registry.py",
+        "runtime/node/agent/thinking/self_reflection.py",
+        "runtime/node/agent/thinking/thinking_manager.py",
+        "runtime/node/agent/tool/__init__.py",
+        "runtime/node/agent/tool/tool_manager.py",
+        "runtime/node/executor/agent_executor.py"
+      ],
+      "top_files": [
+        {
+          "path": "runtime/node/agent/memory/memory_base.py",
+          "importance_score": 8,
+          "kind": "python"
+        },
+        {
+          "path": "runtime/node/agent/memory/registry.py",
+          "importance_score": 8,
+          "kind": "python"
+        },
+        {
+          "path": "runtime/node/agent/thinking/registry.py",
+          "importance_score": 8,
+          "kind": "python"
+        },
+        {
+          "path": "runtime/node/agent/skills/manager.py",
+          "importance_score": 7,
+          "kind": "python"
+        },
+        {
+          "path": "runtime/node/agent/tool/tool_manager.py",
+          "importance_score": 7,
+          "kind": "python"
+        },
+        {
+          "path": "runtime/node/agent/memory/builtin_stores.py",
+          "importance_score": 6,
+          "kind": "python"
+        },
+        {
+          "path": "runtime/node/agent/memory/embedding.py",
+          "importance_score": 6,
+          "kind": "python"
+        },
+        {
+          "path": "runtime/node/agent/providers/base.py",
+          "importance_score": 6,
+          "kind": "python"
+        },
+        {
+          "path": "runtime/node/executor/agent_executor.py",
+          "importance_score": 6,
+          "kind": "python"
+        },
+        {
+          "path": "runtime/node/agent/memory/mem0_memory.py",
+          "importance_score": 5,
+          "kind": "python"
+        },
+        {
+          "path": "runtime/node/agent/memory/blackboard_memory.py",
+          "importance_score": 4,
+          "kind": "python"
+        },
+        {
+          "path": "runtime/node/agent/memory/file_memory.py",
+          "importance_score": 4,
+          "kind": "python"
+        },
+        {
+          "path": "runtime/node/agent/memory/simple_memory.py",
+          "importance_score": 4,
+          "kind": "python"
+        },
+        {
+          "path": "runtime/node/agent/providers/gemini_provider.py",
+          "importance_score": 4,
+          "kind": "python"
+        },
+        {
+          "path": "runtime/node/agent/providers/openai_provider.py",
+          "importance_score": 4,
+          "kind": "python"
+        },
+        {
+          "path": "runtime/node/agent/thinking/builtin_thinking.py",
+          "importance_score": 4,
+          "kind": "python"
+        },
+        {
+          "path": "runtime/node/agent/thinking/self_reflection.py",
+          "importance_score": 4,
+          "kind": "python"
+        },
+        {
+          "path": "runtime/node/agent/thinking/thinking_manager.py",
+          "importance_score": 4,
+          "kind": "python"
+        },
+        {
+          "path": "runtime/node/agent/__init__.py",
+          "importance_score": 3,
+          "kind": "python"
+        },
+        {
+          "path": "runtime/node/agent/providers/builtin_providers.py",
+          "importance_score": 3,
+          "kind": "python"
+        }
+      ]
+    },
+    {
+      "batch_id": "05-function-tooling-and-mcp",
+      "title": "Functions, Tool Catalog, MCP",
+      "purpose": "Regroupe les fonctions appelables, le catalogue de tools et lexemple MCP livre avec le repo.",
+      "doc": "analysis/batches/05-function-tooling-and-mcp.md",
+      "file_count": 12,
+      "loc": 2975,
+      "entrypoints": [
+        "utils/function_catalog.py",
+        "utils/function_manager.py",
+        "mcp_example/mcp_server.py"
+      ],
+      "paths": [
+        "functions/function_calling/code_executor.py",
+        "functions/function_calling/deep_research.py",
+        "functions/function_calling/file.py",
+        "functions/function_calling/user.py",
+        "functions/function_calling/utils.py",
+        "functions/function_calling/uv_related.py",
+        "functions/function_calling/video.py",
+        "functions/function_calling/weather.py",
+        "functions/function_calling/web.py",
+        "mcp_example/mcp_server.py",
+        "utils/function_catalog.py",
+        "utils/function_manager.py"
+      ],
+      "top_files": [
+        {
+          "path": "functions/function_calling/deep_research.py",
+          "importance_score": 8,
+          "kind": "python"
+        },
+        {
+          "path": "functions/function_calling/file.py",
+          "importance_score": 8,
+          "kind": "python"
+        },
+        {
+          "path": "functions/function_calling/uv_related.py",
+          "importance_score": 8,
+          "kind": "python"
+        },
+        {
+          "path": "functions/function_calling/web.py",
+          "importance_score": 7,
+          "kind": "python"
+        },
+        {
+          "path": "utils/function_catalog.py",
+          "importance_score": 7,
+          "kind": "python"
+        },
+        {
+          "path": "functions/function_calling/video.py",
+          "importance_score": 5,
+          "kind": "python"
+        },
+        {
+          "path": "utils/function_manager.py",
+          "importance_score": 5,
+          "kind": "python"
+        },
+        {
+          "path": "functions/function_calling/code_executor.py",
+          "importance_score": 4,
+          "kind": "python"
+        },
+        {
+          "path": "functions/function_calling/utils.py",
+          "importance_score": 4,
+          "kind": "python"
+        },
+        {
+          "path": "functions/function_calling/weather.py",
+          "importance_score": 4,
+          "kind": "python"
+        },
+        {
+          "path": "functions/function_calling/user.py",
+          "importance_score": 3,
+          "kind": "python"
+        },
+        {
+          "path": "mcp_example/mcp_server.py",
+          "importance_score": 3,
+          "kind": "python"
+        }
+      ]
+    },
+    {
+      "batch_id": "06-server-api-and-sessions",
+      "title": "Server API, Sessions, Streaming",
+      "purpose": "Expose le moteur sous FastAPI, WebSocket et SSE avec services de session, uploads et artefacts.",
+      "doc": "analysis/batches/06-server-api-and-sessions.md",
+      "file_count": 36,
+      "loc": 3553,
+      "entrypoints": [
+        "server_main.py",
+        "server/app.py",
+        "server/routes/__init__.py"
+      ],
+      "paths": [
+        "server/__init__.py",
+        "server/app.py",
+        "server/bootstrap.py",
+        "server/config_schema_router.py",
+        "server/models.py",
+        "server/routes/__init__.py",
+        "server/routes/artifacts.py",
+        "server/routes/batch.py",
+        "server/routes/execute.py",
+        "server/routes/execute_sync.py",
+        "server/routes/health.py",
+        "server/routes/sessions.py",
+        "server/routes/tools.py",
+        "server/routes/uploads.py",
+        "server/routes/vuegraphs.py",
+        "server/routes/websocket.py",
+        "server/routes/workflows.py",
+        "server/services/__init__.py",
+        "server/services/artifact_dispatcher.py",
+        "server/services/artifact_events.py",
+        "server/services/attachment_service.py",
+        "server/services/batch_parser.py",
+        "server/services/batch_run_service.py",
+        "server/services/message_handler.py",
+        "server/services/prompt_channel.py",
+        "server/services/session_execution.py",
+        "server/services/session_store.py",
+        "server/services/vuegraphs_storage.py",
+        "server/services/websocket_executor.py",
+        "server/services/websocket_logger.py",
+        "server/services/websocket_manager.py",
+        "server/services/workflow_run_service.py",
+        "server/services/workflow_storage.py",
+        "server/settings.py",
+        "server/state.py",
+        "server_main.py"
+      ],
+      "top_files": [
+        {
+          "path": "server/routes/execute_sync.py",
+          "importance_score": 11,
+          "kind": "python"
+        },
+        {
+          "path": "server/routes/workflows.py",
+          "importance_score": 11,
+          "kind": "python"
+        },
+        {
+          "path": "server/config_schema_router.py",
+          "importance_score": 10,
+          "kind": "python"
+        },
+        {
+          "path": "server/routes/artifacts.py",
+          "importance_score": 8,
+          "kind": "python"
+        },
+        {
+          "path": "server/routes/health.py",
+          "importance_score": 8,
+          "kind": "python"
+        },
+        {
+          "path": "server/services/workflow_storage.py",
+          "importance_score": 8,
+          "kind": "python"
+        },
+        {
+          "path": "server_main.py",
+          "importance_score": 8,
+          "kind": "python"
+        },
+        {
+          "path": "server/models.py",
+          "importance_score": 7,
+          "kind": "python"
+        },
+        {
+          "path": "server/routes/tools.py",
+          "importance_score": 7,
+          "kind": "python"
+        },
+        {
+          "path": "server/routes/uploads.py",
+          "importance_score": 7,
+          "kind": "python"
+        },
+        {
+          "path": "server/routes/vuegraphs.py",
+          "importance_score": 7,
+          "kind": "python"
+        },
+        {
+          "path": "server/services/batch_parser.py",
+          "importance_score": 7,
+          "kind": "python"
+        },
+        {
+          "path": "server/services/vuegraphs_storage.py",
+          "importance_score": 7,
+          "kind": "python"
+        },
+        {
+          "path": "server/app.py",
+          "importance_score": 6,
+          "kind": "python"
+        },
+        {
+          "path": "server/services/batch_run_service.py",
+          "importance_score": 6,
+          "kind": "python"
+        },
+        {
+          "path": "server/services/websocket_executor.py",
+          "importance_score": 6,
+          "kind": "python"
+        },
+        {
+          "path": "server/services/websocket_manager.py",
+          "importance_score": 6,
+          "kind": "python"
+        },
+        {
+          "path": "server/services/workflow_run_service.py",
+          "importance_score": 6,
+          "kind": "python"
+        },
+        {
+          "path": "server/routes/batch.py",
+          "importance_score": 5,
+          "kind": "python"
+        },
+        {
+          "path": "server/routes/execute.py",
+          "importance_score": 5,
+          "kind": "python"
+        }
+      ]
+    },
+    {
+      "batch_id": "07-shared-utils",
+      "title": "Shared Runtime Utilities",
+      "purpose": "Fournit les briques transverses: attachments, prompts humains, logs, tokens, variables et exceptions.",
+      "doc": "analysis/batches/07-shared-utils.md",
+      "file_count": 18,
+      "loc": 2435,
+      "entrypoints": [
+        "utils/attachments.py",
+        "utils/human_prompt.py",
+        "utils/token_tracker.py"
+      ],
+      "paths": [
+        "utils/__init__.py",
+        "utils/attachments.py",
+        "utils/env_loader.py",
+        "utils/error_handler.py",
+        "utils/exceptions.py",
+        "utils/human_prompt.py",
+        "utils/io_utils.py",
+        "utils/log_manager.py",
+        "utils/logger.py",
+        "utils/middleware.py",
+        "utils/registry.py",
+        "utils/schema_exporter.py",
+        "utils/strs.py",
+        "utils/structured_logger.py",
+        "utils/task_input.py",
+        "utils/token_tracker.py",
+        "utils/vars_resolver.py",
+        "utils/workspace_scanner.py"
+      ],
+      "top_files": [
+        {
+          "path": "utils/error_handler.py",
+          "importance_score": 8,
+          "kind": "python"
+        },
+        {
+          "path": "utils/middleware.py",
+          "importance_score": 8,
+          "kind": "python"
+        },
+        {
+          "path": "utils/structured_logger.py",
+          "importance_score": 8,
+          "kind": "python"
+        },
+        {
+          "path": "utils/attachments.py",
+          "importance_score": 7,
+          "kind": "python"
+        },
+        {
+          "path": "utils/exceptions.py",
+          "importance_score": 7,
+          "kind": "python"
+        },
+        {
+          "path": "utils/human_prompt.py",
+          "importance_score": 7,
+          "kind": "python"
+        },
+        {
+          "path": "utils/schema_exporter.py",
+          "importance_score": 7,
+          "kind": "python"
+        },
+        {
+          "path": "utils/logger.py",
+          "importance_score": 6,
+          "kind": "python"
+        },
+        {
+          "path": "utils/vars_resolver.py",
+          "importance_score": 6,
+          "kind": "python"
+        },
+        {
+          "path": "utils/registry.py",
+          "importance_score": 5,
+          "kind": "python"
+        },
+        {
+          "path": "utils/workspace_scanner.py",
+          "importance_score": 5,
+          "kind": "python"
+        },
+        {
+          "path": "utils/env_loader.py",
+          "importance_score": 4,
+          "kind": "python"
+        },
+        {
+          "path": "utils/token_tracker.py",
+          "importance_score": 4,
+          "kind": "python"
+        },
+        {
+          "path": "utils/io_utils.py",
+          "importance_score": 3,
+          "kind": "python"
+        },
+        {
+          "path": "utils/log_manager.py",
+          "importance_score": 3,
+          "kind": "python"
+        },
+        {
+          "path": "utils/strs.py",
+          "importance_score": 3,
+          "kind": "python"
+        },
+        {
+          "path": "utils/task_input.py",
+          "importance_score": 3,
+          "kind": "python"
+        },
+        {
+          "path": "utils/__init__.py",
+          "importance_score": 2,
+          "kind": "python"
+        }
+      ]
+    },
+    {
+      "batch_id": "08-frontend-vue-console",
+      "title": "Frontend Vue Workbench",
+      "purpose": "Porte la console no-code Vue/Vite: edition de graphes, formulaires dynamiques, lancement et batch.",
+      "doc": "analysis/batches/08-frontend-vue-console.md",
+      "file_count": 46,
+      "loc": 24150,
+      "entrypoints": [
+        "frontend/src/main.js",
+        "frontend/src/router/index.js",
+        "frontend/src/pages/WorkflowWorkbench.vue"
+      ],
+      "paths": [
+        "frontend/.gitignore",
+        "frontend/Dockerfile",
+        "frontend/eslint.config.js",
+        "frontend/index.html",
+        "frontend/package-lock.json",
+        "frontend/package.json",
+        "frontend/public/tutorial-en.md",
+        "frontend/public/tutorial-zh.md",
+        "frontend/src/App.vue",
+        "frontend/src/assets/styles/fonts.css",
+        "frontend/src/assets/styles/fonts/Inter/OFL.txt",
+        "frontend/src/assets/styles/fonts/Inter/README.txt",
+        "frontend/src/assets/styles/markdown.css",
+        "frontend/src/components/CollapsibleMessage.vue",
+        "frontend/src/components/DynamicFormField.vue",
+        "frontend/src/components/FormGenerator.vue",
+        "frontend/src/components/InlineConfigRenderer.vue",
+        "frontend/src/components/RichTooltip.vue",
+        "frontend/src/components/SettingsModal.vue",
+        "frontend/src/components/Sidebar.vue",
+        "frontend/src/components/StartNode.vue",
+        "frontend/src/components/WorkflowEdge.vue",
+        "frontend/src/components/WorkflowNode.vue",
+        "frontend/src/count_lines.py",
+        "frontend/src/i18n.js",
+        "frontend/src/locales/en.json",
+        "frontend/src/locales/zh.json",
+        "frontend/src/main.js",
+        "frontend/src/pages/BatchRunView.vue",
+        "frontend/src/pages/HomeView.vue",
+        "frontend/src/pages/LaunchView.vue",
+        "frontend/src/pages/TutorialView.vue",
+        "frontend/src/pages/WorkflowList.vue",
+        "frontend/src/pages/WorkflowView.vue",
+        "frontend/src/pages/WorkflowWorkbench.vue",
+        "frontend/src/router/index.js",
+        "frontend/src/style.css",
+        "frontend/src/utils/apiFunctions.js",
+        "frontend/src/utils/colorUtils.js",
+        "frontend/src/utils/configStore.js",
+        "frontend/src/utils/formUtils.js",
+        "frontend/src/utils/helpContent.js",
+        "frontend/src/utils/spriteFetcher.js",
+        "frontend/src/utils/vueflow.css",
+        "frontend/src/utils/yamlFunctions.js",
+        "frontend/vite.config.js"
+      ],
+      "top_files": [
+        {
+          "path": "frontend/src/main.js",
+          "importance_score": 7,
+          "kind": "javascript"
+        },
+        {
+          "path": "frontend/src/count_lines.py",
+          "importance_score": 4,
+          "kind": "python"
+        },
+        {
+          "path": "frontend/src/pages/BatchRunView.vue",
+          "importance_score": 4,
+          "kind": "vue"
+        },
+        {
+          "path": "frontend/src/pages/LaunchView.vue",
+          "importance_score": 4,
+          "kind": "vue"
+        },
+        {
+          "path": "frontend/src/pages/WorkflowView.vue",
+          "importance_score": 3,
+          "kind": "vue"
+        },
+        {
+          "path": "frontend/eslint.config.js",
+          "importance_score": 2,
+          "kind": "javascript"
+        },
+        {
+          "path": "frontend/src/App.vue",
+          "importance_score": 2,
+          "kind": "vue"
+        },
+        {
+          "path": "frontend/src/components/CollapsibleMessage.vue",
+          "importance_score": 2,
+          "kind": "vue"
+        },
+        {
+          "path": "frontend/src/components/DynamicFormField.vue",
+          "importance_score": 2,
+          "kind": "vue"
+        },
+        {
+          "path": "frontend/src/components/FormGenerator.vue",
+          "importance_score": 2,
+          "kind": "vue"
+        },
+        {
+          "path": "frontend/src/components/InlineConfigRenderer.vue",
+          "importance_score": 2,
+          "kind": "vue"
+        },
+        {
+          "path": "frontend/src/components/RichTooltip.vue",
+          "importance_score": 2,
+          "kind": "vue"
+        },
+        {
+          "path": "frontend/src/components/SettingsModal.vue",
+          "importance_score": 2,
+          "kind": "vue"
+        },
+        {
+          "path": "frontend/src/components/Sidebar.vue",
+          "importance_score": 2,
+          "kind": "vue"
+        },
+        {
+          "path": "frontend/src/components/StartNode.vue",
+          "importance_score": 2,
+          "kind": "vue"
+        },
+        {
+          "path": "frontend/src/components/WorkflowEdge.vue",
+          "importance_score": 2,
+          "kind": "vue"
+        },
+        {
+          "path": "frontend/src/components/WorkflowNode.vue",
+          "importance_score": 2,
+          "kind": "vue"
+        },
+        {
+          "path": "frontend/src/i18n.js",
+          "importance_score": 2,
+          "kind": "javascript"
+        },
+        {
+          "path": "frontend/src/locales/en.json",
+          "importance_score": 2,
+          "kind": "config"
+        },
+        {
+          "path": "frontend/src/pages/HomeView.vue",
+          "importance_score": 2,
+          "kind": "vue"
+        }
+      ]
+    },
+    {
+      "batch_id": "09-yaml-surface",
+      "title": "YAML Templates, Instances, Declarative Assets",
+      "purpose": "Regroupe la surface declarative reelle: template de design, workflows exemples et sous-graphes YAML.",
+      "doc": "analysis/batches/09-yaml-surface.md",
+      "file_count": 47,
+      "loc": 10383,
+      "entrypoints": [
+        "yaml_template/design.yaml",
+        "yaml_instance/deep_research_v1.yaml",
+        "yaml_instance/subgraphs/react_agent.yaml"
+      ],
+      "paths": [
+        "frontend/public/design_0.4.0.yaml",
+        "yaml_instance/ChatDev_v1.yaml",
+        "yaml_instance/GameDev_with_manager.yaml",
+        "yaml_instance/MACNet_Node_sub.yaml",
+        "yaml_instance/MACNet_optimize_sub.yaml",
+        "yaml_instance/MACNet_v1.yaml",
+        "yaml_instance/blender_3d_builder_hub.yaml",
+        "yaml_instance/blender_3d_builder_hub_auto_human.yaml",
+        "yaml_instance/blender_3d_builder_simple.yaml",
+        "yaml_instance/blender_scientific_illustration_image_gen.yaml",
+        "yaml_instance/blender_scientific_illustration_with_human.yaml",
+        "yaml_instance/data_visualization_basic.yaml",
+        "yaml_instance/data_visualization_enhanced_v2.yaml",
+        "yaml_instance/data_visualization_enhanced_v3.yaml",
+        "yaml_instance/deep_research_executor_sub.yaml",
+        "yaml_instance/deep_research_v1.yaml",
+        "yaml_instance/demo_code.yaml",
+        "yaml_instance/demo_context_reset.yaml",
+        "yaml_instance/demo_dynamic.yaml",
+        "yaml_instance/demo_dynamic_tree.yaml",
+        "yaml_instance/demo_edge_transform.yaml",
+        "yaml_instance/demo_file_memory.yaml",
+        "yaml_instance/demo_function_call.yaml",
+        "yaml_instance/demo_human.yaml",
+        "yaml_instance/demo_improved_memory.yaml",
+        "yaml_instance/demo_loop_counter.yaml",
+        "yaml_instance/demo_loop_timer.yaml",
+        "yaml_instance/demo_majority_voting.yaml",
+        "yaml_instance/demo_mcp.yaml",
+        "yaml_instance/demo_mem0_memory.yaml",
+        "yaml_instance/demo_simple_memory.yaml",
+        "yaml_instance/demo_sub_graph.yaml",
+        "yaml_instance/demo_sub_graph_path.yaml",
+        "yaml_instance/general_problem_solving_team.yaml",
+        "yaml_instance/net_example.yaml",
+        "yaml_instance/net_example_en.yaml",
+        "yaml_instance/react.yaml",
+        "yaml_instance/reflexion_product.yaml",
+        "yaml_instance/skills.yaml",
+        "yaml_instance/spring_3d.yaml",
+        "yaml_instance/spring_text_image.yaml",
+        "yaml_instance/spring_text_image_EN.yaml",
+        "yaml_instance/subgraphs/article_discuss.yaml",
+        "yaml_instance/subgraphs/react_agent.yaml",
+        "yaml_instance/subgraphs/reflexion_loop.yaml",
+        "yaml_instance/teach_video.yaml",
+        "yaml_template/design.yaml"
+      ],
+      "top_files": [
+        {
+          "path": "frontend/public/design_0.4.0.yaml",
+          "importance_score": 4,
+          "kind": "yaml"
+        },
+        {
+          "path": "yaml_instance/ChatDev_v1.yaml",
+          "importance_score": 4,
+          "kind": "yaml"
+        },
+        {
+          "path": "yaml_instance/GameDev_with_manager.yaml",
+          "importance_score": 4,
+          "kind": "yaml"
+        },
+        {
+          "path": "yaml_instance/MACNet_Node_sub.yaml",
+          "importance_score": 4,
+          "kind": "yaml"
+        },
+        {
+          "path": "yaml_instance/MACNet_optimize_sub.yaml",
+          "importance_score": 4,
+          "kind": "yaml"
+        },
+        {
+          "path": "yaml_instance/blender_3d_builder_hub.yaml",
+          "importance_score": 4,
+          "kind": "yaml"
+        },
+        {
+          "path": "yaml_instance/blender_3d_builder_hub_auto_human.yaml",
+          "importance_score": 4,
+          "kind": "yaml"
+        },
+        {
+          "path": "yaml_instance/blender_3d_builder_simple.yaml",
+          "importance_score": 4,
+          "kind": "yaml"
+        },
+        {
+          "path": "yaml_instance/blender_scientific_illustration_image_gen.yaml",
+          "importance_score": 4,
+          "kind": "yaml"
+        },
+        {
+          "path": "yaml_instance/blender_scientific_illustration_with_human.yaml",
+          "importance_score": 4,
+          "kind": "yaml"
+        },
+        {
+          "path": "yaml_instance/data_visualization_basic.yaml",
+          "importance_score": 4,
+          "kind": "yaml"
+        },
+        {
+          "path": "yaml_instance/data_visualization_enhanced_v2.yaml",
+          "importance_score": 4,
+          "kind": "yaml"
+        },
+        {
+          "path": "yaml_instance/deep_research_executor_sub.yaml",
+          "importance_score": 4,
+          "kind": "yaml"
+        },
+        {
+          "path": "yaml_instance/deep_research_v1.yaml",
+          "importance_score": 4,
+          "kind": "yaml"
+        },
+        {
+          "path": "yaml_instance/demo_dynamic.yaml",
+          "importance_score": 4,
+          "kind": "yaml"
+        },
+        {
+          "path": "yaml_instance/demo_dynamic_tree.yaml",
+          "importance_score": 4,
+          "kind": "yaml"
+        },
+        {
+          "path": "yaml_instance/demo_file_memory.yaml",
+          "importance_score": 4,
+          "kind": "yaml"
+        },
+        {
+          "path": "yaml_instance/demo_function_call.yaml",
+          "importance_score": 4,
+          "kind": "yaml"
+        },
+        {
+          "path": "yaml_instance/demo_human.yaml",
+          "importance_score": 4,
+          "kind": "yaml"
+        },
+        {
+          "path": "yaml_instance/demo_improved_memory.yaml",
+          "importance_score": 4,
+          "kind": "yaml"
+        }
+      ]
+    },
+    {
+      "batch_id": "10-tests-docs-infra",
+      "title": "Tests, Docs, Infra, Ops",
+      "purpose": "Couvre la documentation, les tests automatises, Docker, la CI et les scripts utilitaires dencadrement.",
+      "doc": "analysis/batches/10-tests-docs-infra.md",
+      "file_count": 65,
+      "loc": 8448,
+      "entrypoints": [
+        "pyproject.toml",
+        "compose.yml",
+        ".github/workflows/validate-yamls.yml"
+      ],
+      "paths": [
+        ".env.docker",
+        ".env.example",
+        ".github/workflows/validate-yamls.yml",
+        ".gitignore",
+        "CHATDEV_ANALYSIS_PROMPTS.md",
+        "Dockerfile",
+        "Makefile",
+        "README-zh.md",
+        "README.md",
+        "compose.yml",
+        "docs/user_guide/en/attachments.md",
+        "docs/user_guide/en/config_schema_contract.md",
+        "docs/user_guide/en/dynamic_execution.md",
+        "docs/user_guide/en/execution_logic.md",
+        "docs/user_guide/en/field_specs.md",
+        "docs/user_guide/en/index.md",
+        "docs/user_guide/en/modules/memory.md",
+        "docs/user_guide/en/modules/thinking.md",
+        "docs/user_guide/en/modules/tooling/README.md",
+        "docs/user_guide/en/modules/tooling/function.md",
+        "docs/user_guide/en/modules/tooling/function_catalog.md",
+        "docs/user_guide/en/modules/tooling/mcp.md",
+        "docs/user_guide/en/nodes/agent.md",
+        "docs/user_guide/en/nodes/human.md",
+        "docs/user_guide/en/nodes/literal.md",
+        "docs/user_guide/en/nodes/loop_counter.md",
+        "docs/user_guide/en/nodes/loop_timer.md",
+        "docs/user_guide/en/nodes/passthrough.md",
+        "docs/user_guide/en/nodes/python.md",
+        "docs/user_guide/en/nodes/subgraph.md",
+        "docs/user_guide/en/web_ui_guide.md",
+        "docs/user_guide/en/workflow_authoring.md",
+        "docs/user_guide/en/ws_frontend_logic.md",
+        "docs/user_guide/zh/attachments.md",
+        "docs/user_guide/zh/config_schema_contract.md",
+        "docs/user_guide/zh/dynamic_execution.md",
+        "docs/user_guide/zh/execution_logic.md",
+        "docs/user_guide/zh/field_specs.md",
+        "docs/user_guide/zh/index.md",
+        "docs/user_guide/zh/modules/memory.md",
+        "docs/user_guide/zh/modules/thinking.md",
+        "docs/user_guide/zh/modules/tooling/README.md",
+        "docs/user_guide/zh/modules/tooling/function.md",
+        "docs/user_guide/zh/modules/tooling/function_catalog.md",
+        "docs/user_guide/zh/modules/tooling/mcp.md",
+        "docs/user_guide/zh/nodes/agent.md",
+        "docs/user_guide/zh/nodes/human.md",
+        "docs/user_guide/zh/nodes/literal.md",
+        "docs/user_guide/zh/nodes/loop_counter.md",
+        "docs/user_guide/zh/nodes/passthrough.md",
+        "docs/user_guide/zh/nodes/python.md",
+        "docs/user_guide/zh/nodes/subgraph.md",
+        "docs/user_guide/zh/web_ui_guide.md",
+        "docs/user_guide/zh/workflow_authoring.md",
+        "package-lock.json",
+        "package.json",
+        "pyproject.toml",
+        "requirements.txt",
+        "runtime/bootstrap/__init__.py",
+        "tests/test_mem0_memory.py",
+        "tests/test_memory_embedding_consistency.py",
+        "tests/test_websocket_send_message_sync.py",
+        "tools/__init__.py",
+        "tools/sync_vuegraphs.py",
+        "tools/validate_all_yamls.py"
+      ],
+      "top_files": [
+        {
+          "path": "tools/sync_vuegraphs.py",
+          "importance_score": 7,
+          "kind": "python"
+        },
+        {
+          "path": "tools/validate_all_yamls.py",
+          "importance_score": 7,
+          "kind": "python"
+        },
+        {
+          "path": "tests/test_mem0_memory.py",
+          "importance_score": 5,
+          "kind": "python"
+        },
+        {
+          "path": "tests/test_memory_embedding_consistency.py",
+          "importance_score": 4,
+          "kind": "python"
+        },
+        {
+          "path": "Dockerfile",
+          "importance_score": 3,
+          "kind": "config"
+        },
+        {
+          "path": ".github/workflows/validate-yamls.yml",
+          "importance_score": 2,
+          "kind": "yaml"
+        },
+        {
+          "path": "compose.yml",
+          "importance_score": 2,
+          "kind": "yaml"
+        },
+        {
+          "path": "runtime/bootstrap/__init__.py",
+          "importance_score": 2,
+          "kind": "python"
+        },
+        {
+          "path": "tests/test_websocket_send_message_sync.py",
+          "importance_score": 2,
+          "kind": "python"
+        },
+        {
+          "path": "tools/__init__.py",
+          "importance_score": 2,
+          "kind": "python"
+        },
+        {
+          "path": ".env.docker",
+          "importance_score": 1,
+          "kind": "config"
+        },
+        {
+          "path": ".env.example",
+          "importance_score": 1,
+          "kind": "config"
+        },
+        {
+          "path": ".gitignore",
+          "importance_score": 1,
+          "kind": "config"
+        },
+        {
+          "path": "CHATDEV_ANALYSIS_PROMPTS.md",
+          "importance_score": 1,
+          "kind": "docs"
+        },
+        {
+          "path": "Makefile",
+          "importance_score": 1,
+          "kind": "config"
+        },
+        {
+          "path": "README-zh.md",
+          "importance_score": 1,
+          "kind": "docs"
+        },
+        {
+          "path": "README.md",
+          "importance_score": 1,
+          "kind": "docs"
+        },
+        {
+          "path": "docs/user_guide/en/attachments.md",
+          "importance_score": 1,
+          "kind": "docs"
+        },
+        {
+          "path": "docs/user_guide/en/config_schema_contract.md",
+          "importance_score": 1,
+          "kind": "docs"
+        },
+        {
+          "path": "docs/user_guide/en/dynamic_execution.md",
+          "importance_score": 1,
+          "kind": "docs"
+        }
+      ]
+    }
+  ],
+  "file_to_batch": {
+    ".agents/skills/greeting-demo/SKILL.md": "04-agent-runtime",
+    ".agents/skills/python-scratchpad/SKILL.md": "04-agent-runtime",
+    ".agents/skills/python-scratchpad/references/examples.md": "04-agent-runtime",
+    ".agents/skills/rest-api-caller/SKILL.md": "04-agent-runtime",
+    ".agents/skills/rest-api-caller/references/examples.md": "04-agent-runtime",
+    ".env.docker": "10-tests-docs-infra",
+    ".env.example": "10-tests-docs-infra",
+    ".github/workflows/validate-yamls.yml": "10-tests-docs-infra",
+    ".gitignore": "10-tests-docs-infra",
+    "CHATDEV_ANALYSIS_PROMPTS.md": "10-tests-docs-infra",
+    "Dockerfile": "10-tests-docs-infra",
+    "Makefile": "10-tests-docs-infra",
+    "README-zh.md": "10-tests-docs-infra",
+    "README.md": "10-tests-docs-infra",
+    "check/__init__.py": "01-core-config-schema",
+    "check/check.py": "01-core-config-schema",
+    "check/check_workflow.py": "01-core-config-schema",
+    "check/check_yaml.py": "01-core-config-schema",
+    "compose.yml": "10-tests-docs-infra",
+    "docs/user_guide/en/attachments.md": "10-tests-docs-infra",
+    "docs/user_guide/en/config_schema_contract.md": "10-tests-docs-infra",
+    "docs/user_guide/en/dynamic_execution.md": "10-tests-docs-infra",
+    "docs/user_guide/en/execution_logic.md": "10-tests-docs-infra",
+    "docs/user_guide/en/field_specs.md": "10-tests-docs-infra",
+    "docs/user_guide/en/index.md": "10-tests-docs-infra",
+    "docs/user_guide/en/modules/memory.md": "10-tests-docs-infra",
+    "docs/user_guide/en/modules/thinking.md": "10-tests-docs-infra",
+    "docs/user_guide/en/modules/tooling/README.md": "10-tests-docs-infra",
+    "docs/user_guide/en/modules/tooling/function.md": "10-tests-docs-infra",
+    "docs/user_guide/en/modules/tooling/function_catalog.md": "10-tests-docs-infra",
+    "docs/user_guide/en/modules/tooling/mcp.md": "10-tests-docs-infra",
+    "docs/user_guide/en/nodes/agent.md": "10-tests-docs-infra",
+    "docs/user_guide/en/nodes/human.md": "10-tests-docs-infra",
+    "docs/user_guide/en/nodes/literal.md": "10-tests-docs-infra",
+    "docs/user_guide/en/nodes/loop_counter.md": "10-tests-docs-infra",
+    "docs/user_guide/en/nodes/loop_timer.md": "10-tests-docs-infra",
+    "docs/user_guide/en/nodes/passthrough.md": "10-tests-docs-infra",
+    "docs/user_guide/en/nodes/python.md": "10-tests-docs-infra",
+    "docs/user_guide/en/nodes/subgraph.md": "10-tests-docs-infra",
+    "docs/user_guide/en/web_ui_guide.md": "10-tests-docs-infra",
+    "docs/user_guide/en/workflow_authoring.md": "10-tests-docs-infra",
+    "docs/user_guide/en/ws_frontend_logic.md": "10-tests-docs-infra",
+    "docs/user_guide/zh/attachments.md": "10-tests-docs-infra",
+    "docs/user_guide/zh/config_schema_contract.md": "10-tests-docs-infra",
+    "docs/user_guide/zh/dynamic_execution.md": "10-tests-docs-infra",
+    "docs/user_guide/zh/execution_logic.md": "10-tests-docs-infra",
+    "docs/user_guide/zh/field_specs.md": "10-tests-docs-infra",
+    "docs/user_guide/zh/index.md": "10-tests-docs-infra",
+    "docs/user_guide/zh/modules/memory.md": "10-tests-docs-infra",
+    "docs/user_guide/zh/modules/thinking.md": "10-tests-docs-infra",
+    "docs/user_guide/zh/modules/tooling/README.md": "10-tests-docs-infra",
+    "docs/user_guide/zh/modules/tooling/function.md": "10-tests-docs-infra",
+    "docs/user_guide/zh/modules/tooling/function_catalog.md": "10-tests-docs-infra",
+    "docs/user_guide/zh/modules/tooling/mcp.md": "10-tests-docs-infra",
+    "docs/user_guide/zh/nodes/agent.md": "10-tests-docs-infra",
+    "docs/user_guide/zh/nodes/human.md": "10-tests-docs-infra",
+    "docs/user_guide/zh/nodes/literal.md": "10-tests-docs-infra",
+    "docs/user_guide/zh/nodes/loop_counter.md": "10-tests-docs-infra",
+    "docs/user_guide/zh/nodes/passthrough.md": "10-tests-docs-infra",
+    "docs/user_guide/zh/nodes/python.md": "10-tests-docs-infra",
+    "docs/user_guide/zh/nodes/subgraph.md": "10-tests-docs-infra",
+    "docs/user_guide/zh/web_ui_guide.md": "10-tests-docs-infra",
+    "docs/user_guide/zh/workflow_authoring.md": "10-tests-docs-infra",
+    "entity/__init__.py": "01-core-config-schema",
+    "entity/config_loader.py": "01-core-config-schema",
+    "entity/configs/__init__.py": "01-core-config-schema",
+    "entity/configs/base.py": "01-core-config-schema",
+    "entity/configs/dynamic_base.py": "01-core-config-schema",
+    "entity/configs/edge/__init__.py": "01-core-config-schema",
+    "entity/configs/edge/dynamic_edge_config.py": "01-core-config-schema",
+    "entity/configs/edge/edge.py": "01-core-config-schema",
+    "entity/configs/edge/edge_condition.py": "01-core-config-schema",
+    "entity/configs/edge/edge_processor.py": "01-core-config-schema",
+    "entity/configs/graph.py": "01-core-config-schema",
+    "entity/configs/node/__init__.py": "01-core-config-schema",
+    "entity/configs/node/agent.py": "01-core-config-schema",
+    "entity/configs/node/human.py": "01-core-config-schema",
+    "entity/configs/node/literal.py": "01-core-config-schema",
+    "entity/configs/node/loop_counter.py": "01-core-config-schema",
+    "entity/configs/node/loop_timer.py": "01-core-config-schema",
+    "entity/configs/node/memory.py": "01-core-config-schema",
+    "entity/configs/node/node.py": "01-core-config-schema",
+    "entity/configs/node/passthrough.py": "01-core-config-schema",
+    "entity/configs/node/python_runner.py": "01-core-config-schema",
+    "entity/configs/node/skills.py": "01-core-config-schema",
+    "entity/configs/node/subgraph.py": "01-core-config-schema",
+    "entity/configs/node/thinking.py": "01-core-config-schema",
+    "entity/configs/node/tooling.py": "01-core-config-schema",
+    "entity/enum_options.py": "01-core-config-schema",
+    "entity/enums.py": "01-core-config-schema",
+    "entity/graph_config.py": "01-core-config-schema",
+    "entity/messages.py": "01-core-config-schema",
+    "entity/tool_spec.py": "01-core-config-schema",
+    "frontend/.gitignore": "08-frontend-vue-console",
+    "frontend/Dockerfile": "08-frontend-vue-console",
+    "frontend/eslint.config.js": "08-frontend-vue-console",
+    "frontend/index.html": "08-frontend-vue-console",
+    "frontend/package-lock.json": "08-frontend-vue-console",
+    "frontend/package.json": "08-frontend-vue-console",
+    "frontend/public/design_0.4.0.yaml": "09-yaml-surface",
+    "frontend/public/tutorial-en.md": "08-frontend-vue-console",
+    "frontend/public/tutorial-zh.md": "08-frontend-vue-console",
+    "frontend/src/App.vue": "08-frontend-vue-console",
+    "frontend/src/assets/styles/fonts.css": "08-frontend-vue-console",
+    "frontend/src/assets/styles/fonts/Inter/OFL.txt": "08-frontend-vue-console",
+    "frontend/src/assets/styles/fonts/Inter/README.txt": "08-frontend-vue-console",
+    "frontend/src/assets/styles/markdown.css": "08-frontend-vue-console",
+    "frontend/src/components/CollapsibleMessage.vue": "08-frontend-vue-console",
+    "frontend/src/components/DynamicFormField.vue": "08-frontend-vue-console",
+    "frontend/src/components/FormGenerator.vue": "08-frontend-vue-console",
+    "frontend/src/components/InlineConfigRenderer.vue": "08-frontend-vue-console",
+    "frontend/src/components/RichTooltip.vue": "08-frontend-vue-console",
+    "frontend/src/components/SettingsModal.vue": "08-frontend-vue-console",
+    "frontend/src/components/Sidebar.vue": "08-frontend-vue-console",
+    "frontend/src/components/StartNode.vue": "08-frontend-vue-console",
+    "frontend/src/components/WorkflowEdge.vue": "08-frontend-vue-console",
+    "frontend/src/components/WorkflowNode.vue": "08-frontend-vue-console",
+    "frontend/src/count_lines.py": "08-frontend-vue-console",
+    "frontend/src/i18n.js": "08-frontend-vue-console",
+    "frontend/src/locales/en.json": "08-frontend-vue-console",
+    "frontend/src/locales/zh.json": "08-frontend-vue-console",
+    "frontend/src/main.js": "08-frontend-vue-console",
+    "frontend/src/pages/BatchRunView.vue": "08-frontend-vue-console",
+    "frontend/src/pages/HomeView.vue": "08-frontend-vue-console",
+    "frontend/src/pages/LaunchView.vue": "08-frontend-vue-console",
+    "frontend/src/pages/TutorialView.vue": "08-frontend-vue-console",
+    "frontend/src/pages/WorkflowList.vue": "08-frontend-vue-console",
+    "frontend/src/pages/WorkflowView.vue": "08-frontend-vue-console",
+    "frontend/src/pages/WorkflowWorkbench.vue": "08-frontend-vue-console",
+    "frontend/src/router/index.js": "08-frontend-vue-console",
+    "frontend/src/style.css": "08-frontend-vue-console",
+    "frontend/src/utils/apiFunctions.js": "08-frontend-vue-console",
+    "frontend/src/utils/colorUtils.js": "08-frontend-vue-console",
+    "frontend/src/utils/configStore.js": "08-frontend-vue-console",
+    "frontend/src/utils/formUtils.js": "08-frontend-vue-console",
+    "frontend/src/utils/helpContent.js": "08-frontend-vue-console",
+    "frontend/src/utils/spriteFetcher.js": "08-frontend-vue-console",
+    "frontend/src/utils/vueflow.css": "08-frontend-vue-console",
+    "frontend/src/utils/yamlFunctions.js": "08-frontend-vue-console",
+    "frontend/vite.config.js": "08-frontend-vue-console",
+    "functions/edge/conditions.py": "03-node-edge-runtime",
+    "functions/edge_processor/transformers.py": "03-node-edge-runtime",
+    "functions/function_calling/code_executor.py": "05-function-tooling-and-mcp",
+    "functions/function_calling/deep_research.py": "05-function-tooling-and-mcp",
+    "functions/function_calling/file.py": "05-function-tooling-and-mcp",
+    "functions/function_calling/user.py": "05-function-tooling-and-mcp",
+    "functions/function_calling/utils.py": "05-function-tooling-and-mcp",
+    "functions/function_calling/uv_related.py": "05-function-tooling-and-mcp",
+    "functions/function_calling/video.py": "05-function-tooling-and-mcp",
+    "functions/function_calling/weather.py": "05-function-tooling-and-mcp",
+    "functions/function_calling/web.py": "05-function-tooling-and-mcp",
+    "mcp_example/mcp_server.py": "05-function-tooling-and-mcp",
+    "package-lock.json": "10-tests-docs-infra",
+    "package.json": "10-tests-docs-infra",
+    "pyproject.toml": "10-tests-docs-infra",
+    "requirements.txt": "10-tests-docs-infra",
+    "run.py": "01-core-config-schema",
+    "runtime/__init__.py": "03-node-edge-runtime",
+    "runtime/bootstrap/__init__.py": "10-tests-docs-infra",
+    "runtime/bootstrap/schema.py": "01-core-config-schema",
+    "runtime/edge/__init__.py": "03-node-edge-runtime",
+    "runtime/edge/conditions/__init__.py": "03-node-edge-runtime",
+    "runtime/edge/conditions/base.py": "03-node-edge-runtime",
+    "runtime/edge/conditions/builtin_types.py": "03-node-edge-runtime",
+    "runtime/edge/conditions/function_manager.py": "03-node-edge-runtime",
+    "runtime/edge/conditions/keyword_manager.py": "03-node-edge-runtime",
+    "runtime/edge/conditions/registry.py": "03-node-edge-runtime",
+    "runtime/edge/processors/__init__.py": "03-node-edge-runtime",
+    "runtime/edge/processors/base.py": "03-node-edge-runtime",
+    "runtime/edge/processors/builtin_types.py": "03-node-edge-runtime",
+    "runtime/edge/processors/function_processor.py": "03-node-edge-runtime",
+    "runtime/edge/processors/regex_processor.py": "03-node-edge-runtime",
+    "runtime/edge/processors/registry.py": "03-node-edge-runtime",
+    "runtime/node/__init__.py": "03-node-edge-runtime",
+    "runtime/node/agent/__init__.py": "04-agent-runtime",
+    "runtime/node/agent/memory/__init__.py": "04-agent-runtime",
+    "runtime/node/agent/memory/blackboard_memory.py": "04-agent-runtime",
+    "runtime/node/agent/memory/builtin_stores.py": "04-agent-runtime",
+    "runtime/node/agent/memory/embedding.py": "04-agent-runtime",
+    "runtime/node/agent/memory/file_memory.py": "04-agent-runtime",
+    "runtime/node/agent/memory/mem0_memory.py": "04-agent-runtime",
+    "runtime/node/agent/memory/memory_base.py": "04-agent-runtime",
+    "runtime/node/agent/memory/registry.py": "04-agent-runtime",
+    "runtime/node/agent/memory/simple_memory.py": "04-agent-runtime",
+    "runtime/node/agent/providers/__init__.py": "04-agent-runtime",
+    "runtime/node/agent/providers/base.py": "04-agent-runtime",
+    "runtime/node/agent/providers/builtin_providers.py": "04-agent-runtime",
+    "runtime/node/agent/providers/gemini_provider.py": "04-agent-runtime",
+    "runtime/node/agent/providers/openai_provider.py": "04-agent-runtime",
+    "runtime/node/agent/providers/response.py": "04-agent-runtime",
+    "runtime/node/agent/skills/__init__.py": "04-agent-runtime",
+    "runtime/node/agent/skills/manager.py": "04-agent-runtime",
+    "runtime/node/agent/thinking/__init__.py": "04-agent-runtime",
+    "runtime/node/agent/thinking/builtin_thinking.py": "04-agent-runtime",
+    "runtime/node/agent/thinking/registry.py": "04-agent-runtime",
+    "runtime/node/agent/thinking/self_reflection.py": "04-agent-runtime",
+    "runtime/node/agent/thinking/thinking_manager.py": "04-agent-runtime",
+    "runtime/node/agent/tool/__init__.py": "04-agent-runtime",
+    "runtime/node/agent/tool/tool_manager.py": "04-agent-runtime",
+    "runtime/node/builtin_nodes.py": "03-node-edge-runtime",
+    "runtime/node/executor/__init__.py": "03-node-edge-runtime",
+    "runtime/node/executor/agent_executor.py": "04-agent-runtime",
+    "runtime/node/executor/base.py": "03-node-edge-runtime",
+    "runtime/node/executor/factory.py": "03-node-edge-runtime",
+    "runtime/node/executor/human_executor.py": "03-node-edge-runtime",
+    "runtime/node/executor/literal_executor.py": "03-node-edge-runtime",
+    "runtime/node/executor/loop_counter_executor.py": "03-node-edge-runtime",
+    "runtime/node/executor/loop_timer_executor.py": "03-node-edge-runtime",
+    "runtime/node/executor/passthrough_executor.py": "03-node-edge-runtime",
+    "runtime/node/executor/python_executor.py": "03-node-edge-runtime",
+    "runtime/node/executor/subgraph_executor.py": "03-node-edge-runtime",
+    "runtime/node/registry.py": "03-node-edge-runtime",
+    "runtime/node/splitter.py": "03-node-edge-runtime",
+    "runtime/sdk.py": "02-workflow-orchestration",
+    "schema_registry/__init__.py": "01-core-config-schema",
+    "schema_registry/registry.py": "01-core-config-schema",
+    "server/__init__.py": "06-server-api-and-sessions",
+    "server/app.py": "06-server-api-and-sessions",
+    "server/bootstrap.py": "06-server-api-and-sessions",
+    "server/config_schema_router.py": "06-server-api-and-sessions",
+    "server/models.py": "06-server-api-and-sessions",
+    "server/routes/__init__.py": "06-server-api-and-sessions",
+    "server/routes/artifacts.py": "06-server-api-and-sessions",
+    "server/routes/batch.py": "06-server-api-and-sessions",
+    "server/routes/execute.py": "06-server-api-and-sessions",
+    "server/routes/execute_sync.py": "06-server-api-and-sessions",
+    "server/routes/health.py": "06-server-api-and-sessions",
+    "server/routes/sessions.py": "06-server-api-and-sessions",
+    "server/routes/tools.py": "06-server-api-and-sessions",
+    "server/routes/uploads.py": "06-server-api-and-sessions",
+    "server/routes/vuegraphs.py": "06-server-api-and-sessions",
+    "server/routes/websocket.py": "06-server-api-and-sessions",
+    "server/routes/workflows.py": "06-server-api-and-sessions",
+    "server/services/__init__.py": "06-server-api-and-sessions",
+    "server/services/artifact_dispatcher.py": "06-server-api-and-sessions",
+    "server/services/artifact_events.py": "06-server-api-and-sessions",
+    "server/services/attachment_service.py": "06-server-api-and-sessions",
+    "server/services/batch_parser.py": "06-server-api-and-sessions",
+    "server/services/batch_run_service.py": "06-server-api-and-sessions",
+    "server/services/message_handler.py": "06-server-api-and-sessions",
+    "server/services/prompt_channel.py": "06-server-api-and-sessions",
+    "server/services/session_execution.py": "06-server-api-and-sessions",
+    "server/services/session_store.py": "06-server-api-and-sessions",
+    "server/services/vuegraphs_storage.py": "06-server-api-and-sessions",
+    "server/services/websocket_executor.py": "06-server-api-and-sessions",
+    "server/services/websocket_logger.py": "06-server-api-and-sessions",
+    "server/services/websocket_manager.py": "06-server-api-and-sessions",
+    "server/services/workflow_run_service.py": "06-server-api-and-sessions",
+    "server/services/workflow_storage.py": "06-server-api-and-sessions",
+    "server/settings.py": "06-server-api-and-sessions",
+    "server/state.py": "06-server-api-and-sessions",
+    "server_main.py": "06-server-api-and-sessions",
+    "tests/test_mem0_memory.py": "10-tests-docs-infra",
+    "tests/test_memory_embedding_consistency.py": "10-tests-docs-infra",
+    "tests/test_websocket_send_message_sync.py": "10-tests-docs-infra",
+    "tools/__init__.py": "10-tests-docs-infra",
+    "tools/export_design_template.py": "01-core-config-schema",
+    "tools/sync_vuegraphs.py": "10-tests-docs-infra",
+    "tools/validate_all_yamls.py": "10-tests-docs-infra",
+    "utils/__init__.py": "07-shared-utils",
+    "utils/attachments.py": "07-shared-utils",
+    "utils/env_loader.py": "07-shared-utils",
+    "utils/error_handler.py": "07-shared-utils",
+    "utils/exceptions.py": "07-shared-utils",
+    "utils/function_catalog.py": "05-function-tooling-and-mcp",
+    "utils/function_manager.py": "05-function-tooling-and-mcp",
+    "utils/human_prompt.py": "07-shared-utils",
+    "utils/io_utils.py": "07-shared-utils",
+    "utils/log_manager.py": "07-shared-utils",
+    "utils/logger.py": "07-shared-utils",
+    "utils/middleware.py": "07-shared-utils",
+    "utils/registry.py": "07-shared-utils",
+    "utils/schema_exporter.py": "07-shared-utils",
+    "utils/strs.py": "07-shared-utils",
+    "utils/structured_logger.py": "07-shared-utils",
+    "utils/task_input.py": "07-shared-utils",
+    "utils/token_tracker.py": "07-shared-utils",
+    "utils/vars_resolver.py": "07-shared-utils",
+    "utils/workspace_scanner.py": "07-shared-utils",
+    "workflow/__init__.py": "02-workflow-orchestration",
+    "workflow/cycle_manager.py": "02-workflow-orchestration",
+    "workflow/executor/__init__.py": "02-workflow-orchestration",
+    "workflow/executor/cycle_executor.py": "02-workflow-orchestration",
+    "workflow/executor/dag_executor.py": "02-workflow-orchestration",
+    "workflow/executor/dynamic_edge_executor.py": "02-workflow-orchestration",
+    "workflow/executor/parallel_executor.py": "02-workflow-orchestration",
+    "workflow/executor/resource_manager.py": "02-workflow-orchestration",
+    "workflow/graph.py": "02-workflow-orchestration",
+    "workflow/graph_context.py": "02-workflow-orchestration",
+    "workflow/graph_manager.py": "02-workflow-orchestration",
+    "workflow/hooks/__init__.py": "02-workflow-orchestration",
+    "workflow/hooks/workspace_artifact.py": "02-workflow-orchestration",
+    "workflow/runtime/__init__.py": "02-workflow-orchestration",
+    "workflow/runtime/execution_strategy.py": "02-workflow-orchestration",
+    "workflow/runtime/result_archiver.py": "02-workflow-orchestration",
+    "workflow/runtime/runtime_builder.py": "02-workflow-orchestration",
+    "workflow/runtime/runtime_context.py": "02-workflow-orchestration",
+    "workflow/subgraph_loader.py": "02-workflow-orchestration",
+    "workflow/topology_builder.py": "02-workflow-orchestration",
+    "yaml_instance/ChatDev_v1.yaml": "09-yaml-surface",
+    "yaml_instance/GameDev_with_manager.yaml": "09-yaml-surface",
+    "yaml_instance/MACNet_Node_sub.yaml": "09-yaml-surface",
+    "yaml_instance/MACNet_optimize_sub.yaml": "09-yaml-surface",
+    "yaml_instance/MACNet_v1.yaml": "09-yaml-surface",
+    "yaml_instance/blender_3d_builder_hub.yaml": "09-yaml-surface",
+    "yaml_instance/blender_3d_builder_hub_auto_human.yaml": "09-yaml-surface",
+    "yaml_instance/blender_3d_builder_simple.yaml": "09-yaml-surface",
+    "yaml_instance/blender_scientific_illustration_image_gen.yaml": "09-yaml-surface",
+    "yaml_instance/blender_scientific_illustration_with_human.yaml": "09-yaml-surface",
+    "yaml_instance/data_visualization_basic.yaml": "09-yaml-surface",
+    "yaml_instance/data_visualization_enhanced_v2.yaml": "09-yaml-surface",
+    "yaml_instance/data_visualization_enhanced_v3.yaml": "09-yaml-surface",
+    "yaml_instance/deep_research_executor_sub.yaml": "09-yaml-surface",
+    "yaml_instance/deep_research_v1.yaml": "09-yaml-surface",
+    "yaml_instance/demo_code.yaml": "09-yaml-surface",
+    "yaml_instance/demo_context_reset.yaml": "09-yaml-surface",
+    "yaml_instance/demo_dynamic.yaml": "09-yaml-surface",
+    "yaml_instance/demo_dynamic_tree.yaml": "09-yaml-surface",
+    "yaml_instance/demo_edge_transform.yaml": "09-yaml-surface",
+    "yaml_instance/demo_file_memory.yaml": "09-yaml-surface",
+    "yaml_instance/demo_function_call.yaml": "09-yaml-surface",
+    "yaml_instance/demo_human.yaml": "09-yaml-surface",
+    "yaml_instance/demo_improved_memory.yaml": "09-yaml-surface",
+    "yaml_instance/demo_loop_counter.yaml": "09-yaml-surface",
+    "yaml_instance/demo_loop_timer.yaml": "09-yaml-surface",
+    "yaml_instance/demo_majority_voting.yaml": "09-yaml-surface",
+    "yaml_instance/demo_mcp.yaml": "09-yaml-surface",
+    "yaml_instance/demo_mem0_memory.yaml": "09-yaml-surface",
+    "yaml_instance/demo_simple_memory.yaml": "09-yaml-surface",
+    "yaml_instance/demo_sub_graph.yaml": "09-yaml-surface",
+    "yaml_instance/demo_sub_graph_path.yaml": "09-yaml-surface",
+    "yaml_instance/general_problem_solving_team.yaml": "09-yaml-surface",
+    "yaml_instance/net_example.yaml": "09-yaml-surface",
+    "yaml_instance/net_example_en.yaml": "09-yaml-surface",
+    "yaml_instance/react.yaml": "09-yaml-surface",
+    "yaml_instance/reflexion_product.yaml": "09-yaml-surface",
+    "yaml_instance/skills.yaml": "09-yaml-surface",
+    "yaml_instance/spring_3d.yaml": "09-yaml-surface",
+    "yaml_instance/spring_text_image.yaml": "09-yaml-surface",
+    "yaml_instance/spring_text_image_EN.yaml": "09-yaml-surface",
+    "yaml_instance/subgraphs/article_discuss.yaml": "09-yaml-surface",
+    "yaml_instance/subgraphs/react_agent.yaml": "09-yaml-surface",
+    "yaml_instance/subgraphs/reflexion_loop.yaml": "09-yaml-surface",
+    "yaml_instance/teach_video.yaml": "09-yaml-surface",
+    "yaml_template/design.yaml": "09-yaml-surface"
+  },
+  "coverage": {
+    "scope_definition": "Tous les fichiers texte du repo hors `analysis/`, binaires et dossiers de build exclus.",
+    "source_paths_in_scope": 338,
+    "inventory_entries": 345,
+    "assigned_to_batch": 345,
+    "missing_in_domain_map": [],
+    "missing_in_inventory": [],
+    "coverage_ok": true
+  }
+}

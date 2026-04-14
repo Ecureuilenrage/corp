@@ -1,0 +1,13 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(npm test:*)",
+      "Bash(npm run:*)",
+      "Bash(node --test dist/tests/integration/update-ticket.test.js)",
+      "Bash(node:*)",
+      "Bash(npx node:*)",
+      "Bash(npx tsx:*)",
+      "Bash(wc -l /c/Dev/PRJET/corp/tests/contract/*.test.ts)"
+    ]
+  }
+}

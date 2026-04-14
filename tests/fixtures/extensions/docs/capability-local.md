@@ -1,0 +1,1 @@
+Capability locale de demonstration.

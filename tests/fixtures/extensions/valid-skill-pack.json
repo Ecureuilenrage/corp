@@ -1,0 +1,23 @@
+{
+  "schemaVersion": "corp.extension.v1",
+  "seamType": "skill_pack",
+  "id": "ext.skill-pack.triage.local",
+  "displayName": "Pack de triage local",
+  "version": "0.1.0",
+  "permissions": ["docs.read"],
+  "constraints": ["local_only", "workspace_scoped"],
+  "metadata": {
+    "description": "Declare un skill pack local pret a etre charge plus tard par le runtime.",
+    "owner": "core-platform",
+    "tags": ["skill-pack", "local"]
+  },
+  "localRefs": {
+    "rootDir": "./skill-packs/triage-pack",
+    "references": ["./skill-packs/triage-pack/README.md"],
+    "metadataFile": "./skill-packs/triage-pack/pack.json",
+    "scripts": ["./skill-packs/triage-pack/scripts/preflight.sh"]
+  },
+  "skillPack": {
+    "packRef": " pack.triage.local "
+  }
+}

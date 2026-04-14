@@ -1,0 +1,672 @@
+{
+  "generated_at": "2026-04-08T10:20:06+00:00",
+  "repo_root": "C:/Dev/PRJET/metagpt/MetaGPT-main",
+  "primary_language": "Python",
+  "estimated_python_loc": 88865,
+  "inventory_file_count": 1256,
+  "source_file_count": 1139,
+  "package_overview": [
+    {
+      "path": "metagpt",
+      "file_count": 646,
+      "python_file_count": 509,
+      "python_loc": 61759
+    },
+    {
+      "path": "tests",
+      "file_count": 355,
+      "python_file_count": 309,
+      "python_loc": 22644
+    },
+    {
+      "path": "examples",
+      "file_count": 123,
+      "python_file_count": 71,
+      "python_loc": 4340
+    },
+    {
+      "path": "docs",
+      "file_count": 87,
+      "python_file_count": 0,
+      "python_loc": 0
+    },
+    {
+      "path": "config",
+      "file_count": 17,
+      "python_file_count": 0,
+      "python_loc": 0
+    },
+    {
+      "path": ".github",
+      "file_count": 9,
+      "python_file_count": 0,
+      "python_loc": 0
+    },
+    {
+      "path": ".devcontainer",
+      "file_count": 4,
+      "python_file_count": 0,
+      "python_loc": 0
+    }
+  ],
+  "metagpt_subpackage_overview": [
+    {
+      "name": "__init__.py",
+      "python_file_count": 1,
+      "python_loc": 7
+    },
+    {
+      "name": "_compat.py",
+      "python_file_count": 1,
+      "python_loc": 23
+    },
+    {
+      "name": "actions",
+      "python_file_count": 61,
+      "python_loc": 9172
+    },
+    {
+      "name": "base",
+      "python_file_count": 5,
+      "python_loc": 186
+    },
+    {
+      "name": "config2.py",
+      "python_file_count": 1,
+      "python_loc": 182
+    },
+    {
+      "name": "configs",
+      "python_file_count": 15,
+      "python_loc": 573
+    },
+    {
+      "name": "const.py",
+      "python_file_count": 1,
+      "python_loc": 164
+    },
+    {
+      "name": "context.py",
+      "python_file_count": 1,
+      "python_loc": 127
+    },
+    {
+      "name": "context_mixin.py",
+      "python_file_count": 1,
+      "python_loc": 101
+    },
+    {
+      "name": "document.py",
+      "python_file_count": 1,
+      "python_loc": 235
+    },
+    {
+      "name": "document_store",
+      "python_file_count": 7,
+      "python_loc": 524
+    },
+    {
+      "name": "environment",
+      "python_file_count": 29,
+      "python_loc": 3181
+    },
+    {
+      "name": "exp_pool",
+      "python_file_count": 20,
+      "python_loc": 987
+    },
+    {
+      "name": "ext",
+      "python_file_count": 138,
+      "python_loc": 14423
+    },
+    {
+      "name": "learn",
+      "python_file_count": 6,
+      "python_loc": 266
+    },
+    {
+      "name": "llm.py",
+      "python_file_count": 1,
+      "python_loc": 20
+    },
+    {
+      "name": "logs.py",
+      "python_file_count": 1,
+      "python_loc": 153
+    },
+    {
+      "name": "management",
+      "python_file_count": 2,
+      "python_loc": 86
+    },
+    {
+      "name": "memory",
+      "python_file_count": 6,
+      "python_loc": 830
+    },
+    {
+      "name": "prompts",
+      "python_file_count": 16,
+      "python_loc": 1478
+    },
+    {
+      "name": "provider",
+      "python_file_count": 30,
+      "python_loc": 3778
+    },
+    {
+      "name": "rag",
+      "python_file_count": 29,
+      "python_loc": 2038
+    },
+    {
+      "name": "repo_parser.py",
+      "python_file_count": 1,
+      "python_loc": 1023
+    },
+    {
+      "name": "roles",
+      "python_file_count": 23,
+      "python_loc": 3481
+    },
+    {
+      "name": "schema.py",
+      "python_file_count": 1,
+      "python_loc": 976
+    },
+    {
+      "name": "skills",
+      "python_file_count": 0,
+      "python_loc": 0
+    },
+    {
+      "name": "software_company.py",
+      "python_file_count": 1,
+      "python_loc": 157
+    },
+    {
+      "name": "startup.py",
+      "python_file_count": 1,
+      "python_loc": 10
+    },
+    {
+      "name": "strategy",
+      "python_file_count": 10,
+      "python_loc": 2154
+    },
+    {
+      "name": "subscription.py",
+      "python_file_count": 1,
+      "python_loc": 100
+    },
+    {
+      "name": "team.py",
+      "python_file_count": 1,
+      "python_loc": 138
+    },
+    {
+      "name": "tools",
+      "python_file_count": 48,
+      "python_loc": 7099
+    },
+    {
+      "name": "utils",
+      "python_file_count": 49,
+      "python_loc": 8087
+    }
+  ],
+  "top_inbound_python_files": [
+    {
+      "path": "metagpt/logs.py",
+      "inbound_imports": 246,
+      "line_count": 153
+    },
+    {
+      "path": "metagpt/utils/common.py",
+      "inbound_imports": 143,
+      "line_count": 1243
+    },
+    {
+      "path": "metagpt/const.py",
+      "inbound_imports": 132,
+      "line_count": 164
+    },
+    {
+      "path": "metagpt/schema.py",
+      "inbound_imports": 130,
+      "line_count": 976
+    },
+    {
+      "path": "metagpt/actions/__init__.py",
+      "inbound_imports": 85,
+      "line_count": 57
+    },
+    {
+      "path": "metagpt/config2.py",
+      "inbound_imports": 62,
+      "line_count": 182
+    },
+    {
+      "path": "metagpt/roles/__init__.py",
+      "inbound_imports": 40,
+      "line_count": 34
+    },
+    {
+      "path": "metagpt/actions/action_node.py",
+      "inbound_imports": 36,
+      "line_count": 876
+    },
+    {
+      "path": "metagpt/tools/tool_registry.py",
+      "inbound_imports": 34,
+      "line_count": 194
+    },
+    {
+      "path": "metagpt/llm.py",
+      "inbound_imports": 33,
+      "line_count": 20
+    },
+    {
+      "path": "metagpt/configs/llm_config.py",
+      "inbound_imports": 29,
+      "line_count": 136
+    },
+    {
+      "path": "metagpt/context.py",
+      "inbound_imports": 27,
+      "line_count": 127
+    },
+    {
+      "path": "metagpt/provider/base_llm.py",
+      "inbound_imports": 26,
+      "line_count": 412
+    },
+    {
+      "path": "metagpt/roles/di/data_interpreter.py",
+      "inbound_imports": 26,
+      "line_count": 190
+    },
+    {
+      "path": "metagpt/actions/action.py",
+      "inbound_imports": 26,
+      "line_count": 119
+    },
+    {
+      "path": "metagpt/rag/schema.py",
+      "inbound_imports": 23,
+      "line_count": 274
+    },
+    {
+      "path": "metagpt/utils/report.py",
+      "inbound_imports": 21,
+      "line_count": 330
+    },
+    {
+      "path": "metagpt/roles/role.py",
+      "inbound_imports": 20,
+      "line_count": 592
+    },
+    {
+      "path": "metagpt/provider/llm_provider_registry.py",
+      "inbound_imports": 18,
+      "line_count": 48
+    },
+    {
+      "path": "metagpt/utils/project_repo.py",
+      "inbound_imports": 17,
+      "line_count": 163
+    },
+    {
+      "path": "tests/metagpt/provider/mock_llm_config.py",
+      "inbound_imports": 16,
+      "line_count": 74
+    },
+    {
+      "path": "metagpt/environment/werewolf/const.py",
+      "inbound_imports": 15,
+      "line_count": 121
+    },
+    {
+      "path": "metagpt/exp_pool/schema.py",
+      "inbound_imports": 15,
+      "line_count": 76
+    },
+    {
+      "path": "metagpt/environment/__init__.py",
+      "inbound_imports": 15,
+      "line_count": 13
+    },
+    {
+      "path": "metagpt/utils/git_repository.py",
+      "inbound_imports": 14,
+      "line_count": 633
+    }
+  ],
+  "top_outbound_python_files": [
+    {
+      "path": "metagpt/roles/di/role_zero.py",
+      "outbound_imports": 22,
+      "line_count": 491
+    },
+    {
+      "path": "metagpt/ext/stanford_town/roles/st_role.py",
+      "outbound_imports": 18,
+      "line_count": 625
+    },
+    {
+      "path": "metagpt/actions/__init__.py",
+      "outbound_imports": 18,
+      "line_count": 57
+    },
+    {
+      "path": "metagpt/actions/import_repo.py",
+      "outbound_imports": 14,
+      "line_count": 226
+    },
+    {
+      "path": "metagpt/config2.py",
+      "outbound_imports": 14,
+      "line_count": 182
+    },
+    {
+      "path": "metagpt/roles/di/engineer2.py",
+      "outbound_imports": 14,
+      "line_count": 171
+    },
+    {
+      "path": "metagpt/provider/__init__.py",
+      "outbound_imports": 14,
+      "line_count": 39
+    },
+    {
+      "path": "metagpt/ext/stanford_town/plan/st_plan.py",
+      "outbound_imports": 13,
+      "line_count": 706
+    },
+    {
+      "path": "metagpt/roles/role.py",
+      "outbound_imports": 13,
+      "line_count": 592
+    },
+    {
+      "path": "metagpt/roles/engineer.py",
+      "outbound_imports": 13,
+      "line_count": 513
+    },
+    {
+      "path": "metagpt/actions/write_prd.py",
+      "outbound_imports": 13,
+      "line_count": 325
+    },
+    {
+      "path": "metagpt/ext/android_assistant/actions/self_learn_and_reflect.py",
+      "outbound_imports": 13,
+      "line_count": 231
+    },
+    {
+      "path": "metagpt/roles/di/data_analyst.py",
+      "outbound_imports": 12,
+      "line_count": 154
+    },
+    {
+      "path": "metagpt/exp_pool/manager.py",
+      "outbound_imports": 11,
+      "line_count": 242
+    },
+    {
+      "path": "metagpt/ext/android_assistant/actions/screenshot_parse.py",
+      "outbound_imports": 11,
+      "line_count": 204
+    },
+    {
+      "path": "metagpt/ext/android_assistant/roles/android_assistant.py",
+      "outbound_imports": 11,
+      "line_count": 145
+    },
+    {
+      "path": "examples/mgx_write_project_framework.py",
+      "outbound_imports": 11,
+      "line_count": 125
+    },
+    {
+      "path": "metagpt/tools/libs/__init__.py",
+      "outbound_imports": 11,
+      "line_count": 39
+    },
+    {
+      "path": "metagpt/roles/__init__.py",
+      "outbound_imports": 11,
+      "line_count": 34
+    },
+    {
+      "path": "metagpt/schema.py",
+      "outbound_imports": 10,
+      "line_count": 976
+    },
+    {
+      "path": "metagpt/actions/action_node.py",
+      "outbound_imports": 10,
+      "line_count": 876
+    },
+    {
+      "path": "metagpt/provider/openai_api.py",
+      "outbound_imports": 10,
+      "line_count": 327
+    },
+    {
+      "path": "metagpt/actions/design_api.py",
+      "outbound_imports": 10,
+      "line_count": 279
+    },
+    {
+      "path": "metagpt/ext/werewolf/roles/moderator.py",
+      "outbound_imports": 10,
+      "line_count": 252
+    },
+    {
+      "path": "metagpt/roles/qa_engineer.py",
+      "outbound_imports": 10,
+      "line_count": 231
+    }
+  ],
+  "largest_python_files": [
+    {
+      "path": "metagpt/utils/common.py",
+      "line_count": 1243
+    },
+    {
+      "path": "metagpt/strategy/experience_retriever.py",
+      "line_count": 1243
+    },
+    {
+      "path": "metagpt/tools/libs/editor.py",
+      "line_count": 1139
+    },
+    {
+      "path": "metagpt/repo_parser.py",
+      "line_count": 1023
+    },
+    {
+      "path": "metagpt/schema.py",
+      "line_count": 976
+    },
+    {
+      "path": "metagpt/actions/action_node.py",
+      "line_count": 876
+    },
+    {
+      "path": "tests/metagpt/tools/libs/test_editor.py",
+      "line_count": 823
+    },
+    {
+      "path": "metagpt/ext/stanford_town/plan/st_plan.py",
+      "line_count": 706
+    },
+    {
+      "path": "metagpt/utils/git_repository.py",
+      "line_count": 633
+    },
+    {
+      "path": "metagpt/ext/stanford_town/roles/st_role.py",
+      "line_count": 625
+    },
+    {
+      "path": "metagpt/actions/rebuild_sequence_view.py",
+      "line_count": 605
+    },
+    {
+      "path": "metagpt/roles/role.py",
+      "line_count": 592
+    },
+    {
+      "path": "metagpt/actions/write_code_an_draft.py",
+      "line_count": 589
+    },
+    {
+      "path": "metagpt/provider/general_api_base.py",
+      "line_count": 581
+    },
+    {
+      "path": "metagpt/utils/token_counter.py",
+      "line_count": 545
+    },
+    {
+      "path": "metagpt/roles/engineer.py",
+      "line_count": 513
+    },
+    {
+      "path": "tests/metagpt/actions/mock_markdown.py",
+      "line_count": 510
+    },
+    {
+      "path": "metagpt/ext/sela/search/tree_search.py",
+      "line_count": 492
+    },
+    {
+      "path": "metagpt/roles/di/role_zero.py",
+      "line_count": 491
+    },
+    {
+      "path": "examples/di/InfiAgent-DABench/DABench.py",
+      "line_count": 487
+    }
+  ],
+  "entrypoints": [
+    {
+      "type": "console_script",
+      "name": "metagpt",
+      "target": "metagpt.software_company:app",
+      "source": "setup.py"
+    },
+    {
+      "type": "library_api",
+      "name": "generate_repo",
+      "target": "metagpt/software_company.py::generate_repo",
+      "source": "metagpt/software_company.py"
+    },
+    {
+      "type": "role_entry",
+      "name": "Role.run",
+      "target": "metagpt/roles/role.py::Role.run",
+      "source": "metagpt/roles/role.py"
+    },
+    {
+      "type": "rag_entry",
+      "name": "SimpleEngine.from_docs",
+      "target": "metagpt/rag/engines/simple.py::SimpleEngine.from_docs",
+      "source": "metagpt/rag/engines/simple.py"
+    }
+  ],
+  "surface_presence": {
+    "tests": true,
+    "docs": true,
+    "examples": true,
+    "config": true,
+    "docker": true,
+    "ci": true,
+    "devcontainer": true
+  },
+  "batch_summaries": [
+    {
+      "batch_id": "B01-core-runtime-config",
+      "slug": "01-core-runtime-config",
+      "title": "Core Runtime / Config / Schema",
+      "path": "analysis/batches/01-core-runtime-config.md",
+      "file_count": 35,
+      "python_file_count": 35,
+      "python_loc": 3342,
+      "depth_rank": 1
+    },
+    {
+      "batch_id": "B02-agent-orchestration",
+      "slug": "02-agent-orchestration",
+      "title": "Agent Orchestration / Roles / Company Flow",
+      "path": "analysis/batches/02-agent-orchestration.md",
+      "file_count": 27,
+      "python_file_count": 27,
+      "python_loc": 3886,
+      "depth_rank": 2
+    },
+    {
+      "batch_id": "B03-actions-planning-prompts",
+      "slug": "03-actions-planning-prompts",
+      "title": "Actions / Planning / Prompt Assets",
+      "path": "analysis/batches/03-actions-planning-prompts.md",
+      "file_count": 128,
+      "python_file_count": 87,
+      "python_loc": 12804,
+      "depth_rank": 3
+    },
+    {
+      "batch_id": "B04-llm-provider-layer",
+      "slug": "04-llm-provider-layer",
+      "title": "LLM Provider Layer / Model Abstraction",
+      "path": "analysis/batches/04-llm-provider-layer.md",
+      "file_count": 30,
+      "python_file_count": 30,
+      "python_loc": 3778,
+      "depth_rank": 4
+    },
+    {
+      "batch_id": "B05-tools-utils-execution",
+      "slug": "05-tools-utils-execution",
+      "title": "Tools / Utils / Execution Helpers",
+      "path": "analysis/batches/05-tools-utils-execution.md",
+      "file_count": 110,
+      "python_file_count": 103,
+      "python_loc": 15452,
+      "depth_rank": 5
+    },
+    {
+      "batch_id": "B06-rag-doc-knowledge",
+      "slug": "06-rag-doc-knowledge",
+      "title": "RAG / Document Store / Experience / Repo Parsing",
+      "path": "analysis/batches/06-rag-doc-knowledge.md",
+      "file_count": 60,
+      "python_file_count": 60,
+      "python_loc": 4893,
+      "depth_rank": 6
+    },
+    {
+      "batch_id": "B07-environments-extensions",
+      "slug": "07-environments-extensions",
+      "title": "Environments / Extensions / Simulators",
+      "path": "analysis/batches/07-environments-extensions.md",
+      "file_count": 256,
+      "python_file_count": 167,
+      "python_loc": 17604,
+      "depth_rank": 7
+    },
+    {
+      "batch_id": "B08-tests-examples-docs-infra",
+      "slug": "08-tests-examples-docs-infra",
+      "title": "Tests / Examples / Docs / Infra",
+      "path": "analysis/batches/08-tests-examples-docs-infra.md",
+      "file_count": 610,
+      "python_file_count": 381,
+      "python_loc": 27106,
+      "depth_rank": 8
+    }
+  ]
+}

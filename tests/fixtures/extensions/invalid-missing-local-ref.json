@@ -1,0 +1,26 @@
+{
+  "schemaVersion": "corp.extension.v1",
+  "seamType": "capability",
+  "id": "ext.capability.missing-ref.invalid",
+  "displayName": "Capability invalide ref absente",
+  "version": "0.1.0",
+  "permissions": ["docs.read"],
+  "constraints": ["local_only"],
+  "metadata": {
+    "description": "Fixture invalide avec entrypoint manquant.",
+    "owner": "core-platform",
+    "tags": ["invalid"]
+  },
+  "localRefs": {
+    "rootDir": ".",
+    "entrypoint": "./capabilities/missing-file.ts",
+    "references": ["./docs/capability-local.md"],
+    "scripts": []
+  },
+  "capability": {
+    "capabilityId": "docs.read.local",
+    "provider": "local",
+    "approvalSensitive": false,
+    "requiredEnvNames": []
+  }
+}

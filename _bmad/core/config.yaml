@@ -1,0 +1,7 @@
+# CORE Module Configuration
+# Bootstrapped for the corp project on 2026-04-08
+
+user_name: darkl
+communication_language: French
+document_output_language: French
+output_folder: "C:/Dev/PRJET/corp/_bmad-output"

@@ -1,0 +1,74 @@
+export function formatMissionHelp(): string[] {
+  return [
+    "corp mission <commande>",
+    "",
+    "Commandes disponibles:",
+    "  corp mission bootstrap --root <workspace>  Initialise le socle local-first V1",
+    "  corp mission create --root <workspace> --title <titre> --objective <objectif> --success-criterion <critere> --policy-profile <profil>  Cree une mission persistante V1",
+    "  corp mission extension select --root <workspace> --mission-id <mission_id> [--allow-capability <capability>|--clear-allow-capability] [--skill-pack <pack>|--clear-skill-pack]  Selectionne les extensions autorisees pour une mission",
+    "  corp mission ticket create --root <workspace> --mission-id <mission_id> --kind <research|plan|implement|review|operate> --goal <objectif> --owner <owner> --success-criterion <critere>  Cree un ticket delegable borne",
+    "  corp mission ticket update --root <workspace> --mission-id <mission_id> --ticket-id <ticket_id> --goal <objectif>|--owner <owner>|--success-criterion <critere>  Met a jour un ticket existant sans casser l'audit",
+    "  corp mission ticket move --root <workspace> --mission-id <mission_id> --ticket-id <ticket_id> --before-ticket <ticket_id>|--after-ticket <ticket_id>|--to-front|--to-back  Deplace un ticket dans l'ordre canonique de mission",
+    "  corp mission ticket cancel --root <workspace> --mission-id <mission_id> --ticket-id <ticket_id> [--reason <motif>]  Annule un ticket sans supprimer son historique",
+    "  corp mission ticket run --root <workspace> --mission-id <mission_id> --ticket-id <ticket_id> [--background]  Lance un ticket runnable dans un espace isole",
+    "  corp mission ticket board --root <workspace> --mission-id <mission_id>  Affiche le board ticket par ticket pour une mission",
+    "  corp mission approval queue --root <workspace> --mission-id <mission_id>  Affiche la file detaillee des validations en attente",
+    "  corp mission approval approve --root <workspace> --mission-id <mission_id> --approval-id <approval_id> [--reason <motif>] [--policy-profile <profil>] [--allow-capability <capability>|--clear-allow-capability] [--skill-pack <pack>|--clear-skill-pack] [--budget-observation <texte>]  Approuve une validation en attente et applique les garde-fous inline",
+    "  corp mission approval reject --root <workspace> --mission-id <mission_id> --approval-id <approval_id> [--reason <motif>] [--policy-profile <profil>] [--allow-capability <capability>|--clear-allow-capability] [--skill-pack <pack>|--clear-skill-pack] [--budget-observation <texte>]  Refuse une validation en attente et journalise la decision",
+    "  corp mission approval defer --root <workspace> --mission-id <mission_id> --approval-id <approval_id> [--reason <motif>] [--policy-profile <profil>] [--allow-capability <capability>|--clear-allow-capability] [--skill-pack <pack>|--clear-skill-pack] [--budget-observation <texte>]  Differe une validation en attente et capture le contexte de reprise",
+    "  corp mission artifact list --root <workspace> --mission-id <mission_id> [--ticket-id <ticket_id>]  Liste les artefacts enregistres pour une mission",
+    "  corp mission artifact show --root <workspace> --mission-id <mission_id> --artifact-id <artifact_id>  Affiche le detail d'un artefact et sa provenance utile",
+    "  corp mission audit --root <workspace> --mission-id <mission_id> [--ticket-id <ticket_id>] [--limit <n>]  Affiche la chronologie structuree d'une mission",
+    "  corp mission audit show --root <workspace> --mission-id <mission_id> --event-id <event_id>  Affiche le detail d'un evenement et de ses correlations",
+    "  corp mission status --root <workspace> --mission-id <mission_id>  Affiche la vue detaillee de supervision mission + tickets",
+    "  corp mission resume --root <workspace> --mission-id <mission_id>  Reconstruit au besoin puis affiche la reprise operateur compacte",
+    "  corp mission compare --root <workspace> --mission-id <mission_id>  Compare l'attendu a l'observe et cible la branche impactee",
+    "  corp mission compare relaunch --root <workspace> --mission-id <mission_id> --ticket-id <ticket_id> [--background]  Relance uniquement la racine impactee choisie",
+    "  corp mission pause --root <workspace> --mission-id <mission_id>  Met explicitement la mission en pause operateur",
+    "  corp mission relaunch --root <workspace> --mission-id <mission_id>  Relance une mission bloquee ou en reprise",
+    "  corp mission close --root <workspace> --mission-id <mission_id> --outcome <completed|cancelled>  Cloture la mission via un outcome explicite",
+    "  corp mission help                          Affiche cette aide",
+    "",
+    "Positionnement des vues:",
+    "  status = vue mission detaillee",
+    "  resume = vue de reprise compacte",
+    "  compare = diagnostic attendu / observe et branche impactee",
+    "  compare relaunch = relance ciblee de la racine selectionnee",
+    "  relaunch = relance globale du cycle de vie mission",
+    "  extension select = gouvernance mission-scope des capabilities et skill packs",
+    "  ticket board = supervision ticket par ticket",
+    "  approval queue = file detaillee des validations en attente",
+    "  approval approve|reject|defer = resolution auditable des validations en attente",
+    "  artifact list = navigation mission-centrique des sorties",
+    "  artifact show = detail d'un artefact et de sa provenance",
+    "  audit = chronologie structuree mission-centrique",
+    "  audit show = detail d'un evenement et de ses correlations",
+  ];
+}
+
+export function formatExtensionHelp(): string[] {
+  return [
+    "corp extension <commande>",
+    "",
+    "Commandes disponibles:",
+    "  corp extension validate --file <path>  Valide offline un manifeste `corp.extension.v1` sans bootstrap mission",
+    "  corp extension capability register --root <workspace> --file <path>  Enregistre une capability valide dans le registre local du workspace",
+    "  corp extension skill-pack register --root <workspace> --file <path>  Enregistre un skill pack valide dans le registre local du workspace",
+    "  corp extension skill-pack show --root <workspace> --pack-ref <ref>  Affiche le resume metadata-first d'un skill pack enregistre",
+    "  corp extension help                     Affiche cette aide",
+    "",
+    "Principes V1:",
+    "  validate = lecture seule, hors reseau et sans creation de `.corp/`",
+    "  register = capability-only, exige un workspace deja initialise",
+    "  le contrat reste borne a execution_adapter | capability | skill_pack",
+    "  les refs locales sont resolues relativement au manifeste JSON",
+  ];
+}
+
+export function formatRootHelp(): string[] {
+  return [
+    ...formatMissionHelp(),
+    "",
+    ...formatExtensionHelp(),
+  ];
+}

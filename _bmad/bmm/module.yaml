@@ -1,0 +1,36 @@
+code: bmm
+name: "BMad Method"
+description: "Planning, knowledge and implementation artifact settings for this project"
+header: "BMad Method Configuration"
+subheader: "Configure planning, knowledge, and implementation locations for this project."
+default_selected: true
+
+project_name:
+  prompt: "Project name?"
+  default: "{directory_name}"
+  result: "{value}"
+
+planning_artifacts:
+  prompt: "Where should planning artifacts be saved?"
+  default: "{output_folder}/planning"
+  result: "{value}"
+
+project_knowledge:
+  prompt: "Where should project knowledge documents be saved?"
+  default: "{output_folder}/project-knowledge"
+  result: "{value}"
+
+implementation_artifacts:
+  prompt: "Where should implementation artifacts be saved?"
+  default: "{output_folder}/implementation"
+  result: "{value}"
+
+user_skill_level:
+  prompt: "What explanation depth should agents assume?"
+  default: "advanced"
+  result: "{value}"
+
+directories:
+  - "{planning_artifacts}"
+  - "{project_knowledge}"
+  - "{implementation_artifacts}"

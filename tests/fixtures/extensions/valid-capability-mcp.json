@@ -1,0 +1,27 @@
+{
+  "schemaVersion": "corp.extension.v1",
+  "seamType": "capability",
+  "id": "ext.capability.docs.search.mcp",
+  "displayName": "Recherche docs MCP",
+  "version": "0.1.0",
+  "permissions": ["docs.read"],
+  "constraints": ["local_only", "workspace_scoped"],
+  "metadata": {
+    "description": "Expose une capability MCP-backed sans embarquer de config vendor.",
+    "owner": "core-platform",
+    "tags": ["capability", "mcp"]
+  },
+  "localRefs": {
+    "rootDir": ".",
+    "references": ["./docs/capability-mcp.md"],
+    "scripts": []
+  },
+  "capability": {
+    "capabilityId": "docs.search",
+    "provider": "mcp",
+    "approvalSensitive": false,
+    "requiredEnvNames": [],
+    "mcpServerName": "corp-mcp",
+    "mcpToolName": "search_local_docs"
+  }
+}

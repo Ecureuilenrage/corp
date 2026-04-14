@@ -1,0 +1,26 @@
+{
+  "schemaVersion": "corp.extension.v1",
+  "seamType": "capability",
+  "id": "ext.capability.shell.exec.local",
+  "displayName": "Shell exec local",
+  "version": "0.1.0",
+  "permissions": ["shell.exec", "fs.read"],
+  "constraints": ["local_only", "approval_sensitive", "workspace_scoped"],
+  "metadata": {
+    "description": "Expose une capability locale bornee au workspace.",
+    "owner": "core-platform",
+    "tags": ["capability", "local"]
+  },
+  "localRefs": {
+    "rootDir": ".",
+    "entrypoint": "./capabilities/shell-exec.ts",
+    "references": ["./docs/capability-local.md"],
+    "scripts": ["./scripts/validate-capability.ps1"]
+  },
+  "capability": {
+    "capabilityId": " shell.exec ",
+    "provider": "local",
+    "approvalSensitive": true,
+    "requiredEnvNames": []
+  }
+}

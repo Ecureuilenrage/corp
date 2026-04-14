@@ -1,0 +1,26 @@
+{
+  "schemaVersion": "corp.extension.v1",
+  "seamType": "capability",
+  "id": "ext.capability.remote-ref.invalid",
+  "displayName": "Capability invalide ref distante",
+  "version": "0.1.0",
+  "permissions": ["docs.read"],
+  "constraints": ["local_only"],
+  "metadata": {
+    "description": "Fixture invalide avec ref distante.",
+    "owner": "core-platform",
+    "tags": ["invalid"]
+  },
+  "localRefs": {
+    "rootDir": ".",
+    "entrypoint": "./capabilities/shell-exec.ts",
+    "references": ["https://example.invalid/docs/capability.md"],
+    "scripts": []
+  },
+  "capability": {
+    "capabilityId": "docs.read.local",
+    "provider": "local",
+    "approvalSensitive": false,
+    "requiredEnvNames": []
+  }
+}
