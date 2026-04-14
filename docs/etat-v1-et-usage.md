@@ -120,3 +120,97 @@ Maintenant que les 4 épiques V1 sont livrés, les prochains pas BMAD logiques :
 - **`bmad-product-brief`** (nouvelle fenêtre) — Brief V2 : quelle couche étendre en priorité ?
 - **`bmad-technical-research`** — Recherche technique sur daemon persistant OU routeur multi-modèles, selon l'orientation V2
 - **`bmad-document-project`** — Maintenant que le code existe vraiment, tu peux générer la doc projet pour les futurs agents de dev
+
+---
+
+## ULTRAPLAN — Synthèse 2026-04-14 (comparaison doc vs code vs analyses externes)
+
+### Verdict global
+
+v1 **fonctionnellement livré** : 4 epics, 25 stories + 6 correctives, **246 tests verts**, FR1-28 et NFR1-14 couvertes. Le PRD est aligné avec le livré. Ce qui reste n'est **plus du scope v1** mais soit de la **dette technique répertoriée**, soit de la **vision v2 explicitement déférée**.
+
+### État réel des packages (`C:\Dev\PRJET\corp\packages\`)
+
+| Package | Rôle | État | Tests |
+|---|---|---|---|
+| `contracts` | Modèles Mission/Ticket/Artifact/Approval/Extension | ✅ | ✅ |
+| `mission-kernel` | Orchestration (create, bootstrap, lifecycle, approvals, resume) | ✅ | ✅ |
+| `ticket-runtime` | Exécution isolée, artefacts, tentatives | ✅ | ✅ |
+| `journal` | Event log append-only + projections | ✅ | ✅ |
+| `storage` | Persistance fichiers workspace | ✅ | ✅ |
+| `capability-registry` | Validation/enregistrement capabilities + guardrails | ✅ | ✅ |
+| `skill-pack` | Loader metadata-first | ✅ | ✅ |
+| `execution-adapters` | Adaptateur Codex Responses API | ✅ (Codex uniquement) | ✅ |
+| `workspace-isolation` | Worktree Git pour tentatives | 🟡 peu de failover si git indispo | minimal |
+| `corp-cli` (app) | Router commandes + formatters | ✅ | ✅ |
+
+Aucun TODO/FIXME/throw "not implemented" repérable dans le code.
+
+### Surface CLI complète (28 commandes)
+
+```
+corp mission bootstrap|create|pause|relaunch|close|status|resume|compare|audit
+corp mission compare relaunch --ticket-id <T>
+corp mission ticket create|update|move|cancel|run|board
+corp mission approval queue|approve|reject|defer
+corp mission artifact list|show
+corp mission extension select [--allow-capability|--skill-pack]
+corp extension validate|capability register|skill-pack register|skill-pack show
+```
+
+### Reste à faire — dette technique (`_bmad-output/implementation/deferred-work.md`, 53 items D-01 à D-53)
+
+Quatre zones cycliques (mentionnées dans **3 rétros successives sans résolution**) :
+
+1. **Atomicité écriture (16 items)** — journal/projections non-atomiques sur NTFS, TOCTOU `access→write` (D-01, D-05, D-07, D-17, D-27, D-29, D-35, D-43)
+2. **Duplication/normalisation (11 items)** — 6 type guards dupliqués entre `audit-log-projection.ts` et `read-mission-audit.ts`, `toPublicSource` ne masque qu'OpenAI/Codex (D-11, D-13, D-21, D-31, D-53)
+3. **Edge cases locales/schema (13 items)** — `localeCompare` locale-sensible sur ISO timestamps, noms Windows réservés non-rejetés (CON/NUL/PRN), JSON deserializé sans Zod (D-04, D-06, D-28, D-37, D-44, D-46)
+4. **Logique spécifique (13 items)** — `--ticket-id` exclut events mission-level, migration workspaces pré-3.4, divergence journal/read-model après crash (D-12, D-14, D-15, D-16, D-18, D-34)
+
+### Reste à faire — dette **process** (persistante, 3 rétros consécutives)
+
+- `sprint-status.yaml` ↔ story files ↔ retrospective pas synchronisés avant clôture
+- Epic reste `in-progress` alors que toutes ses stories sont `done`
+- Retrospective marquée `optional` au lieu de `done`
+
+**Rien d'automatisé pour fermer ça — à mécaniser en priorité.**
+
+### Décision bloquante ouverte (retro epic-4, actions 4-5)
+
+- **Option A** — Fermer v1 tel quel, `deferred-work.md` comme "known limitations mono-opérateur" + mini-hardening sur 8 items critiques (type guards dupliqués, projections atomiques, ENOENT migration, noms Windows réservés, `appendFile` concurrent, localeCompare, TOCTOU, test seams).
+- **Option B** — Planifier **Epic 5 hardening transversal** avant GA (traitement complet des 53 items).
+
+**Recommandation** : **Option A + mécanique de clôture d'epic** (script cohérence sprint-status/stories/retro). Option B reportable après premier pilote réel.
+
+### Différences PRD → réel
+
+Zéro divergence fonctionnelle sur les parcours 1-4 du PRD. Seuls les **concepts de vision** (KAIROS, ULTRAPLAN, COORDINATOR MODE, multi-modèles) sont deferrés — c'était explicite dès le PRD.
+
+### Idées transférables (analyses `Openclaw/analysis`, `MetaGPT-main/analysis`, `ChatDev-main/analysis`)
+
+Pour v2 uniquement — à ne PAS introduire maintenant :
+
+1. **Mission = DAG déclaratif YAML** (ChatDev `workflow/graph_manager.py` + `cycle_manager.py`) → cycles, splits dynamiques, majority vote
+2. **Ticket = Message contract sérialisable** (ChatDev `entity/messages.py`) → audit rejouable natif
+3. **SkillPack via frontmatter `SKILL.md`** (ChatDev `AgentSkillManager`) → standardisation
+4. **ProviderRegistry pattern** (ChatDev `runtime/node/agent/providers/`) → bascule Claude/Gemini sans réécrire `execution-adapters`
+5. **Lazy plugin loading** (Openclaw `OPENCLAW_STATE_DIR` + `src/config/sessions/store.ts`) → CLI légère quand le registry grossit
+6. **Role runtime `_observe → _think → _act`** (MetaGPT `metagpt/roles/`) → base conceptuelle de `COORDINATOR MODE`
+7. **Memory stack sérialisable** (MetaGPT `memory/memory.py` + ChatDev `MemoryManager`) → audit vérifié retrievable par `session_id + ticket_id`
+8. **CycleDetector + MajorityVoteStrategy** (ChatDev `workflow/topology_builder.py`) → workflows parallèles avec consensus
+
+**Anti-patterns à éviter** :
+- Config singleton global (MetaGPT `_CONFIG_CACHE`) — chaque mission doit rester isolée
+- Plugin bundled par défaut (Openclaw `use_mgx=True`) — couplage implicite
+- Copier `GraphExecutor.py` brut de ChatDev — embarque memory/tools/logger implicitement
+
+### Prochaines actions dans l'ordre
+
+1. **Cette semaine** — Trancher Option A vs B (retro epic-4). Si A, lister explicitement les 8 items à traiter ; si B, ouvrir Epic 5.
+2. **+1 jour** — Script de cohérence clôture d'epic (`sprint-status.yaml` ↔ stories ↔ retro). Bloque `epic: done` si retro `optional`.
+3. **+3 jours** — Pilote réel sur mission non-triviale (voir `playbook-operateur-corp-v1.md`, 10 missions-types).
+4. **Ensuite** — `bmad-product-brief` v2 orienté par le résultat du pilote (KAIROS ? routeur multi-modèles ? ULTRAPLAN ?).
+
+### Synthèse en une phrase
+
+**v1 est prêt pour utilisation pilote immédiate par un opérateur solo** ; la vraie question n'est plus « que coder » mais **« fermer v1 proprement (process + 8 items critiques) OU investir dans Epic 5 durcissement avant d'ouvrir v2 »**.

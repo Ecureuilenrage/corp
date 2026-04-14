@@ -24,7 +24,7 @@
 #   - done: Story completed
 #
 # Retrospective Status:
-#   - optional: Can be completed but not required
+#   - required: Retrospective required before epic closure can be considered complete
 #   - done: Retrospective has been completed
 #
 # WORKFLOW NOTES:
@@ -35,7 +35,7 @@
 # - Dev moves a story to 'review' before it can become 'done'
 
 generated: "2026-04-08T21:20:40+02:00"
-last_updated: "2026-04-14T16:45:00.0000000+02:00"
+last_updated: "2026-04-14T22:56:34.6248056+02:00"
 project: "corp"
 project_key: "NOKEY"
 tracking_system: "file-system"
@@ -68,10 +68,22 @@ development_status:
   3-4-consulter-un-journal-d-audit-structure-et-l-origine-de-chaque-sortie: done
   3-5-comparer-l-etat-courant-aux-criteres-de-succes-et-relancer-uniquement-la-partie-impactee: done
   epic-3-retrospective: done
-  epic-4: in-progress
+  epic-4: done
   4-1-publier-le-contrat-de-registration-des-extensions-v1: done
   4-2-enregistrer-une-capability-locale-avec-permissions-et-contraintes-explicites: done
   4-5-corriger-findings-review-registre-capability: done
   4-3-charger-un-skill-pack-local-dans-le-cadre-d-une-mission: done
   4-4-selectionner-les-extensions-autorisees-par-mission-et-tracer-leur-usage-en-cli: done
   epic-4-retrospective: done
+  epic-5: backlog
+  5-0-mecaniser-la-gouvernance-de-cloture-d-epic-bmad: done
+  5-0-1-durcir-le-gate-de-cloture-d-epic-findings-review: review
+  5-0-2-consolider-le-gate-epic-closure-findings-review-5-0-1: ready-for-dev
+  5-1-rendre-atomiques-les-ecritures-journal-projections-registres: ready-for-dev
+  5-2-durcir-la-lecture-defensive-et-la-validation-de-schema: ready-for-dev
+  5-3-factoriser-type-guards-et-helpers-workspace-partages: ready-for-dev
+  5-4-durcir-la-compatibilite-windows-identifiants-et-chemins: ready-for-dev
+  5-5-rendre-deterministes-les-projections-tris-et-filtres: ready-for-dev
+  5-6-borner-la-confidentialite-et-la-securite-du-brief-adaptateur: ready-for-dev
+  5-7-stabiliser-la-gouvernance-des-registres-test-seams-et-restants: ready-for-dev
+  epic-5-retrospective: required

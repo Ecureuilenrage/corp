@@ -1,0 +1,13 @@
+#!/bin/sh
+set -eu
+
+REPO_ROOT="$(git rev-parse --show-toplevel 2>/dev/null || pwd)"
+SCRIPT_PATH="$REPO_ROOT/dist/scripts/check-epic-closure.js"
+
+if [ ! -f "$SCRIPT_PATH" ]; then
+  echo "Hook check-epic-closure: $SCRIPT_PATH introuvable." >&2
+  echo "Lancez \`npm run build\` avant de commit si dist/ n'est pas a jour." >&2
+  exit 1
+fi
+
+node "$SCRIPT_PATH" --root="$REPO_ROOT"

@@ -152,6 +152,11 @@ Permettre a l'operateur de garder le controle des actions sensibles, de reprendr
 Permettre a un concepteur d'extension et a l'operateur d'enregistrer, d'autoriser et de tracer les seams V1 (`ExecutionAdapter`, `CapabilityRegistry`, `SkillPack`) sans sortir du contrat coeur ni du regime d'audit.
 **FRs covered:** FR24, FR25, FR26, FR27, FR28
 
+### Epic 5: Hardening transverse V1 pre-GA
+Absorber la dette transversale accumulee sur Epics 1-4 (53 items `D-01` a `D-53` de `deferred-work.md` + 3 actions process recurrentes) pour rendre le V1 GA-ready sans elargir le perimetre fonctionnel.
+**FRs couverts:** aucun (durcissement des FR1-FR28 existants).
+**NFRs couvertes:** NFR15, NFR16, NFR17, NFR18, NFR19, NFR20, NFR21, NFR22.
+
 ## Epic 1: Mission persistante pilotable en CLI
 
 L'operateur peut initialiser le socle local-first de `corp`, creer une mission persistante, retrouver un resume fiable et faire evoluer la mission en CLI sans perdre l'etat utile ni l'historique.
@@ -562,3 +567,220 @@ So that l'extensibilite reste gouvernee et lisible.
 **When** l'operateur consulte la CLI de mission ou d'audit
 **Then** il voit quelles extensions, capabilities ou skills ont ete mobilises par ticket
 **And** la logique de mission, de delegation, d'approbation et d'audit reste coherente sur toute la surface operateur V1
+
+## Epic 5: Hardening transverse V1 pre-GA
+
+Un operateur technique et un mainteneur de `corp` peuvent conclure que la V1 est GA-ready: la dette transversale accumulee sur Epics 1-4 est traitee en lot coherent (atomicite ecritures, lecture defensive, factorisation guards, compatibilite Windows, determinisme projections, confidentialite brief, gouvernance registres) et la gouvernance BMAD est mecanisee pour empecher la recurrence des ecarts de cloture d'epic. Aucun nouveau FR n'est introduit. Tous les items sont traces vers `_bmad-output/implementation/deferred-work.md`.
+
+### Story 5.0: Mecaniser la gouvernance de cloture d'epic BMAD
+
+As a scrum master de `corp`,
+I want que la cloture d'un epic soit mecaniquement conditionnee a la synchronisation des artefacts BMAD,
+So that les ecarts de gouvernance signales sur trois retrospectives consecutives ne se reproduisent plus.
+
+**Acceptance Criteria:**
+
+**Given** un epic a toutes ses stories en statut `done` dans `sprint-status.yaml` mais une story de cet epic conserve `Status: review` dans son story file
+**When** un script de verification de cloture est execute sur l'epic
+**Then** il refuse la transition `epic-N: in-progress -> done` avec un message deterministe citant la story desynchronisee
+**And** la meme verification echoue aussi quand une retrospective d'epic n'a pas le statut `done`
+
+**Given** un nouvel epic est ajoute a `sprint-status.yaml`
+**When** son entry `epic-N-retrospective` est initialisee
+**Then** la valeur par defaut est `required` (plus jamais `optional`)
+**And** la regle est documentee dans `_bmad/` comme politique BMAD du projet `corp`
+
+**Given** un registre runtime nouveau est introduit dans un epic futur
+**When** un workspace cree par un lot anterieur est rencontre
+**Then** la politique documentee "compat workspaces pour nouveau registre" (pattern 4.5/4.3/4.4) est appliquee avec re-bootstrap deterministe
+**And** la politique vit dans `_bmad/` plutot que d'etre reproduite dans chaque story
+
+### Story 5.1: Rendre atomiques les ecritures du journal, des projections et des registres
+
+As a mainteneur de `corp`,
+I want que toute sequence append-event -> save -> rewrite-read-models survive a un crash sans divergence,
+So that le journal reste la source de verite et les projections restent reconstruibles.
+
+**Acceptance Criteria:**
+
+**Given** un crash simule survient entre `appendEvent` et `repository.save` dans `create-mission`, `update-mission-lifecycle`, `run-ticket` ou `resolve-approval-request`
+**When** la commande est relancee
+**Then** le journal et les projections restent coherents ou `readMissionResume` reconstruit l'etat a partir du journal sans exiger de snapshot
+**And** aucun read-model ne reste en divergence silencieuse apres le redemarrage
+
+**Given** deux processus CLI concurrents ecrivent `audit-log.json`, `resume-view.json` ou un snapshot de registre
+**When** les ecritures sont interleaves sur Windows NTFS
+**Then** les fichiers de projection utilisent un pattern temp-file + rename atomique
+**And** aucun JSON tronque ne peut etre observe par un lecteur concurrent
+
+**Given** un helper de creation de fichier est invoque dans `ensureAppendOnlyEventLog` ou `writeFileIfMissing`
+**When** un second processus tente la meme creation simultanement
+**Then** le helper utilise un flag exclusif (`wx` ou equivalent) pour fermer la fenetre TOCTOU
+**And** les cas `EEXIST` sont traites comme resultat benin et non comme erreur
+
+**Items `deferred-work.md` absorbes:** D-01, D-05, D-07, D-17, D-29, D-35, D-36, D-43, D-49, D-50.
+
+### Story 5.2: Durcir la lecture defensive et la validation de schema cross-repositories
+
+As a mainteneur de `corp`,
+I want que chaque repository valide le schema d'un document persiste avant de l'exposer au domaine,
+So that un fichier corrompu produise un message deterministe au lieu d'un objet partiel.
+
+**Acceptance Criteria:**
+
+**Given** un fichier `mission.json`, `ticket.json`, capability ou skill-pack est corrompu ou suit un schema anterieur
+**When** son repository le lit
+**Then** un garde runtime (`isMission`, `isRegisteredCapability`, `isRegisteredSkillPack`) rejette le document avec un message d'erreur explicite
+**And** aucun `as T` non valide n'est retourne au service applicatif
+
+**Given** `events.jsonl` est absent, inaccessible (EACCES) ou en erreur IO (EIO) au moment de la lecture
+**When** une commande de lecture du journal est invoquee
+**Then** le code produit un message distinct pour ENOENT, EACCES, EIO au lieu du fallback generique "Workspace non initialise"
+**And** `readEventLog` ne crashe plus quand `events.jsonl` est supprime apres bootstrap
+
+**Given** un bare catch existait dans `read-mission-audit.ts` ou `readApprovalQueue`
+**When** la story est terminee
+**Then** les blocs catch distinguent `FILE_SYSTEM_ERROR_CODES` etendu (EACCES, EIO, EMFILE, EPERM, ENOSPC)
+**And** aucun EACCES n'est reporte comme "irreconciliable" ou "ref manquante" sans cause reelle
+
+**Items `deferred-work.md` absorbes:** D-06, D-08, D-18, D-34, D-38, D-44, D-48.
+
+### Story 5.3: Factoriser les type guards et helpers workspace partages
+
+As a mainteneur de `corp`,
+I want que les type guards et helpers d'initialisation du workspace existent en une definition unique,
+So that les contrats runtime ne derivent plus silencieusement entre packages.
+
+**Acceptance Criteria:**
+
+**Given** les type guards `isApprovalRequest`, `isArtifact`, `isTicket`, `isExecutionAttempt`, `isWorkspaceIsolationMetadata`, `isApprovalDecision`, `isCapabilityInvocationDetails` etaient dupliques entre `audit-log-projection.ts` et `read-mission-audit.ts`
+**When** la story est terminee
+**Then** une seule definition de chaque guard vit dans un module partage (ex. `packages/contracts` ou `packages/shared-guards`)
+**And** les deux consommateurs importent la definition unique
+
+**Given** `ensureMissionWorkspaceInitialized` existait en trois copies (create-mission, update-lifecycle, read-mission-resume)
+**When** la story est terminee
+**Then** une seule implementation factoree est consommee par les trois services
+**And** la variante qui verifiait `resume-view` reste le comportement unique
+
+**Given** `normalizeOpaqueExtensionReference` et `normalizeOpaqueReferences` font tous deux trim + dedupe
+**When** la story est terminee
+**Then** une seule helper est partagee entre le registre d'extension et le ticket runtime
+**And** aucune divergence de normalisation n'est possible entre les deux chemins
+
+**Items `deferred-work.md` absorbes:** D-03, D-11, D-21, D-31, D-53.
+
+### Story 5.4: Durcir la compatibilite Windows pour identifiants et chemins
+
+As a mainteneur de `corp`,
+I want que les identifiants de stockage et les comparaisons d'extensions soient deterministes entre OS,
+So que la CLI produise un message clair plutot qu'une erreur filesystem opaque sur Windows.
+
+**Acceptance Criteria:**
+
+**Given** un identifiant de storage contient un caractere reserve Windows (`:`, `<`, `>`, `|`, `?`, `*`, `"`) ou un nom reserve (`CON`, `PRN`, `NUL`, `AUX`, `COM1-9`, `LPT1-9`)
+**When** `assertSafeStorageIdentifier` est invoquee
+**Then** l'identifiant est rejete avec un message deterministe "Identifiant invalide"
+**And** aucun `mkdir`/`writeFile` en aval ne produit plus une erreur OS opaque
+
+**Given** deux `packRef` ou `capabilityRef` differant seulement par la casse sont enregistres sur un filesystem case-insensitive
+**When** le registre les compare
+**Then** la comparaison suit une regle de normalisation documentee (ex. casefold) et detecte la collision
+**And** `Pack.Triage` et `pack.triage` ne peuvent coexister comme enregistrements distincts
+
+**Given** un chemin UNC Windows (`\\\\server\\share\\...`) est passe a `isAbsoluteReference`
+**When** le code s'execute sur un runtime POSIX de CI
+**Then** la regex de secours reconnait le chemin comme absolu
+**And** `validateResolvedLocalRef` produit un diagnostic specifique plutot qu'un faux "ref manquante"
+
+**Items `deferred-work.md` absorbes:** D-22, D-37, D-45, D-46, D-52.
+
+### Story 5.5: Rendre deterministes les projections, tris et filtres de lecture
+
+As a operateur technique,
+I want que les tris, filtres et bornes de lecture produisent le meme resultat quelle que soit la locale ou l'entree,
+So que l'audit et les projections restent verifiables.
+
+**Acceptance Criteria:**
+
+**Given** un tri chronologique est applique a des evenements datables en ISO-8601
+**When** le code s'execute sous une locale non-standard
+**Then** la comparaison utilise `<`/`>` lexicographique (ou `localeCompare` force a la locale `"en"`) et n'inverse aucun ordre
+**And** `audit-log-projection.ts` ne depend plus de la locale par defaut du runtime
+
+**Given** une commande d'audit est appelee avec `--ticket-id T1`
+**When** la projection est filtree
+**Then** les evenements mission-level (`mission.created`, `mission.paused`, etc.) sont inclus comme contexte conformement a AC2 de 3.4
+**And** la semantique "mission-centrique + filtree ticket" est documentee dans l'aide CLI
+
+**Given** un appel d'audit ou de board recoit `limit <= 0`, un `--root` whitespace-only ou un `rootDir` undefined
+**When** le parser CLI est execute
+**Then** la valeur est rejetee avant tout acces filesystem avec un message deterministe
+**And** `path.resolve(undefined)` ne retombe plus silencieusement sur `process.cwd()`
+
+**Given** un payload audit contient plusieurs objets imbriques avec `approvalId` et `decisionRef` repartis
+**When** `readSourceReferences` scanne le payload
+**Then** toutes les references sont collectees et aucune n'est perdue par court-circuit sur le premier objet
+**And** `filterMissionEntities` exclut les entites sans `missionId` quand le filtre est applique
+
+**Items `deferred-work.md` absorbes:** D-02, D-04, D-09, D-12, D-14, D-28, D-32, D-33, D-39.
+
+### Story 5.6: Borner la confidentialite et la securite du brief adaptateur
+
+As a mainteneur de `corp`,
+I want qu'aucun chemin absolu local, aucun identifiant vendor brut et aucune metadonnee non echappee ne fuite dans un brief externe,
+So que les artefacts envoyes a un adaptateur externe restent defendables.
+
+**Acceptance Criteria:**
+
+**Given** un `ExecutionAdapter` construit un brief destine a un API externe
+**When** ce brief est assemble
+**Then** aucun chemin absolu local (`rootDir`, `references[]`, `metadataFile`, `scripts[]`, `workspacePath`) n'est concatene en clair
+**And** les chemins sont exprimes en reference relative au `rootDir` de la mission ou masques
+
+**Given** un skill pack ou une capability porte `displayName`, `description` ou un chemin contenant `\n`, `|` ou un caractere de formatage du brief
+**When** `formatSkillPackSummary` ou l'equivalent capability assemble le brief
+**Then** la valeur est echappee avant concatenation
+**And** le format du brief ne peut pas etre corrompu par une metadonnee adversariale
+
+**Given** un adaptateur vendor porte un nom contenant `anthropic_api`, `azure_openai_proxy` ou un futur identifiant
+**When** `toPublicSource` est invoquee
+**Then** la normalisation suit une allowlist explicite des sources publiques et replace toute source non-allowlistee par `execution-adapter`
+**And** aucun identifiant vendor brut ne fuite dans la CLI ou les projections
+
+**Given** `assertSkillPackLocalBoundary` compare un `rootDir` et une cible potentiellement symlinkee
+**When** la verification est effectuee
+**Then** `fs.realpath` est utilisee avant comparaison pour resoudre les symlinks
+**And** un lien symbolique sortant du `rootDir` est detecte et rejete
+
+**Items `deferred-work.md` absorbes:** D-13, D-40, D-41, D-42.
+
+### Story 5.7: Stabiliser la gouvernance des registres, test seams et restants
+
+As a mainteneur de `corp`,
+I want que les approbations revalident les registres workspace et que les seams de test soient isoles par contexte,
+So que les decisions restent coherentes sous mutation concurrente du registre et que les tests paralleles ne fuient pas entre eux.
+
+**Acceptance Criteria:**
+
+**Given** une demande d'approbation reference une extension autorisee au moment de `extension select`
+**When** l'operateur resout l'approbation alors que l'extension a ete deregistree entre-temps
+**Then** `resolve-approval-request` revalide contre le registre workspace et refuse l'approbation avec un message deterministe
+**And** le run ne peut plus echouer "au preflight" apres une approbation deja validee
+
+**Given** `RegisteredCapability.localRefs` etait obligatoire pour toute capability
+**When** la story est terminee
+**Then** `localRefs` est optionnel pour les capabilities MCP-backed (et obligatoire pour les capabilities locales)
+**And** le contrat `registered-capability.ts` documente la semantique par type
+
+**Given** `setRunTicketDependenciesForTesting` ou un equivalent existe comme singleton module-level
+**When** des tests paralleles overrident les dependances
+**Then** l'override vit dans un contexte de test isole (factory ou arrange per-test) et ne peut plus fuiter entre tests
+**And** aucun test seam mutable global ne subsiste dans `run-ticket.ts`
+
+**Given** un type guard `isExecutionAttempt` rejetait `workspaceIsolationId: null`
+**When** un attempt porte legitimement `workspaceIsolationId: null`
+**Then** le guard accepte la branche null documentee
+**And** les entries d'audit ne perdent plus l'`attemptId` associe
+
+**Items `deferred-work.md` absorbes:** D-15, D-16, D-19, D-20, D-23, D-24, D-25, D-26, D-30, D-47, D-48, D-51. Les items restants (ex. D-19 optimisation O(n) au-dela de quelques milliers d'evenements) sont explicitement documentes comme "V1 acceptable" avec justification dans la story.

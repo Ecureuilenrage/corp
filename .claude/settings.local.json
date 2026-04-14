@@ -7,7 +7,13 @@
       "Bash(node:*)",
       "Bash(npx node:*)",
       "Bash(npx tsx:*)",
-      "Bash(wc -l /c/Dev/PRJET/corp/tests/contract/*.test.ts)"
+      "Bash(wc -l /c/Dev/PRJET/corp/tests/contract/*.test.ts)",
+      "Bash(cp /tmp/review-5-0.diff \"C:/Users/darkl/AppData/Local/Temp/review-5-0.diff\")",
+      "Read(//c/Users/darkl/AppData/Local/Temp/**)",
+      "Bash(git -C \"C:/Dev/PRJET/corp\" status --short)",
+      "Bash(git -C \"C:/Dev/PRJET/corp\" log --oneline --all)",
+      "Bash(git -C \"C:/Dev/PRJET/corp\" show --stat HEAD)",
+      "Bash(git -C \"C:/Dev/PRJET/corp\" show --name-only HEAD)"
     ]
   }
 }

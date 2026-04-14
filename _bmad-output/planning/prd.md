@@ -96,12 +96,12 @@ La V1 doit aussi montrer une isolation de contexte suffisante pour limiter les c
 
 ### Resultats Mesurables
 
-- Une mission pilote bornee peut etre executee de bout en bout sur un seul poste de travail dans la boucle V1 cible.
-- Une session interrompue peut etre reprise sans reconstitution manuelle du contexte critique.
-- Toute tache deleguee dans le pilote dispose d'un responsable, d'un statut et d'au moins un artefact ou evenement de suivi.
-- Toute action sensible exposee par le pilote passe par un etat d'approbation explicite avant execution.
-- Le pilote laisse un journal consultable des decisions, artefacts, echecs et reprises suffisant pour comprendre l'etat courant sans repartir du transcript brut.
-- Le PRD, puis l'architecture suivante, peuvent rattacher au moins un pattern ou une contrainte cle a chacun des quatre repos de reference analyses.
+- Le scenario pilote V1 peut etre execute de bout en bout sur un seul poste de travail dans au moins deux runs complets successifs du meme flux de mission.
+- 100% des reprises de session testees sur le scenario pilote restituent l'objectif courant, les tickets ouverts, les validations en attente et le dernier artefact pertinent sans reconstitution manuelle du contexte critique.
+- 100% des taches deleguees exercees dans le pilote disposent d'un responsable, d'un statut et d'au moins un artefact ou evenement de suivi.
+- 100% des actions sensibles exposees par le pilote passent par un etat d'approbation explicite avant execution.
+- Le journal du pilote couvre 100% des decisions, artefacts, echecs et reprises exerces pendant la demonstration end-to-end.
+- Le PRD puis l'architecture rattachent au moins un pattern ou une contrainte cle a chacun des quatre repos de reference analyses.
 
 ## Portee Produit
 
@@ -346,29 +346,42 @@ L'adoption initiale ne porte pas sur une migration vendor-to-vendor exhaustive. 
 
 ### Performance
 
-- Pour le pilote V1, la reprise d'une mission persistante doit restituer dans un meme flux l'objectif courant, les taches ouvertes, les validations en attente et le dernier artefact pertinent, sans reconstruction manuelle du contexte critique.
-- Le produit doit permettre a un operateur unique de suivre une mission pilote de bout en bout sur un poste local sans qu'une latence ou une opacite d'etat ne bloque une decision necessaire a la boucle.
-- Tout changement d'etat significatif d'une tache doit devenir visible dans le contexte de mission avant qu'une decision dependante ne soit requise.
+- NFR1 (Reprise lisible): 100% des commandes de reprise executees dans la suite d'acceptation du pilote V1 doivent restituer dans un meme flux l'objectif courant, les taches ouvertes, les validations en attente et le dernier artefact pertinent, sans reconstruction manuelle du contexte critique.
+- NFR2 (Pilotabilite mono-operateur): dans le scenario pilote mono-operateur, 100% des commandes operateur critiques exercees dans la demo end-to-end doivent produire une sortie exploitable sans timeout de test, sans blocage irrecoverable et sans obligation de relecture du transcript brut.
+- NFR3 (Fraicheur d'etat): 100% des changements d'etat significatifs d'une tache doivent devenir visibles dans la mission ou le journal avant qu'une commande dependante du meme scenario soit consideree comme reussie par la suite d'integration.
 
 ### Securite
 
-- 100% des actions sensibles exposees par le V1 doivent exiger une approbation humaine explicite avant execution.
-- Les permissions ou contraintes associees a une extension doivent etre consultables avant son activation dans une mission.
-- Le produit doit conserver une trace des validations, refus et delegations suffisante pour audit posteriori.
-- Les identites, secrets ou credentials eventuellement mobilises par des runtimes externes doivent etre traites comme des zones de risque; aucune hypothese de coexistence transparente ne doit etre supposee sans validation ulterieure.
+- NFR4 (Approbation des actions sensibles): 100% des actions sensibles exposees par le V1 doivent exiger une approbation humaine explicite avant execution, verification faite dans la suite d'acceptation mission/approval.
+- NFR5 (Lisibilite des permissions): 100% des extensions autorisables dans le scenario pilote doivent exposer des permissions ou contraintes consultables avant activation dans une mission, verification faite via la surface operateur retenue.
+- NFR6 (Trace d'audit minimale): 100% des validations, refus et delegations exerces dans le scenario pilote doivent rester reconstructibles a posteriori avec au minimum un acteur, un horodatage, une decision et une reference de mission ou de tache.
+- NFR7 (Non-fuite des secrets): 0 secret, credential ou identifiant sensible fourni par un runtime externe ne doit apparaitre dans les resumes de mission, projections operateur ou journaux consultables hors zone explicitement dediee a cet usage, verification faite par tests de non-fuite.
 
 ### Fiabilite Et Reprise
 
-- Une interruption de session ne doit pas effacer l'etat durable deja confirme d'une mission, de ses taches ou de ses artefacts.
-- Une tache en echec doit rester inspectable et relancable sans forcer la recreation complete de la mission.
-- Le systeme doit distinguer clairement les elements completes, en attente, bloques et rejetes afin d'eviter les reprises ambigues.
-- Le journal de mission doit rester suffisamment coherent pour permettre un diagnostic a posteriori d'un blocage ou d'une decision.
+- NFR8 (Persistance apres interruption): 100% des etats de mission, de tache et d'artefact confirmes avant interruption doivent rester relisibles apres redemarrage dans les tests de crash/reprise du pilote.
+- NFR9 (Relance ciblee): 100% des taches mises en echec dans les scenarios de reprise du pilote doivent rester inspectables et relancables sans recreation complete de la mission.
+- NFR10 (Vocabulaire d'etat explicite): 100% des elements exposes dans les vues de mission, de ticket et d'approbation doivent utiliser un etat appartenant a un vocabulaire documente et non ambigu pour l'operateur.
+- NFR11 (Diagnostic a posteriori): 100% des blocages, echecs et reprises exerces dans le scenario pilote doivent pouvoir etre reconstruits a partir du journal et des projections sans interpretation ad hoc du transcript brut.
 
 ### Integration
 
-- La boucle V1 doit rester operationnelle avec un ensemble minimal d'extensions locales, sans dependre d'un ecosysteme d'integrations exhaustif.
-- 100% des integrations utilisees dans une mission pilote doivent etre attribuables a un evenement, une tache ou un artefact du journal.
-- Le produit doit pouvoir borner l'usage d'une integration a une mission ou a une tache specifique lorsque cela est requis par la politique.
+- NFR12 (Frontiere minimale d'integration): le scenario pilote complet doit rester operationnel avec les seules seams V1 autorisees (`ExecutionAdapter`, `CapabilityRegistry`, `SkillPack`) et sans dependance obligatoire a un ecosysteme d'integrations exhaustif.
+- NFR13 (Attribution des integrations): 100% des integrations mobilisees dans une mission pilote doivent etre attribuables a un evenement, une tache ou un artefact du journal.
+- NFR14 (Bornage des integrations): 100% des contraintes d'usage d'une integration definies au niveau mission ou tache doivent etre appliquees dans les tests de preflight et d'approbation du pilote.
+
+### Hardening Pre-GA (ajoute 2026-04-14, Epic 5)
+
+Ces NFRs sont derivees des items `D-01` a `D-53` de `_bmad-output/implementation/deferred-work.md`, des 3 actions process recurrentes non adressees sur les retros Epic 1/2/3/4, et de la decision d'ouvrir un Epic 5 de durcissement transverse avant GA V1 (cf. action 6 de la retrospective Epic 4). Aucun nouveau FR n'est introduit; ces exigences durcissent les FR1-FR28 deja couverts. Le detail des mecanismes d'implementation lives dans les stories Epic 5 (`5.0` a `5.7`); le PRD ne fixe ici que les outcomes et gates attendus avant GA.
+
+- NFR15 (Coherence post-crash): 100% des tests de crash/recovery appliques aux flux mutateurs critiques doivent soit retrouver un etat de mission coherent au redemarrage, soit declencher une reconstruction deterministe depuis le journal, sans divergence silencieuse observable par l'operateur.
+- NFR16 (Lecture defensive): 100% des lectures de documents persistes invalides, absents ou inaccessibles dans les repositories cibles doivent echouer avec une erreur deterministe classee par type (`schema_invalide`, `json_corrompu`, `ENOENT`, `EACCES`, `EIO` ou equivalent), verification faite par tests repository et CLI.
+- NFR17 (Source canonique unique): pour chaque guard et helper workspace cible par Epic 5, il doit exister exactement une implementation canonique importee par tous les consommateurs concernes, avec 0 duplication locale residuelle dans les packages assainis par la story.
+- NFR18 (Portabilite Windows): 100% des identifiants non portables sur Windows doivent etre rejetes avant ecriture disque, et 100% des collisions de casse sur les refs d'extension doivent etre detectees de maniere deterministe dans les tests cross-OS ou equivalents.
+- NFR19 (Determinisme des lectures): sous les locales supportees et avec des entrees invalides, 100% des projections et commandes de lecture ciblees par Epic 5 doivent conserver le meme ordre, le meme filtrage documente et le meme rejet des bornes invalides avant acces au journal.
+- NFR20 (Confidentialite des briefs externes): 0 chemin absolu local et 0 identifiant vendor brut non allowliste ne doivent apparaitre dans les briefs envoyes a un adaptateur externe ou dans les projections publiques de test; 100% des metadonnees d'extension injectees dans ces briefs doivent etre echappees ou encodees de facon sure.
+- NFR21 (Revalidation et isolement des seams): 100% des resolutions d'approbation impliquant une extension precedemment selectionnee doivent revalider la presence de cette extension dans le registre workspace au moment de la decision, et 0 seam de test mutable global ne doit subsister dans les chemins critiques cibles.
+- NFR22 (Gate BMAD de cloture): 100% des transitions `epic-* -> done` doivent echouer si les story files, `sprint-status.yaml` et la retrospective associee ne sont pas synchronises; 0 retrospective d'epic clos ne doit conserver la valeur `optional`.
 
 ## Questions Ouvertes
 
@@ -376,3 +389,9 @@ L'adoption initiale ne porte pas sur une migration vendor-to-vendor exhaustive. 
 - Quelle frontiere minimale d'extension faut-il posseder des maintenant pour les tools, skills, plugins ou canaux, et que peut-on laisser hors V1 ?
 - Quel niveau d'autonomie economique et operationnelle du scenario de micro-entreprise locale rentable faut-il viser des le pilote V1, et lequel doit rester hors scope ?
 - Quel niveau de dependance est acceptable vis-a-vis des surfaces API et CLI de Codex des la premiere architecture ?
+
+## Decision Post-Epic 4 (2026-04-14)
+
+A l'issue de la retrospective Epic 4, FR1-FR28 et NFR1-NFR14 sont couverts par les Epics 1-4 et 246 tests sont verts. Deux options structurantes etaient sur la table: (1) clore le V1 et le declarer GA-ready avec dette transversale acceptee et documentee, ou (2) planifier un Epic 5 de durcissement transverse avant GA. L'option (2) est retenue: `53 items deferred` accumules sur Epics 1-4 + 3 actions process recurrentes non adressees constituent un volume de dette trop eleve pour etre simplement accepte.
+
+Un Epic 5 est ouvert pour couvrir NFR15-NFR22 sans introduire de nouveau FR. Les 8 stories `5.0` a `5.7` traduisent ces NFRs en mecanismes d'implementation, en criteres d'acceptation et en tests. Le PRD conserve ici le niveau outcome/gate attendu avant GA; les details techniques vivent dans les story files et les artefacts d'implementation. La baseline de 246 tests verts est maintenue comme gate de regression pour toute modification issue de l'Epic 5.

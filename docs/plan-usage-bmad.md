@@ -603,3 +603,78 @@ Fenetre 11+:
 3. Si tu veux lever les inconnues encore ouvertes, envoyer directement la commande `bmad-technical-research`.
 4. Sinon, ouvrir une autre fenetre pour `bmad-create-architecture`.
 5. Ne passer a l'implementation qu'une fois architecture, PRD valide et epics stabilises.
+
+
+---
+
+
+2-6 
+
+Utilise le skill bmad-dev-story.
+Implemente la story `C:\Dev\PRJET\corp\_bmad-output\implementation\2-6-corriger-les-guards-de-statuts-terminaux-et-le-filtre-des-tickets-ouverts.md` dans `C:\Dev\PRJET\corp`.
+Respecte strictement les guardrails, references, contraintes, exclusions et exigences de tests du fichier de story.
+Centralise les statuts via les constantes du contrat existant; n'introduis aucun nouveau statut et traite tout statut inconnu comme non-runnable par defaut.
+A la fin:
+1. execute les tests pertinents puis `npm test`
+2. mets a jour les sections `Dev Agent Record`, `Completion Notes List`, `File List` et `Change Log` dans la story
+3. passe le statut de la story dans `C:\Dev\PRJET\corp\_bmad-output\implementation\sprint-status.yaml` a `review` si l'implementation est complete
+4. si quelque chose bloque, documente precisement le blocage et n'invente pas un statut de completion
+
+---
+
+2-7
+
+Utilise le skill bmad-dev-story.
+Implemente la story `C:\Dev\PRJET\corp\_bmad-output\implementation\2-7-fiabiliser-le-mecanisme-central-de-projection-rewritemissionreadmodels.md` dans `C:\Dev\PRJET\corp`.
+Respecte strictement les guardrails, references, contraintes, exclusions et exigences de tests du fichier de story.
+Ne change pas le format ni la logique metier des projections; corrige seulement le mecanisme central de rewrite, la frequence des reecritures et le diagnostic d'erreur comme demande par la story.
+A la fin:
+1. execute les tests pertinents puis `npm test`
+2. mets a jour les sections `Dev Agent Record`, `Completion Notes List`, `File List` et `Change Log` dans la story
+3. passe le statut de la story dans `C:\Dev\PRJET\corp\_bmad-output\implementation\sprint-status.yaml` a `review` si l'implementation est complete
+4. si quelque chose bloque, documente precisement le blocage et n'invente pas un statut de completion
+
+
+---
+
+2-8
+
+Utilise le skill bmad-dev-story.
+Implemente la story `C:\Dev\PRJET\corp\_bmad-output\implementation\2-8-corriger-le-flow-d-execution-ticket-transitions-adaptateur-et-atomicite.md` dans `C:\Dev\PRJET\corp`.
+Respecte strictement les guardrails, references, contraintes, exclusions et exigences de tests du fichier de story.
+Respecte strictement la semantique `cancelled` vs `failed`, ajoute la transition `in_progress`, et utilise l'identifiant reel de l'adaptateur sans hardcode vendor.
+A la fin:
+1. execute les tests pertinents puis `npm test`
+2. mets a jour les sections `Dev Agent Record`, `Completion Notes List`, `File List` et `Change Log` dans la story
+3. passe le statut de la story dans `C:\Dev\PRJET\corp\_bmad-output\implementation\sprint-status.yaml` a `review` si l'implementation est complete
+4. si quelque chose bloque, documente precisement le blocage et n'invente pas un statut de completion
+
+
+---
+
+2-9
+
+Utilise le skill bmad-dev-story.
+Implemente la story `C:\Dev\PRJET\corp\_bmad-output\implementation\2-9-corriger-la-detection-et-l-enregistrement-d-artefacts.md` dans `C:\Dev\PRJET\corp`.
+Respecte strictement les guardrails, references, contraintes, exclusions et exigences de tests du fichier de story.
+Ne masque jamais l'erreur originale de l'adaptateur; si un workspace d'isolation existe, detecte et enregistre les artefacts avant de propager l'exception quand la story le demande.
+A la fin:
+1. execute les tests pertinents puis `npm test`
+2. mets a jour les sections `Dev Agent Record`, `Completion Notes List`, `File List` et `Change Log` dans la story
+3. passe le statut de la story dans `C:\Dev\PRJET\corp\_bmad-output\implementation\sprint-status.yaml` a `review` si l'implementation est complete
+4. si quelque chose bloque, documente precisement le blocage et n'invente pas un statut de completion
+
+---
+
+2-10
+Utilise le skill bmad-dev-story.
+Implemente la story `C:\Dev\PRJET\corp\_bmad-output\implementation\2-10-combler-les-gaps-de-tests-et-corriger-les-bugs-edge-case-restants.md` dans `C:\Dev\PRJET\corp`.
+Respecte strictement les guardrails, references, contraintes, exclusions et exigences de tests du fichier de story.
+Garde les corrections ciblees et minimales; si certains tests dependent des stories 2-6 a 2-9 non encore implementees, documente clairement le blocage ou utilise `skip` seulement si la story l'autorise explicitement.
+A la fin:
+1. execute les tests pertinents puis `npm test`
+2. mets a jour les sections `Dev Agent Record`, `Completion Notes List`, `File List` et `Change Log` dans la story
+3. passe le statut de la story dans `C:\Dev\PRJET\corp\_bmad-output\implementation\sprint-status.yaml` a `review` si l'implementation est complete
+4. si quelque chose bloque, documente precisement le blocage et n'invente pas un statut de completion
+
+
