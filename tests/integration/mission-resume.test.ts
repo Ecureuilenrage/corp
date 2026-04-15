@@ -119,6 +119,38 @@ test("mission status et mission resume restituent un resume operateur scannable"
   }
 });
 
+test("mission resume expose le diagnostic journal_invalide quand le journal est illisible", async (t) => {
+  const rootDir = await mkdtemp(path.join(tmpdir(), "corp-mission-resume-invalid-journal-"));
+
+  t.after(async () => {
+    await rm(rootDir, { recursive: true, force: true });
+  });
+
+  const { missionId } = await createMission(rootDir);
+
+  await writeFile(
+    path.join(rootDir, ".corp", "journal", "events.jsonl"),
+    "{json invalide\n",
+    "utf8",
+  );
+
+  const result = await runCommand([
+    "mission",
+    "resume",
+    "--root",
+    rootDir,
+    "--mission-id",
+    missionId,
+  ]);
+
+  assert.equal(result.exitCode, 1);
+  assert.match(
+    result.lines.at(-1) ?? "",
+    /journal_invalide: journal append-only invalide a la ligne 1 .*JSON corrompu\./,
+  );
+  assert.doesNotMatch(result.lines.at(-1) ?? "", /SyntaxError|Journal mission irreconciliable/);
+});
+
 test("mission status et mission resume restent strictement read-only pour le journal", async (t) => {
   const rootDir = await mkdtemp(path.join(tmpdir(), "corp-mission-resume-read-only-"));
 
@@ -1491,7 +1523,7 @@ test("mission resume expose un blocage ticket_failed tout en preservant le derni
   assert.equal(artifact.path, "README.md");
 });
 
-test("mission resume ne masque plus les statuts fantomes completed et closed comme des tickets fermes", async (t) => {
+test("mission resume reconstruit depuis le journal quand un snapshot ticket porte un statut fantome", async (t) => {
   const rootDir = await mkdtemp(path.join(tmpdir(), "corp-mission-resume-ghost-statuses-"));
 
   t.after(async () => {
@@ -1566,8 +1598,9 @@ test("mission resume ne masque plus les statuts fantomes completed et closed com
       assert.doesNotMatch(output, /Tickets ouverts: aucun/);
       assert.match(
         output,
-        /Prochain arbitrage utile: Aucun ticket n'est runnable pour le moment\. Replanifiez ou debloquez la mission avant de poursuivre\./,
+        /Prochain arbitrage utile: Traitez le prochain ticket runnable: Ticket au statut fantome\./,
       );
+      assert.doesNotMatch(output, new RegExp(`statut=${ghostStatus}`));
     }
 
     const resumeView = await readJson<{ resume: { openTickets: Array<Record<string, unknown>> } | null }>(
@@ -1575,6 +1608,6 @@ test("mission resume ne masque plus les statuts fantomes completed et closed com
     );
 
     assert.equal(resumeView.resume?.openTickets[0]?.ticketId, ticketId);
-    assert.equal(resumeView.resume?.openTickets[0]?.status, ghostStatus);
+    assert.equal(resumeView.resume?.openTickets[0]?.status, "todo");
   }
 });

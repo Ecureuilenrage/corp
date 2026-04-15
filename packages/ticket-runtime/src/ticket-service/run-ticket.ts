@@ -52,6 +52,7 @@ import {
   requireTicketInMission,
   rewriteMissionReadModels,
 } from "./ticket-service-support";
+import { deepStrictEqualIgnoringArrayOrder } from "../utils/structural-compare";
 
 export interface RunTicketOptions {
   rootDir: string;
@@ -427,9 +428,13 @@ export async function runTicket(
     event: JournalEventRecord;
   };
   let adapterResult: ExecutionAdapterLaunchResult | null = null;
+  // Declare au scope externe pour que le catch voie l'etat mission apres les ecritures
+  // concurrentes (notamment les tickets ajoutes par un autre runTicket en vol). Fallback
+  // sur `mission` si le findById lui-meme echoue avant l'assignation.
+  let latestMission: Mission | null = null;
 
   try {
-    const latestMission = await missionRepository.findById(mission.id);
+    latestMission = await missionRepository.findById(mission.id);
 
     if (!latestMission) {
       throw new Error(`Mission introuvable: ${mission.id}.`);
@@ -440,6 +445,14 @@ export async function runTicket(
       allowedCapabilities: currentTicket.allowedCapabilities,
       skillPackRefs: currentTicket.skillPackRefs,
     });
+
+    const latestTicket = requireTicketInMission(
+      await ticketRepository.findById(latestMission.id, ticket.id),
+      latestMission,
+      ticket.id,
+    );
+
+    ensureTicketHasNoConcurrentExtensionMutation(currentTicket, latestTicket);
 
     adapterResult = await adapter.launch({
       mission: currentMission,
@@ -500,13 +513,15 @@ export async function runTicket(
     });
   } catch (error) {
     const failedAt = new Date().toISOString();
+    const failureMissionBase = latestMission ?? currentMission;
+    const missionTicketIdsForScan = failureMissionBase.ticketIds;
     const hasOtherActiveAttempts = await missionHasOtherActiveAttempts(
       mission.id,
       ticket.id,
-      mission.ticketIds,
+      missionTicketIdsForScan,
       attemptRepository,
     );
-    currentMission = withMissionEvent(currentMission, {
+    currentMission = withMissionEvent(failureMissionBase, {
       eventId: dependencies.createEventId(),
       occurredAt: failedAt,
       status: hasOtherActiveAttempts ? "running" : "failed",
@@ -567,6 +582,26 @@ export async function runTicket(
       currentMission = artifactRegistrationResult.mission;
       currentTicket = artifactRegistrationResult.ticket;
       events.push(...artifactRegistrationResult.events);
+
+      const latestArtifactEvent = artifactRegistrationResult.events.at(-1);
+
+      if (latestArtifactEvent) {
+        // journal-as-source-of-truth AC7 : on recalcule les projections apres persist
+        // des artefacts pour que resume-view/audit-log/ticket-board refletent bien
+        // execution.failed ET artifact.registered au moment du rethrow. Voir
+        // docs/architecture/journal-as-source-of-truth.md (decision D4, 2026-04-15).
+        await persistRunTransition({
+          layout,
+          event: latestArtifactEvent,
+          mission: currentMission,
+          ticket: currentTicket,
+          attempt: currentAttempt,
+          ticketRepository,
+          missionRepository,
+          attemptRepository,
+          eventAlreadyAppended: true,
+        });
+      }
     } catch (artifactDetectionError) {
       console.warn(
         `Avertissement: impossible de detecter/enregistrer les artefacts apres l'echec du ticket \`${ticket.id}\`: ${artifactDetectionError instanceof Error ? artifactDetectionError.message : String(artifactDetectionError)}`,
@@ -865,6 +900,28 @@ async function finalizeAdapterOutcome(options: {
   };
 }
 
+function ensureTicketHasNoConcurrentExtensionMutation(
+  currentTicket: Ticket,
+  latestTicket: Ticket,
+): void {
+  if (
+    deepStrictEqualIgnoringArrayOrder(
+      currentTicket.allowedCapabilities,
+      latestTicket.allowedCapabilities,
+    )
+    && deepStrictEqualIgnoringArrayOrder(
+      currentTicket.skillPackRefs,
+      latestTicket.skillPackRefs,
+    )
+  ) {
+    return;
+  }
+
+  throw new Error(
+    `Conflit d'ecriture concurrente detecte pour le ticket \`${currentTicket.id}\`.`,
+  );
+}
+
 function buildTicketInProgressTransition(options: {
   mission: Mission;
   ticket: Ticket;
@@ -975,9 +1032,19 @@ async function persistRunTransition(options: {
   ticketRepository: ReturnType<typeof createFileTicketRepository>;
   missionRepository: ReturnType<typeof createFileMissionRepository>;
   attemptRepository?: ReturnType<typeof createFileExecutionAttemptRepository>;
+  eventAlreadyAppended?: boolean;
   skipProjectionRewrite?: boolean;
 }): Promise<void> {
-  await appendEvent(options.layout.journalPath, options.event);
+  // journal-as-source-of-truth : l'append est la decision d'autorite. Les saves
+  // ticket/mission/attempt ci-dessous sont des optimisations de lecture ; un crash
+  // entre deux d'entre eux laisse les snapshots en retard sur le journal, et le
+  // prochain reader (readMissionResume, readTicketBoard, readMissionArtifacts)
+  // reconstruit via reconstructMissionFromJournal. Voir
+  // docs/architecture/journal-as-source-of-truth.md (decisions D1/D4, 2026-04-15).
+  if (!options.eventAlreadyAppended) {
+    await appendEvent(options.layout.journalPath, options.event);
+  }
+
   await options.ticketRepository.save(options.ticket);
   await options.missionRepository.save(options.mission);
 

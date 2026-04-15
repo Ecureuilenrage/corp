@@ -7,8 +7,12 @@ exports.FileExecutionAttemptRepository = void 0;
 exports.createFileExecutionAttemptRepository = createFileExecutionAttemptRepository;
 const promises_1 = require("node:fs/promises");
 const node_path_1 = __importDefault(require("node:path"));
+const persisted_document_guards_1 = require("../../../contracts/src/guards/persisted-document-guards");
 const execution_attempt_1 = require("../../../contracts/src/execution-attempt/execution-attempt");
+const atomic_json_1 = require("../fs-layout/atomic-json");
+const file_system_read_errors_1 = require("../fs-layout/file-system-read-errors");
 const workspace_layout_1 = require("../fs-layout/workspace-layout");
+const persisted_document_errors_1 = require("./persisted-document-errors");
 class FileExecutionAttemptRepository {
     layout;
     constructor(layout) {
@@ -17,17 +21,23 @@ class FileExecutionAttemptRepository {
     async save(missionId, attempt) {
         const attemptStoragePaths = (0, workspace_layout_1.resolveExecutionAttemptStoragePaths)(this.layout, missionId, attempt.ticketId, attempt.id);
         await (0, promises_1.mkdir)(attemptStoragePaths.attemptDir, { recursive: true });
-        await (0, promises_1.writeFile)(attemptStoragePaths.attemptPath, `${JSON.stringify(attempt, null, 2)}\n`, "utf8");
+        await (0, atomic_json_1.writeJsonAtomic)(attemptStoragePaths.attemptPath, attempt);
         return attemptStoragePaths;
     }
     async findById(missionId, ticketId, attemptId) {
         const attemptStoragePaths = (0, workspace_layout_1.resolveExecutionAttemptStoragePaths)(this.layout, missionId, ticketId, attemptId);
+        const context = {
+            filePath: attemptStoragePaths.attemptPath,
+            entityLabel: "ExecutionAttempt",
+            documentId: attemptId,
+        };
         try {
-            const storedAttempt = await (0, promises_1.readFile)(attemptStoragePaths.attemptPath, "utf8");
-            return JSON.parse(storedAttempt);
+            const storedAttempt = await (0, persisted_document_errors_1.readPersistedJsonDocument)(context);
+            (0, persisted_document_errors_1.assertValidPersistedDocument)(storedAttempt, persisted_document_guards_1.validateExecutionAttempt, context);
+            return storedAttempt;
         }
         catch (error) {
-            if (isMissingFileError(error)) {
+            if ((0, file_system_read_errors_1.isMissingFileError)(error)) {
                 return null;
             }
             throw error;
@@ -63,15 +73,9 @@ async function readDirectoryEntries(directoryPath) {
         return await (0, promises_1.readdir)(directoryPath, { withFileTypes: true, encoding: "utf8" });
     }
     catch (error) {
-        if (isMissingFileError(error)) {
+        if ((0, file_system_read_errors_1.isMissingFileError)(error)) {
             return [];
         }
         throw error;
     }
-}
-function isMissingFileError(error) {
-    return typeof error === "object"
-        && error !== null
-        && "code" in error
-        && error.code === "ENOENT";
 }

@@ -1,6 +1,6 @@
 # Story 5.0.2: Consolider le gate check-epic-closure (findings review 5.0.1)
 
-Status: ready-for-dev
+Status: done
 
 ## Story
 
@@ -50,41 +50,47 @@ Les findings `defer` (5 items: message "valeur vide" ambigu pour `epic-N: #comme
 
 ## Tasks / Subtasks
 
-- [ ] Durcir `extractStoryHeader` pour le frontmatter et les fences Markdown (AC: 1, 2)
-  - [ ] Detecter un frontmatter: si la premiere ligne non vide est exactement `---`, lire jusqu'a la ligne suivante `---` comme header, puis continuer la lecture normale du corps jusqu'au premier `## ` en ignorant les occurrences intermediaires de `---`.
-  - [ ] Tracker les fences Markdown (` ``` ` ou ` ~~~ `) dans le header: les lignes a l'interieur d'une fence ne sont pas ajoutees a `headerContents`. Fermer la fence sur la meme marque.
-  - [ ] Ajouter un test d'integration: story file avec frontmatter YAML uniquement (AC1) -> lu comme `done`.
-  - [ ] Ajouter un test d'integration: story file dont la seule ligne `Status:` avant `## ` est dans une fence ` ```yaml ` (AC2) -> traite comme `(absent)` et erreur explicite.
+- [x] Durcir `extractStoryHeader` pour le frontmatter et les fences Markdown (AC: 1, 2)
+  - [x] Detecter un frontmatter: si la premiere ligne non vide est exactement `---`, lire jusqu'a la ligne suivante `---` comme header, puis continuer la lecture normale du corps jusqu'au premier `## ` en ignorant les occurrences intermediaires de `---`.
+  - [x] Tracker les fences Markdown (` ``` ` ou ` ~~~ `) dans le header: les lignes a l'interieur d'une fence ne sont pas ajoutees a `headerContents`. Fermer la fence sur la meme marque.
+  - [x] Ajouter un test d'integration: story file avec frontmatter YAML uniquement (AC1) -> lu comme `done`.
+  - [x] Ajouter un test d'integration: story file dont la seule ligne `Status:` avant `## ` est dans une fence ` ```yaml ` (AC2) -> traite comme `(absent)` et erreur explicite.
 
-- [ ] Detecter les sections `development_status:` dupliquees (AC: 3)
-  - [ ] Apres `findIndex`, rechercher une seconde occurrence exacte de `development_status:`; si presente, `throw` avec le message `development_status: section dupliquee detectee (lignes A et B).`.
-  - [ ] Ajouter un test d'integration avec deux sections `development_status:` consecutives.
+- [x] Detecter les sections `development_status:` dupliquees (AC: 3)
+  - [x] Apres `findIndex`, rechercher une seconde occurrence exacte de `development_status:`; si presente, `throw` avec le message `development_status: section dupliquee detectee (lignes A et B).`.
+  - [x] Ajouter un test d'integration avec deux sections `development_status:` consecutives.
 
-- [ ] Stripper le BOM UTF-8 a la lecture du sprint-status (AC: 4)
-  - [ ] Apres `readFile(sprintStatusPath, "utf8")`, retirer `\uFEFF` s'il est en tete.
-  - [ ] Ajouter un test d'integration en ecrivant `"\uFEFF"` devant le contenu fixture.
+- [x] Stripper le BOM UTF-8 a la lecture du sprint-status (AC: 4)
+  - [x] Apres `readFile(sprintStatusPath, "utf8")`, retirer `\uFEFF` s'il est en tete.
+  - [x] Ajouter un test d'integration en ecrivant `"\uFEFF"` devant le contenu fixture.
 
-- [ ] Refuser `--root ""` (AC: 5)
-  - [ ] Ajouter une garde `nextArg === ""` dans la branche `--root <value>` de `parseRootDirFromArgs`.
-  - [ ] Ajouter un test d'integration: `runCheck(rootDir, ["--root", ""])` -> exit 1 et message explicite.
+- [x] Refuser `--root ""` (AC: 5)
+  - [x] Ajouter une garde `nextArg === ""` dans la branche `--root <value>` de `parseRootDirFromArgs`.
+  - [x] Ajouter un test d'integration: `runCheck(rootDir, ["--root", ""])` -> exit 1 et message explicite.
 
-- [ ] Warning `in-progress` sans story (AC: 6)
-  - [ ] Ajouter dans `checkEpicClosure` une passe sur les entrees `epic-N: in-progress` dont `storyEntries.length === 0`: pousser le warning `epic-N: aucune story associee dans development_status alors que l'epic est in-progress.`.
-  - [ ] Ajouter un test d'integration.
+- [x] Warning `in-progress` sans story (AC: 6)
+  - [x] Ajouter dans `checkEpicClosure` une passe sur les entrees `epic-N: in-progress` dont `storyEntries.length === 0`: pousser le warning `epic-N: aucune story associee dans development_status alors que l'epic est in-progress.`.
+  - [x] Ajouter un test d'integration.
 
-- [ ] Corriger l'ordre des remplacements dans `unwrapQuotedScalar` (AC: 7)
-  - [ ] Inverser l'ordre: `replace(/\\\\/g, "\\")` AVANT `replace(/\\"/g, "\"")` (ou utiliser un scan lineaire qui traite chaque escape une fois).
-  - [ ] Ajouter un test unitaire (ou d'integration via un fixture) exercant `"foo\\\""` -> `foo\"`.
+- [x] Corriger l'ordre des remplacements dans `unwrapQuotedScalar` (AC: 7)
+  - [x] Refacto en scan lineaire qui traite chaque escape une fois (resout le risque d'inversion d'ordre des passes regex).
+  - [x] Ajouter un test d'integration via un fixture exercant `"foo\\\""` -> `foo\"`.
 
-- [ ] Creer `.gitattributes` forcant LF sur les hooks (AC: 8)
-  - [ ] Ajouter `.gitattributes` au niveau repo racine avec les entrees:
+- [x] Creer `.gitattributes` forcant LF sur les hooks (AC: 8)
+  - [x] Ajouter `.gitattributes` au niveau repo racine avec les entrees:
     - `.githooks/** text eol=lf`
     - `scripts/**.sh text eol=lf`
-  - [ ] Documenter la regle dans `_bmad/policies/epic-closure.md` (section "Hook git optionnel").
-  - [ ] Verifier via `git check-attr` qu'une extraction Windows preserverait LF (verification manuelle suffisante, pas de test automatise Windows-only).
+  - [x] Documenter la regle dans `_bmad/policies/epic-closure.md` (section "Hook git optionnel").
+  - [x] Verifier via `git check-attr` qu'une extraction Windows preserverait LF (`git check-attr -a .githooks/pre-commit` retourne `text: set` + `eol: lf`).
 
-- [ ] Rebuild + regression (toutes AC)
-  - [ ] `npm run build` puis `npm test` -> suite complete verte (>= 263 tests).
+- [x] Rebuild + regression (toutes AC)
+  - [x] `npm run build` puis `npm test` -> suite complete verte (272 tests, 0 fail).
+
+### Review Findings
+
+- [x] [Review][Patch] Reconnaitre les fences Markdown indentees dans le header [scripts/check-epic-closure.ts:321]
+- [x] [Review][Patch] Detecter les sections development_status dupliquees avec commentaire inline [scripts/check-epic-closure.ts:144]
+- [x] [Review][Patch] Limiter `.gitattributes` aux patterns LF demandes [.gitattributes:1]
 
 ## Dev Notes
 
@@ -126,11 +132,22 @@ NFR22 (Gate BMAD de cloture) consolide: 0% de chemin de contournement via frontm
 
 ### Debug Log
 
-_(a completer au fil de l'implementation)_
+- 2026-04-15: build TypeScript ok apres refactor de `extractStoryHeader`, ajout de la detection de section `development_status:` dupliquee, du strip BOM, de la garde `--root ""`, du warning `in-progress` orphelin, du linear scan `unwrapQuotedScalar`, et de la creation `.gitattributes`.
+- 2026-04-15: `node --test dist/tests/integration/check-epic-closure.test.js` -> 25/25 verts (17 tests existants + 8 nouveaux). `npm test` -> 271/271 verts.
+- 2026-04-15: `git check-attr -a .githooks/pre-commit` confirme `text: set` + `eol: lf`.
+- 2026-04-15: findings review corriges: fences Markdown indentees, section `development_status:` dupliquee avec commentaire inline, et suppression du `* text=auto` global. `npm test` -> 272/272 verts.
 
 ### Completion Notes
 
-_(a completer apres validation)_
+- AC1: `extractStoryHeader` detecte un frontmatter YAML (premiere ligne non-vide = `---`) et lit son contenu jusqu'a la cloture `---` avant de continuer le header normal jusqu'au premier `## `.
+- AC2: les fences Markdown ` ``` ` et ` ~~~ ` (3+ marqueurs, avec 0 a 3 espaces d'indentation) sont trackees dans le header; les lignes a l'interieur d'une fence ne sont pas exposees au scan `Status:`. Les tests fence-only et fence indentee verifient que la sortie reporte bien `Status: (absent)`.
+- AC3: ajout d'un second `findIndex` apres le premier `development_status:`; si un second match existe, y compris avec commentaire inline, throw `development_status: section dupliquee detectee (lignes A et B).` avant tout parsing.
+- AC4: `checkEpicClosure` retire `\uFEFF` en tete du contenu raw avant de le transmettre au parser.
+- AC5: `parseRootDirFromArgs` refuse `nextArg === ""` au meme titre que `undefined`/`--*`.
+- AC6: passe additionnelle dans `checkEpicClosure` qui, pour chaque epic `in-progress` sans story `N-*`, pousse un warning symetrique a celui des epics `done` orphelins.
+- AC7: refacto de `unwrapQuotedScalar` en scan lineaire single-pass qui consomme chaque escape (`\\` ou `\"`) une seule fois, eliminant le risque d'inversion d'ordre entre les passes regex. Test fixture exercant `"foo\\\""` confirme le resultat `foo\"`.
+- AC8: `.gitattributes` cree a la racine avec `.githooks/** text eol=lf` et `scripts/**.sh text eol=lf`, sans regle globale `* text=auto`. Section "Compatibilite Windows (CRLF)" ajoutee dans `_bmad/policies/epic-closure.md`.
+- Regression: 272 tests verts (vs 263 avant), 0 fail. Aucun runtime `corp` modifie.
 
 ## File List
 
@@ -146,3 +163,5 @@ _(a completer apres validation)_
 ## Change Log
 
 - `2026-04-14`: creation de la story 5.0.2 suite a la review adversariale triplee de 5.0.1 (8 findings `patch` consolides; 5 findings `defer` et 7 findings `dismiss` documentes hors scope).
+- `2026-04-15`: implementation des 8 AC (frontmatter + fences, section dupliquee, BOM, `--root ""`, warning `in-progress` orphelin, refacto `unwrapQuotedScalar` en scan lineaire, `.gitattributes` LF). Suite de tests: 271 verts (8 nouveaux), 0 fail. Status -> review.
+- `2026-04-15`: correction des 3 findings de code review et validation `npm test`: 272 verts, 0 fail. Status -> done.

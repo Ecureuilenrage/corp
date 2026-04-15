@@ -199,6 +199,148 @@ function createTicket(overrides = {}) {
     }), /Collision ambigue.*pack\.triage\.local/i);
     strict_1.default.equal((await repository.list()).length, 1);
 });
+(0, node_test_1.default)("FileSkillPackRegistryRepository traite un enregistrement concurrent identique comme unchanged", async (t) => {
+    const rootDir = await (0, promises_1.mkdtemp)(node_path_1.default.join((0, node_os_1.tmpdir)(), "corp-skill-pack-concurrent-identical-"));
+    t.after(async () => {
+        await (0, promises_1.rm)(rootDir, { recursive: true, force: true });
+    });
+    const layout = await (0, workspace_layout_1.ensureWorkspaceLayout)(rootDir);
+    const repository = (0, file_skill_pack_registry_repository_1.createFileSkillPackRegistryRepository)(layout);
+    const registeredSkillPack = {
+        packRef: "pack.concurrent",
+        registrationId: "ext.skill-pack.concurrent",
+        schemaVersion: "corp.extension.v1",
+        displayName: "Pack concurrent",
+        version: "0.1.0",
+        permissions: ["docs.read"],
+        constraints: ["local_only", "workspace_scoped"],
+        metadata: {
+            description: "Pack concurrent identique.",
+            owner: "core-platform",
+            tags: ["skill-pack", "concurrent"],
+        },
+        localRefs: {
+            rootDir,
+            references: [],
+            scripts: [],
+        },
+        registeredAt: "2026-04-15T10:00:00.000Z",
+        sourceManifestPath: node_path_1.default.join(rootDir, "pack.concurrent.json"),
+    };
+    const originalFindByPackRef = repository.findByPackRef.bind(repository);
+    let synchronizedReads = 0;
+    let releaseReads;
+    const readBarrier = new Promise((resolve) => {
+        releaseReads = resolve;
+    });
+    repository.findByPackRef = async (packRef) => {
+        const existingSkillPack = await originalFindByPackRef(packRef);
+        if (packRef === registeredSkillPack.packRef && synchronizedReads < 2) {
+            synchronizedReads += 1;
+            if (synchronizedReads === 2) {
+                releaseReads();
+            }
+            await readBarrier;
+        }
+        return existingSkillPack;
+    };
+    const results = await Promise.all([
+        repository.save(registeredSkillPack),
+        repository.save(registeredSkillPack),
+    ]);
+    strict_1.default.deepEqual(results.map((result) => result.status).sort(), ["registered", "unchanged"]);
+    strict_1.default.equal((await repository.list()).length, 1);
+});
+(0, node_test_1.default)("FileSkillPackRegistryRepository revendique une dir orpheline via creation exclusive apres expiration du polling", async (t) => {
+    const rootDir = await (0, promises_1.mkdtemp)(node_path_1.default.join((0, node_os_1.tmpdir)(), "corp-skill-pack-orphan-claim-"));
+    t.after(async () => {
+        await (0, promises_1.rm)(rootDir, { recursive: true, force: true });
+    });
+    const layout = await (0, workspace_layout_1.ensureWorkspaceLayout)(rootDir);
+    const repository = (0, file_skill_pack_registry_repository_1.createFileSkillPackRegistryRepository)(layout);
+    const registeredSkillPack = {
+        packRef: "pack.orphan",
+        registrationId: "ext.skill-pack.orphan",
+        schemaVersion: "corp.extension.v1",
+        displayName: "Pack orphelin",
+        version: "0.1.0",
+        permissions: ["docs.read"],
+        constraints: ["local_only", "workspace_scoped"],
+        metadata: {
+            description: "Simule un writer concurrent mort apres mkdir.",
+            owner: "core-platform",
+            tags: ["skill-pack", "orphan"],
+        },
+        localRefs: {
+            rootDir,
+            references: [],
+            scripts: [],
+        },
+        registeredAt: "2026-04-15T11:00:00.000Z",
+        sourceManifestPath: node_path_1.default.join(rootDir, "pack.orphan.json"),
+    };
+    // Simule un writer concurrent qui a cree la dir mais jamais le fichier (crash post-mkdir).
+    await (0, promises_1.mkdir)(layout.skillPacksDir, { recursive: true });
+    await (0, promises_1.mkdir)(node_path_1.default.join(layout.skillPacksDir, registeredSkillPack.packRef));
+    const result = await repository.save(registeredSkillPack);
+    strict_1.default.equal(result.status, "registered");
+    const persisted = await repository.findByPackRef(registeredSkillPack.packRef);
+    strict_1.default.ok(persisted);
+    strict_1.default.equal(persisted.packRef, registeredSkillPack.packRef);
+    strict_1.default.equal(persisted.displayName, "Pack orphelin");
+});
+(0, node_test_1.default)("FileSkillPackRegistryRepository leve un conflit legitime quand un writer concurrent publie un contenu different pendant le polling", async (t) => {
+    const rootDir = await (0, promises_1.mkdtemp)(node_path_1.default.join((0, node_os_1.tmpdir)(), "corp-skill-pack-concurrent-legit-"));
+    t.after(async () => {
+        await (0, promises_1.rm)(rootDir, { recursive: true, force: true });
+    });
+    const layout = await (0, workspace_layout_1.ensureWorkspaceLayout)(rootDir);
+    const repository = (0, file_skill_pack_registry_repository_1.createFileSkillPackRegistryRepository)(layout);
+    const packRef = "pack.legit-conflict";
+    const writerContent = {
+        packRef,
+        registrationId: "ext.skill-pack.legit-a",
+        schemaVersion: "corp.extension.v1",
+        displayName: "Pack A",
+        version: "0.1.0",
+        permissions: ["docs.read"],
+        constraints: ["local_only", "workspace_scoped"],
+        metadata: {
+            description: "Writer concurrent.",
+            owner: "core-platform",
+            tags: ["skill-pack", "writer"],
+        },
+        localRefs: { rootDir, references: [], scripts: [] },
+        registeredAt: "2026-04-15T11:30:00.000Z",
+        sourceManifestPath: node_path_1.default.join(rootDir, "pack.A.json"),
+    };
+    const ourContent = {
+        ...writerContent,
+        registrationId: "ext.skill-pack.legit-b",
+        displayName: "Pack B",
+        version: "0.2.0",
+        sourceManifestPath: node_path_1.default.join(rootDir, "pack.B.json"),
+    };
+    await (0, promises_1.mkdir)(layout.skillPacksDir, { recursive: true });
+    // Simule un writer concurrent qui a cree la dir mais n'a pas encore publie le fichier.
+    await (0, promises_1.mkdir)(node_path_1.default.join(layout.skillPacksDir, packRef));
+    // Le writer concurrent publie un contenu DIFFERENT pendant le polling de notre save.
+    const originalFindByPackRef = repository.findByPackRef.bind(repository);
+    let pollCount = 0;
+    repository.findByPackRef = async (requested) => {
+        if (requested !== packRef) {
+            return originalFindByPackRef(requested);
+        }
+        pollCount += 1;
+        // Le premier appel (pre-mkdir check) trouve rien, les appels suivants (polling)
+        // simulent l'arrivee du manifeste concurrent.
+        if (pollCount >= 2) {
+            return writerContent;
+        }
+        return null;
+    };
+    await strict_1.default.rejects(() => repository.save(ourContent), /Conflit d'ecriture concurrente legitime.*pack\.legit-conflict/i);
+});
 (0, node_test_1.default)("resolveTicketSkillPacks deduplique les packRefs en double dans un ticket", async (t) => {
     const rootDir = await (0, promises_1.mkdtemp)(node_path_1.default.join((0, node_os_1.tmpdir)(), "corp-skill-pack-dedup-"));
     t.after(async () => {

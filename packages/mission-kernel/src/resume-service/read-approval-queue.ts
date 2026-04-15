@@ -2,7 +2,9 @@ import { access } from "node:fs/promises";
 
 import type { ApprovalQueueEntry } from "../../../contracts/src/approval/approval-request";
 import type { Mission } from "../../../contracts/src/mission/mission";
+import { EventLogReadError, isEventLogReadError } from "../../../journal/src/event-log/event-log-errors";
 import { readEventLog } from "../../../journal/src/event-log/file-event-log";
+import { readMissionSnapshotFromJournalOrThrow } from "../../../journal/src/reconstruction/mission-reconstruction";
 import {
   createApprovalQueueProjection,
   type ApprovalQueueProjection,
@@ -16,7 +18,17 @@ import {
   resolveWorkspaceLayout,
   type WorkspaceLayout,
 } from "../../../storage/src/fs-layout/workspace-layout";
+import {
+  createFileSystemReadError,
+  isFileSystemReadError,
+  isMissingFileError,
+  readAccessError,
+} from "../../../storage/src/fs-layout/file-system-read-errors";
 import { createFileMissionRepository } from "../../../storage/src/repositories/file-mission-repository";
+import {
+  isPersistedDocumentReadError,
+  isRecoverablePersistedDocumentError,
+} from "../../../storage/src/repositories/persisted-document-errors";
 import { deepStrictEqualForComparison } from "../../../ticket-runtime/src/utils/structural-compare";
 
 export interface ReadApprovalQueueOptions {
@@ -40,28 +52,25 @@ export interface ReadApprovalQueueResult {
   projectionPath: string;
 }
 
-const FILE_SYSTEM_ERROR_CODES = new Set(["EPERM", "EMFILE", "ENOSPC"]);
-
 export async function readApprovalQueue(
   options: ReadApprovalQueueOptions,
 ): Promise<ReadApprovalQueueResult> {
   const layout = resolveWorkspaceLayout(options.rootDir);
   await ensureApprovalQueueWorkspaceInitialized(layout, options.commandName);
 
-  const missionRepository = createFileMissionRepository(layout);
-  const mission = await missionRepository.findById(options.missionId);
-
-  if (!mission) {
-    throw new Error(`Mission introuvable: ${options.missionId}.`);
-  }
+  const missionSnapshotResult = await readMissionSnapshotForApprovalQueue(
+    layout,
+    options.missionId,
+  );
+  const missionSnapshot = missionSnapshotResult.mission;
 
   const projectionPath = resolveProjectionPath(layout.projectionsDir, "approval-queue");
 
   try {
     const missionEvents = (await readEventLog(layout.journalPath))
-      .filter((event) => event.missionId === mission.id);
+      .filter((event) => event.missionId === missionSnapshot.id);
     const rebuiltProjection = createApprovalQueueProjection({
-      missionId: mission.id,
+      missionId: missionSnapshot.id,
       events: missionEvents,
     });
     const storedProjection = await readStoredApprovalQueue(layout.projectionsDir);
@@ -70,7 +79,7 @@ export async function readApprovalQueue(
       await writeProjectionSnapshot(layout.projectionsDir, "approval-queue", rebuiltProjection);
 
       return {
-        mission,
+        mission: missionSnapshot,
         approvals: rebuiltProjection.approvals,
         reconstructed: true,
         projectionPath,
@@ -78,14 +87,18 @@ export async function readApprovalQueue(
     }
 
     return {
-      mission,
+      mission: missionSnapshot,
       approvals: storedProjection.approvals,
-      reconstructed: false,
+      reconstructed: missionSnapshotResult.reconstructed,
       projectionPath,
     };
   } catch (error) {
-    if (isFileSystemError(error)) {
-      throw new Error(`Erreur fichier: ${error.message}`);
+    if (isClassifiedReadError(error)) {
+      throw error;
+    }
+
+    if (isFileSystemReadError(error)) {
+      throw createFileSystemReadError(error, projectionPath, "projection approval-queue");
     }
 
     throw new Error(
@@ -98,11 +111,33 @@ async function ensureApprovalQueueWorkspaceInitialized(
   layout: WorkspaceLayout,
   commandName: ReadApprovalQueueOptions["commandName"],
 ): Promise<void> {
-  try {
-    await access(layout.journalPath);
-    await access(layout.projectionsDir);
-    await access(layout.missionsDir);
-  } catch {
+  const journalError = await readAccessError(() => access(layout.journalPath));
+  const projectionsError = await readAccessError(() => access(layout.projectionsDir));
+  const missionsError = await readAccessError(() => access(layout.missionsDir));
+
+  const fileSystemError = [
+    { error: journalError, filePath: layout.journalPath, label: "journal append-only" },
+    { error: projectionsError, filePath: layout.projectionsDir, label: "repertoire projections" },
+    { error: missionsError, filePath: layout.missionsDir, label: "repertoire missions" },
+  ].find((entry) => entry.error && entry.error.code !== "ENOENT" && isFileSystemReadError(entry.error));
+
+  if (fileSystemError?.error) {
+    if (fileSystemError.filePath === layout.journalPath) {
+      throw EventLogReadError.fileSystem(layout.journalPath, fileSystemError.error);
+    }
+
+    throw createFileSystemReadError(
+      fileSystemError.error,
+      fileSystemError.filePath,
+      fileSystemError.label,
+    );
+  }
+
+  if (journalError?.code === "ENOENT" && !projectionsError && !missionsError) {
+    throw EventLogReadError.missing(layout.journalPath, journalError);
+  }
+
+  if (journalError || projectionsError || missionsError) {
     throw new Error(
       `Workspace mission non initialise. Lancez \`corp mission bootstrap --root ${layout.rootDir}\` avant \`corp mission ${commandName}\`.`,
     );
@@ -138,19 +173,30 @@ function formatApprovalQueueReadError(
   return `Projection approval-queue irreconciliable pour ${missionId}. Impossible d'afficher la mission.`;
 }
 
-function isFileSystemError(
-  error: unknown,
-): error is NodeJS.ErrnoException {
-  return typeof error === "object"
-    && error !== null
-    && "code" in error
-    && typeof error.code === "string"
-    && FILE_SYSTEM_ERROR_CODES.has(error.code);
+async function readMissionSnapshotForApprovalQueue(
+  layout: WorkspaceLayout,
+  missionId: string,
+): Promise<{ mission: Mission; reconstructed: boolean }> {
+  const missionRepository = createFileMissionRepository(layout);
+
+  try {
+    const mission = await missionRepository.findById(missionId);
+
+    if (mission) {
+      return { mission, reconstructed: false };
+    }
+  } catch (error) {
+    if (!isRecoverablePersistedDocumentError(error)) {
+      throw error;
+    }
+  }
+
+  return {
+    mission: await readMissionSnapshotFromJournalOrThrow(layout.journalPath, missionId),
+    reconstructed: true,
+  };
 }
 
-function isMissingFileError(error: unknown): boolean {
-  return typeof error === "object"
-    && error !== null
-    && "code" in error
-    && error.code === "ENOENT";
+function isClassifiedReadError(error: unknown): boolean {
+  return isEventLogReadError(error) || isPersistedDocumentReadError(error);
 }

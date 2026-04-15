@@ -2,7 +2,14 @@ import { access } from "node:fs/promises";
 
 import type { Mission } from "../../../contracts/src/mission/mission";
 import type { ExecutionAttempt } from "../../../contracts/src/execution-attempt/execution-attempt";
-import { readEventLog } from "../../../journal/src/event-log/file-event-log";
+import type { Ticket } from "../../../contracts/src/ticket/ticket";
+import { EventLogReadError, isEventLogReadError } from "../../../journal/src/event-log/event-log-errors";
+import {
+  readMissionEvents,
+  reconstructAttemptsFromJournal,
+  reconstructMissionFromJournal,
+  reconstructTicketsFromJournal,
+} from "../../../journal/src/reconstruction/mission-reconstruction";
 import type { TicketBoardProjection } from "../../../journal/src/projections/ticket-board-projection";
 import {
   readProjectionFile,
@@ -13,9 +20,19 @@ import {
   resolveWorkspaceLayout,
   type WorkspaceLayout,
 } from "../../../storage/src/fs-layout/workspace-layout";
+import {
+  createFileSystemReadError,
+  isFileSystemReadError,
+  isMissingFileError,
+  readAccessError,
+} from "../../../storage/src/fs-layout/file-system-read-errors";
 import { createFileMissionRepository } from "../../../storage/src/repositories/file-mission-repository";
 import { createFileExecutionAttemptRepository } from "../../../storage/src/repositories/file-execution-attempt-repository";
 import { createFileTicketRepository } from "../../../storage/src/repositories/file-ticket-repository";
+import {
+  isPersistedDocumentReadError,
+  isRecoverablePersistedDocumentError,
+} from "../../../storage/src/repositories/persisted-document-errors";
 import { buildTicketBoardProjection } from "./build-ticket-board";
 import { deepStrictEqualForComparison } from "../utils/structural-compare";
 
@@ -32,8 +49,6 @@ export interface ReadTicketBoardResult {
   projectionPath: string;
 }
 
-const FILE_SYSTEM_ERROR_CODES = new Set(["ENOENT", "EPERM", "EMFILE", "ENOSPC"]);
-
 export async function readTicketBoard(
   options: ReadTicketBoardOptions,
 ): Promise<ReadTicketBoardResult> {
@@ -43,21 +58,54 @@ export async function readTicketBoard(
   const missionRepository = createFileMissionRepository(layout);
   const ticketRepository = createFileTicketRepository(layout);
   const attemptRepository = createFileExecutionAttemptRepository(layout);
-  const mission = await missionRepository.findById(options.missionId);
+  const storedMissionResult = await readStoredMissionSnapshot(
+    missionRepository,
+    options.missionId,
+  );
+  const storedMission = storedMissionResult.mission;
+  const missionEvents = await readMissionEvents(layout.journalPath, options.missionId);
+  const missionFromJournal = missionEvents.length > 0
+    ? reconstructMissionFromJournal(missionEvents, options.missionId)
+    : null;
 
-  if (!mission) {
+  if (!storedMission && !missionFromJournal) {
     throw new Error(`Mission introuvable: ${options.missionId}.`);
   }
+
+  const missionSnapshot = selectFreshMissionSnapshot(
+    storedMission,
+    missionFromJournal,
+    missionEvents.at(-1)?.eventId,
+  );
 
   const projectionPath = resolveProjectionPath(layout.projectionsDir, "ticket-board");
 
   try {
-    const missionTickets = await ticketRepository.listByMissionId(mission.id);
-    const missionAttempts = await listMissionAttempts(mission, attemptRepository);
-    const missionEvents = (await readEventLog(layout.journalPath))
-      .filter((event) => event.missionId === mission.id);
+    const storedTickets = await readStoredTicketsForBoard(
+      ticketRepository,
+      missionSnapshot.id,
+    );
+    const journalTickets = reconstructTicketsFromJournal(missionEvents, missionSnapshot.id);
+    const mergedTickets = mergeTicketsById(
+      storedTickets.tickets,
+      journalTickets,
+    );
+    const missionTickets = mergedTickets.tickets;
+    const storedAttempts = await readStoredAttemptsForBoard(
+      missionSnapshot,
+      attemptRepository,
+    );
+    const missionAttempts = mergeAttemptsById(
+      storedAttempts.attempts,
+      reconstructAttemptsFromJournal(missionEvents),
+      mergedTickets.usedJournalSnapshot
+        || missionSnapshot === missionFromJournal
+        || storedMissionResult.recovered
+        || storedTickets.recovered
+        || storedAttempts.recovered,
+    );
     const rebuiltBoard = buildTicketBoardProjection(
-      mission,
+      missionSnapshot,
       missionTickets,
       missionAttempts,
       missionEvents,
@@ -72,7 +120,7 @@ export async function readTicketBoard(
       await writeProjectionSnapshot(layout.projectionsDir, "ticket-board", rebuiltBoard);
 
       return {
-        mission,
+        mission: missionSnapshot,
         board: rebuiltBoard,
         reconstructed: true,
         projectionPath,
@@ -80,9 +128,11 @@ export async function readTicketBoard(
     }
 
     return {
-      mission,
+      mission: missionSnapshot,
       board: storedBoard,
-      reconstructed: false,
+      reconstructed: storedMissionResult.recovered
+        || storedTickets.recovered
+        || storedAttempts.recovered,
       projectionPath,
     };
   } catch (error) {
@@ -94,18 +144,167 @@ export async function readTicketBoard(
   }
 }
 
+function selectFreshMissionSnapshot(
+  storedMission: Mission | null,
+  missionFromJournal: Mission | null,
+  lastEventId: string | undefined,
+): Mission {
+  if (!storedMission) {
+    if (!missionFromJournal) {
+      throw new Error("Mission introuvable.");
+    }
+
+    return missionFromJournal;
+  }
+
+  if (missionFromJournal && lastEventId && storedMission.resumeCursor !== lastEventId) {
+    return missionFromJournal;
+  }
+
+  return storedMission;
+}
+
+function mergeTicketsById(
+  storedTickets: Ticket[],
+  journalTickets: Ticket[],
+): { tickets: Ticket[]; usedJournalSnapshot: boolean } {
+  const ticketsById = new Map(storedTickets.map((ticket) => [ticket.id, ticket] as const));
+  let usedJournalSnapshot = false;
+
+  for (const ticket of journalTickets) {
+    const storedTicket = ticketsById.get(ticket.id);
+
+    if (!storedTicket || isJournalTicketNewer(storedTicket, ticket)) {
+      ticketsById.set(ticket.id, ticket);
+      usedJournalSnapshot = true;
+    }
+  }
+
+  return {
+    tickets: [...ticketsById.values()],
+    usedJournalSnapshot,
+  };
+}
+
+function isJournalTicketNewer(storedTicket: Ticket, journalTicket: Ticket): boolean {
+  const storedEventIds = new Set(storedTicket.eventIds);
+
+  return journalTicket.eventIds.some((eventId) => !storedEventIds.has(eventId));
+}
+
+function mergeAttemptsById(
+  storedAttempts: ExecutionAttempt[],
+  journalAttempts: ExecutionAttempt[],
+  preferJournalSnapshots: boolean,
+): ExecutionAttempt[] {
+  const attemptsById = new Map(storedAttempts.map((attempt) => [attempt.id, attempt] as const));
+
+  for (const attempt of journalAttempts) {
+    if (preferJournalSnapshots || !attemptsById.has(attempt.id)) {
+      attemptsById.set(attempt.id, attempt);
+    }
+  }
+
+  return [...attemptsById.values()];
+}
+
 async function ensureTicketBoardWorkspaceInitialized(
   layout: WorkspaceLayout,
   commandName: "status" | "resume" | "ticket board" | "compare" | "compare relaunch",
 ): Promise<void> {
-  try {
-    await access(layout.journalPath);
-    await access(layout.projectionsDir);
-    await access(layout.missionsDir);
-  } catch {
+  const journalError = await readAccessError(() => access(layout.journalPath));
+  const projectionsError = await readAccessError(() => access(layout.projectionsDir));
+  const missionsError = await readAccessError(() => access(layout.missionsDir));
+
+  const fileSystemError = [
+    { error: journalError, filePath: layout.journalPath, label: "journal append-only" },
+    { error: projectionsError, filePath: layout.projectionsDir, label: "repertoire projections" },
+    { error: missionsError, filePath: layout.missionsDir, label: "repertoire missions" },
+  ].find((entry) => entry.error && entry.error.code !== "ENOENT" && isFileSystemReadError(entry.error));
+
+  if (fileSystemError?.error) {
+    if (fileSystemError.filePath === layout.journalPath) {
+      throw EventLogReadError.fileSystem(layout.journalPath, fileSystemError.error);
+    }
+
+    throw createFileSystemReadError(
+      fileSystemError.error,
+      fileSystemError.filePath,
+      fileSystemError.label,
+    );
+  }
+
+  if (journalError?.code === "ENOENT" && !projectionsError && !missionsError) {
+    throw EventLogReadError.missing(layout.journalPath, journalError);
+  }
+
+  if (journalError || projectionsError || missionsError) {
     throw new Error(
       `Workspace mission non initialise. Lancez \`corp mission bootstrap --root ${layout.rootDir}\` avant \`corp mission ${commandName}\`.`,
     );
+  }
+}
+
+async function readStoredMissionSnapshot(
+  missionRepository: ReturnType<typeof createFileMissionRepository>,
+  missionId: string,
+): Promise<{ mission: Mission | null; recovered: boolean }> {
+  try {
+    return {
+      mission: await missionRepository.findById(missionId),
+      recovered: false,
+    };
+  } catch (error) {
+    if (!isRecoverablePersistedDocumentError(error)) {
+      throw error;
+    }
+
+    return {
+      mission: null,
+      recovered: true,
+    };
+  }
+}
+
+async function readStoredTicketsForBoard(
+  ticketRepository: ReturnType<typeof createFileTicketRepository>,
+  missionId: string,
+): Promise<{ tickets: Ticket[]; recovered: boolean }> {
+  try {
+    return {
+      tickets: await ticketRepository.listByMissionId(missionId),
+      recovered: false,
+    };
+  } catch (error) {
+    if (!isRecoverablePersistedDocumentError(error)) {
+      throw error;
+    }
+
+    return {
+      tickets: [],
+      recovered: true,
+    };
+  }
+}
+
+async function readStoredAttemptsForBoard(
+  mission: Mission,
+  attemptRepository: ReturnType<typeof createFileExecutionAttemptRepository>,
+): Promise<{ attempts: ExecutionAttempt[]; recovered: boolean }> {
+  try {
+    return {
+      attempts: await listMissionAttempts(mission, attemptRepository),
+      recovered: false,
+    };
+  } catch (error) {
+    if (!isRecoverablePersistedDocumentError(error)) {
+      throw error;
+    }
+
+    return {
+      attempts: [],
+      recovered: true,
+    };
   }
 }
 
@@ -178,8 +377,12 @@ function normalizeTicketBoardReadError(
     return error;
   }
 
-  if (isFileSystemError(error)) {
-    return new Error(`Erreur fichier: ${error.message}`);
+  if (isEventLogReadError(error) || isPersistedDocumentReadError(error)) {
+    return error instanceof Error ? error : new Error(String(error));
+  }
+
+  if (isFileSystemReadError(error)) {
+    return createFileSystemReadError(error, options.projectionPath, "projection ticket-board");
   }
 
   if (error instanceof SyntaxError) {
@@ -211,21 +414,4 @@ function isProjectionCorruptionError(
     && error !== null
     && "code" in error
     && error.code === "EPROJCORRUPT";
-}
-
-function isFileSystemError(
-  error: unknown,
-): error is NodeJS.ErrnoException {
-  return typeof error === "object"
-    && error !== null
-    && "code" in error
-    && typeof error.code === "string"
-    && FILE_SYSTEM_ERROR_CODES.has(error.code);
-}
-
-function isMissingFileError(error: unknown): boolean {
-  return typeof error === "object"
-    && error !== null
-    && "code" in error
-    && error.code === "ENOENT";
 }

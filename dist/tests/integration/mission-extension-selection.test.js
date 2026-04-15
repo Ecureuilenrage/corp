@@ -9,6 +9,7 @@ const node_path_1 = __importDefault(require("node:path"));
 const node_os_1 = require("node:os");
 const node_test_1 = __importDefault(require("node:test"));
 const index_1 = require("../../apps/corp-cli/src/index");
+const file_mission_repository_1 = require("../../packages/storage/src/repositories/file-mission-repository");
 const run_ticket_1 = require("../../packages/ticket-runtime/src/ticket-service/run-ticket");
 async function runCommand(args) {
     const lines = [];
@@ -289,6 +290,45 @@ async function openApproval(rootDir, missionId, ticketId) {
         strict_1.default.equal(result.lines.at(-1), `Impossible de modifier la selection d'extensions de la mission \`${mission.id}\` car son statut est terminal (\`${terminalStatus}\`).`);
     }
 });
+(0, node_test_1.default)("mission extension select detecte un conflit concurrent au lieu d'un dernier-writer-gagne", async (t) => {
+    const rootDir = await (0, promises_1.mkdtemp)(node_path_1.default.join((0, node_os_1.tmpdir)(), "corp-mission-extension-concurrent-"));
+    t.after(async () => {
+        await (0, promises_1.rm)(rootDir, { recursive: true, force: true });
+    });
+    await bootstrapWorkspace(rootDir);
+    await registerCapability(rootDir);
+    await registerSkillPack(rootDir);
+    const mission = await createMission(rootDir);
+    const originalFindById = file_mission_repository_1.FileMissionRepository.prototype.findById;
+    let synchronizedReads = 0;
+    let releaseReads;
+    const readBarrier = new Promise((resolve) => {
+        releaseReads = resolve;
+    });
+    file_mission_repository_1.FileMissionRepository.prototype.findById = async function patchedFindById(missionId) {
+        const foundMission = await originalFindById.call(this, missionId);
+        if (missionId === mission.id && synchronizedReads < 2) {
+            synchronizedReads += 1;
+            if (synchronizedReads === 2) {
+                releaseReads();
+            }
+            await readBarrier;
+        }
+        return foundMission;
+    };
+    t.after(() => {
+        file_mission_repository_1.FileMissionRepository.prototype.findById = originalFindById;
+    });
+    const results = await Promise.all([
+        selectMissionExtensions(rootDir, mission.id, ["--allow-capability", "shell.exec"]),
+        selectMissionExtensions(rootDir, mission.id, ["--skill-pack", "pack.triage.local"]),
+    ]);
+    const successes = results.filter((result) => result.exitCode === 0);
+    const failures = results.filter((result) => result.exitCode === 1);
+    strict_1.default.equal(successes.length, 1);
+    strict_1.default.equal(failures.length, 1);
+    strict_1.default.match(failures[0].lines.at(-1) ?? "", /conflit d'ecriture concurrente/i);
+});
 (0, node_test_1.default)("la selection mission borne create update approval et run sans casser les built-ins", async (t) => {
     const rootDir = await (0, promises_1.mkdtemp)(node_path_1.default.join((0, node_os_1.tmpdir)(), "corp-mission-extension-governance-"));
     let launchCount = 0;
@@ -408,4 +448,64 @@ async function openApproval(rootDir, missionId, ticketId) {
     ]);
     strict_1.default.equal(builtInRunResult.exitCode, 0);
     strict_1.default.equal(launchCount, 1);
+});
+(0, node_test_1.default)("two-concurrent-extension-select-produces-no-intermediate-projection", async (t) => {
+    const rootDir = await (0, promises_1.mkdtemp)(node_path_1.default.join((0, node_os_1.tmpdir)(), "corp-extension-rewrite-under-lock-"));
+    t.after(async () => {
+        await (0, promises_1.rm)(rootDir, { recursive: true, force: true });
+    });
+    await bootstrapWorkspace(rootDir);
+    await registerCapability(rootDir);
+    await registerSkillPack(rootDir);
+    const mission = await createMission(rootDir);
+    const projectionStoreModule = require("../../packages/storage/src/projection-store/file-projection-store");
+    const originalWriteProjectionSnapshot = projectionStoreModule.writeProjectionSnapshot;
+    const lockPath = node_path_1.default.join(rootDir, ".corp", "missions", mission.id, "mission.json.lock");
+    const lockObservations = [];
+    projectionStoreModule.writeProjectionSnapshot = async (...args) => {
+        let lockPresent = true;
+        try {
+            await (0, promises_1.access)(lockPath);
+        }
+        catch {
+            lockPresent = false;
+        }
+        lockObservations.push({ projection: args[1], lockPresent });
+        return originalWriteProjectionSnapshot(...args);
+    };
+    t.after(() => {
+        projectionStoreModule.writeProjectionSnapshot = originalWriteProjectionSnapshot;
+    });
+    const originalFindById = file_mission_repository_1.FileMissionRepository.prototype.findById;
+    let synchronizedReads = 0;
+    let releaseReads;
+    const readBarrier = new Promise((resolve) => {
+        releaseReads = resolve;
+    });
+    file_mission_repository_1.FileMissionRepository.prototype.findById = async function patchedFindById(missionId) {
+        const foundMission = await originalFindById.call(this, missionId);
+        if (missionId === mission.id && synchronizedReads < 2) {
+            synchronizedReads += 1;
+            if (synchronizedReads === 2) {
+                releaseReads();
+            }
+            await readBarrier;
+        }
+        return foundMission;
+    };
+    t.after(() => {
+        file_mission_repository_1.FileMissionRepository.prototype.findById = originalFindById;
+    });
+    const results = await Promise.all([
+        selectMissionExtensions(rootDir, mission.id, ["--allow-capability", "shell.exec"]),
+        selectMissionExtensions(rootDir, mission.id, ["--skill-pack", "pack.triage.local"]),
+    ]);
+    const successes = results.filter((result) => result.exitCode === 0);
+    const failures = results.filter((result) => result.exitCode === 1);
+    strict_1.default.equal(successes.length, 1);
+    strict_1.default.equal(failures.length, 1);
+    strict_1.default.ok(lockObservations.length > 0, "Au moins une projection devrait avoir ete ecrite par le gagnant.");
+    for (const observation of lockObservations) {
+        strict_1.default.equal(observation.lockPresent, true, `La projection ${observation.projection} a ete ecrite hors du lock saveIfUnchanged; rewrite non atomique.`);
+    }
 });

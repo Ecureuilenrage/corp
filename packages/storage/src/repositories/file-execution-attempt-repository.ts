@@ -1,16 +1,23 @@
 import type { Dirent } from "node:fs";
-import { mkdir, readdir, readFile, writeFile } from "node:fs/promises";
+import { mkdir, readdir } from "node:fs/promises";
 import path from "node:path";
 
+import { validateExecutionAttempt } from "../../../contracts/src/guards/persisted-document-guards";
 import {
   ACTIVE_EXECUTION_ATTEMPT_STATUSES,
   type ExecutionAttempt,
 } from "../../../contracts/src/execution-attempt/execution-attempt";
+import { writeJsonAtomic } from "../fs-layout/atomic-json";
+import { isMissingFileError } from "../fs-layout/file-system-read-errors";
 import {
   resolveExecutionAttemptStoragePaths,
   resolveTicketStoragePaths,
   type WorkspaceLayout,
 } from "../fs-layout/workspace-layout";
+import {
+  assertValidPersistedDocument,
+  readPersistedJsonDocument,
+} from "./persisted-document-errors";
 
 export interface SaveExecutionAttemptResult {
   attemptsDir: string;
@@ -33,11 +40,7 @@ export class FileExecutionAttemptRepository {
     );
 
     await mkdir(attemptStoragePaths.attemptDir, { recursive: true });
-    await writeFile(
-      attemptStoragePaths.attemptPath,
-      `${JSON.stringify(attempt, null, 2)}\n`,
-      "utf8",
-    );
+    await writeJsonAtomic(attemptStoragePaths.attemptPath, attempt);
 
     return attemptStoragePaths;
   }
@@ -53,10 +56,16 @@ export class FileExecutionAttemptRepository {
       ticketId,
       attemptId,
     );
+    const context = {
+      filePath: attemptStoragePaths.attemptPath,
+      entityLabel: "ExecutionAttempt",
+      documentId: attemptId,
+    };
 
     try {
-      const storedAttempt = await readFile(attemptStoragePaths.attemptPath, "utf8");
-      return JSON.parse(storedAttempt) as ExecutionAttempt;
+      const storedAttempt = await readPersistedJsonDocument(context);
+      assertValidPersistedDocument<ExecutionAttempt>(storedAttempt, validateExecutionAttempt, context);
+      return storedAttempt;
     } catch (error) {
       if (isMissingFileError(error)) {
         return null;
@@ -118,11 +127,4 @@ async function readDirectoryEntries(directoryPath: string): Promise<Dirent[]> {
 
     throw error;
   }
-}
-
-function isMissingFileError(error: unknown): boolean {
-  return typeof error === "object"
-    && error !== null
-    && "code" in error
-    && error.code === "ENOENT";
 }

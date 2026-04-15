@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { cp, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { access, cp, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { tmpdir } from "node:os";
 import test from "node:test";
@@ -10,6 +10,7 @@ import type { Mission } from "../../packages/contracts/src/mission/mission";
 import type { Ticket } from "../../packages/contracts/src/ticket/ticket";
 import type { JournalEventRecord } from "../../packages/journal/src/event-log/append-event";
 import { runCli } from "../../apps/corp-cli/src/index";
+import { FileMissionRepository } from "../../packages/storage/src/repositories/file-mission-repository";
 import { setRunTicketDependenciesForTesting } from "../../packages/ticket-runtime/src/ticket-service/run-ticket";
 
 interface CommandResult {
@@ -420,6 +421,59 @@ test("mission extension select rejette les missions terminales de maniere determ
   }
 });
 
+test("mission extension select detecte un conflit concurrent au lieu d'un dernier-writer-gagne", async (t) => {
+  const rootDir = await mkdtemp(path.join(tmpdir(), "corp-mission-extension-concurrent-"));
+
+  t.after(async () => {
+    await rm(rootDir, { recursive: true, force: true });
+  });
+
+  await bootstrapWorkspace(rootDir);
+  await registerCapability(rootDir);
+  await registerSkillPack(rootDir);
+
+  const mission = await createMission(rootDir);
+  const originalFindById = FileMissionRepository.prototype.findById;
+  let synchronizedReads = 0;
+  let releaseReads!: () => void;
+  const readBarrier = new Promise<void>((resolve) => {
+    releaseReads = resolve;
+  });
+
+  FileMissionRepository.prototype.findById = async function patchedFindById(
+    missionId: string,
+  ): Promise<Mission | null> {
+    const foundMission = await originalFindById.call(this, missionId);
+
+    if (missionId === mission.id && synchronizedReads < 2) {
+      synchronizedReads += 1;
+
+      if (synchronizedReads === 2) {
+        releaseReads();
+      }
+
+      await readBarrier;
+    }
+
+    return foundMission;
+  };
+
+  t.after(() => {
+    FileMissionRepository.prototype.findById = originalFindById;
+  });
+
+  const results = await Promise.all([
+    selectMissionExtensions(rootDir, mission.id, ["--allow-capability", "shell.exec"]),
+    selectMissionExtensions(rootDir, mission.id, ["--skill-pack", "pack.triage.local"]),
+  ]);
+  const successes = results.filter((result) => result.exitCode === 0);
+  const failures = results.filter((result) => result.exitCode === 1);
+
+  assert.equal(successes.length, 1);
+  assert.equal(failures.length, 1);
+  assert.match(failures[0].lines.at(-1) ?? "", /conflit d'ecriture concurrente/i);
+});
+
 test("la selection mission borne create update approval et run sans casser les built-ins", async (t) => {
   const rootDir = await mkdtemp(path.join(tmpdir(), "corp-mission-extension-governance-"));
   let launchCount = 0;
@@ -582,3 +636,99 @@ test("la selection mission borne create update approval et run sans casser les b
   assert.equal(builtInRunResult.exitCode, 0);
   assert.equal(launchCount, 1);
 });
+
+test("two-concurrent-extension-select-produces-no-intermediate-projection", async (t) => {
+  const rootDir = await mkdtemp(path.join(tmpdir(), "corp-extension-rewrite-under-lock-"));
+
+  t.after(async () => {
+    await rm(rootDir, { recursive: true, force: true });
+  });
+
+  await bootstrapWorkspace(rootDir);
+  await registerCapability(rootDir);
+  await registerSkillPack(rootDir);
+  const mission = await createMission(rootDir);
+
+  const projectionStoreModule = require("../../packages/storage/src/projection-store/file-projection-store") as {
+    writeProjectionSnapshot: (
+      projectionsDir: string,
+      projectionName: string,
+      snapshot: object,
+    ) => Promise<string>;
+  };
+  const originalWriteProjectionSnapshot = projectionStoreModule.writeProjectionSnapshot;
+  const lockPath = path.join(rootDir, ".corp", "missions", mission.id, "mission.json.lock");
+  const lockObservations: Array<{ projection: string; lockPresent: boolean }> = [];
+
+  projectionStoreModule.writeProjectionSnapshot = async (
+    ...args: Parameters<typeof originalWriteProjectionSnapshot>
+  ): Promise<string> => {
+    let lockPresent = true;
+
+    try {
+      await access(lockPath);
+    } catch {
+      lockPresent = false;
+    }
+
+    lockObservations.push({ projection: args[1], lockPresent });
+    return originalWriteProjectionSnapshot(...args);
+  };
+
+  t.after(() => {
+    projectionStoreModule.writeProjectionSnapshot = originalWriteProjectionSnapshot;
+  });
+
+  const originalFindById = FileMissionRepository.prototype.findById;
+  let synchronizedReads = 0;
+  let releaseReads!: () => void;
+  const readBarrier = new Promise<void>((resolve) => {
+    releaseReads = resolve;
+  });
+
+  FileMissionRepository.prototype.findById = async function patchedFindById(
+    missionId: string,
+  ): Promise<Mission | null> {
+    const foundMission = await originalFindById.call(this, missionId);
+
+    if (missionId === mission.id && synchronizedReads < 2) {
+      synchronizedReads += 1;
+
+      if (synchronizedReads === 2) {
+        releaseReads();
+      }
+
+      await readBarrier;
+    }
+
+    return foundMission;
+  };
+
+  t.after(() => {
+    FileMissionRepository.prototype.findById = originalFindById;
+  });
+
+  const results = await Promise.all([
+    selectMissionExtensions(rootDir, mission.id, ["--allow-capability", "shell.exec"]),
+    selectMissionExtensions(rootDir, mission.id, ["--skill-pack", "pack.triage.local"]),
+  ]);
+  const successes = results.filter((result) => result.exitCode === 0);
+  const failures = results.filter((result) => result.exitCode === 1);
+
+  assert.equal(successes.length, 1);
+  assert.equal(failures.length, 1);
+
+  assert.ok(
+    lockObservations.length > 0,
+    "Au moins une projection devrait avoir ete ecrite par le gagnant.",
+  );
+
+  for (const observation of lockObservations) {
+    assert.equal(
+      observation.lockPresent,
+      true,
+      `La projection ${observation.projection} a ete ecrite hors du lock saveIfUnchanged; rewrite non atomique.`,
+    );
+  }
+});
+

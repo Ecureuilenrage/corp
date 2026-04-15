@@ -68,3 +68,7 @@ git config core.hooksPath .githooks
 Ce hook appelle directement `node dist/scripts/check-epic-closure.js --root=<repo>` pour eviter un `npm run build` a chaque commit.
 Il suppose donc que `dist/` est deja a jour; si besoin, relancer `npm run build` avant le commit.
 Le hook est volontairement optionnel pour ne pas imposer de rupture a la CI existante.
+
+### Compatibilite Windows (CRLF)
+
+Le shebang `#!/bin/sh` et l'executabilite msys du hook sont fragiles si Git applique `core.autocrlf=true` a l'extraction. Le fichier `.gitattributes` a la racine du repo force `eol=lf` pour `.githooks/**` et `scripts/**.sh`, ce qui preserve le shebang sur un poste Windows avec `core.autocrlf=true`. Toute nouvelle script shell dans `.githooks/` ou `scripts/` herite automatiquement de cette regle.

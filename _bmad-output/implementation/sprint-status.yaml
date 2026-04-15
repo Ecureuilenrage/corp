@@ -1,5 +1,5 @@
 ﻿# generated: 2026-04-08T21:20:40+02:00
-# last_updated: 2026-04-09T10:38:10.9838282+02:00
+# last_updated: 2026-04-15T20:00:54.9470078+02:00
 # project: corp
 # project_key: NOKEY
 # tracking_system: file-system
@@ -35,7 +35,7 @@
 # - Dev moves a story to 'review' before it can become 'done'
 
 generated: "2026-04-08T21:20:40+02:00"
-last_updated: "2026-04-14T22:56:34.6248056+02:00"
+last_updated: "2026-04-15T21:30:00+02:00"
 project: "corp"
 project_key: "NOKEY"
 tracking_system: "file-system"
@@ -75,12 +75,16 @@ development_status:
   4-3-charger-un-skill-pack-local-dans-le-cadre-d-une-mission: done
   4-4-selectionner-les-extensions-autorisees-par-mission-et-tracer-leur-usage-en-cli: done
   epic-4-retrospective: done
-  epic-5: backlog
+  epic-5: in-progress
   5-0-mecaniser-la-gouvernance-de-cloture-d-epic-bmad: done
   5-0-1-durcir-le-gate-de-cloture-d-epic-findings-review: review
-  5-0-2-consolider-le-gate-epic-closure-findings-review-5-0-1: ready-for-dev
-  5-1-rendre-atomiques-les-ecritures-journal-projections-registres: ready-for-dev
-  5-2-durcir-la-lecture-defensive-et-la-validation-de-schema: ready-for-dev
+  5-0-2-consolider-le-gate-epic-closure-findings-review-5-0-1: done
+  5-1-rendre-atomiques-les-ecritures-journal-projections-registres: done
+  5-1-1-durcir-atomicite-findings-review-5-1-critiques: done
+  5-1-2-cleanup-atomicite-findings-review-5-1-medium-low: done
+  5-2-durcir-la-lecture-defensive-et-la-validation-de-schema: review
+  5-2-1-durcir-lecture-defensive-findings-review-5-2-critiques: ready-for-dev
+  5-2-2-cleanup-lecture-defensive-findings-review-5-2-medium-low: ready-for-dev
   5-3-factoriser-type-guards-et-helpers-workspace-partages: ready-for-dev
   5-4-durcir-la-compatibilite-windows-identifiants-et-chemins: ready-for-dev
   5-5-rendre-deterministes-les-projections-tris-et-filtres: ready-for-dev

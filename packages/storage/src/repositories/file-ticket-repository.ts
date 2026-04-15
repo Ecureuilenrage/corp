@@ -1,14 +1,21 @@
 import type { Dirent } from "node:fs";
-import { mkdir, readdir, readFile, writeFile } from "node:fs/promises";
+import { mkdir, readdir } from "node:fs/promises";
 import path from "node:path";
 
-import type { Mission } from "../../../contracts/src/mission/mission";
+import { validateMission, validateTicket } from "../../../contracts/src/guards/persisted-document-guards";
+import { hydrateMission, type Mission } from "../../../contracts/src/mission/mission";
 import type { Ticket } from "../../../contracts/src/ticket/ticket";
+import { writeJsonAtomic } from "../fs-layout/atomic-json";
+import { isMissingFileError } from "../fs-layout/file-system-read-errors";
 import {
   resolveMissionStoragePaths,
   resolveTicketStoragePaths,
   type WorkspaceLayout,
 } from "../fs-layout/workspace-layout";
+import {
+  assertValidPersistedDocument,
+  readPersistedJsonDocument,
+} from "./persisted-document-errors";
 
 export const MAX_EXHAUSTIVE_MISSION_OWNERSHIP_LOOKUP = 50;
 
@@ -31,21 +38,23 @@ export class FileTicketRepository {
     );
 
     await mkdir(ticketStoragePaths.ticketDir, { recursive: true });
-    await writeFile(
-      ticketStoragePaths.ticketPath,
-      `${JSON.stringify(ticket, null, 2)}\n`,
-      "utf8",
-    );
+    await writeJsonAtomic(ticketStoragePaths.ticketPath, ticket);
 
     return ticketStoragePaths;
   }
 
   public async findById(missionId: string, ticketId: string): Promise<Ticket | null> {
     const ticketStoragePaths = resolveTicketStoragePaths(this.layout, missionId, ticketId);
+    const context = {
+      filePath: ticketStoragePaths.ticketPath,
+      entityLabel: "Ticket",
+      documentId: ticketId,
+    };
 
     try {
-      const storedTicket = await readFile(ticketStoragePaths.ticketPath, "utf8");
-      return JSON.parse(storedTicket) as Ticket;
+      const storedTicket = await readPersistedJsonDocument(context);
+      assertValidPersistedDocument<Ticket>(storedTicket, validateTicket, context);
+      return storedTicket;
     } catch (error) {
       if (isMissingFileError(error)) {
         return null;
@@ -105,10 +114,16 @@ export class FileTicketRepository {
 
   private async readMissionSnapshot(missionId: string): Promise<Mission | null> {
     const missionStoragePaths = resolveMissionStoragePaths(this.layout, missionId);
+    const context = {
+      filePath: missionStoragePaths.missionPath,
+      entityLabel: "Mission",
+      documentId: missionId,
+    };
 
     try {
-      const storedMission = await readFile(missionStoragePaths.missionPath, "utf8");
-      return JSON.parse(storedMission) as Mission;
+      const storedMission = await readPersistedJsonDocument(context);
+      assertValidPersistedDocument<Mission>(storedMission, validateMission, context);
+      return hydrateMission(storedMission);
     } catch (error) {
       if (isMissingFileError(error)) {
         return null;
@@ -146,11 +161,4 @@ async function readDirectoryEntries(directoryPath: string): Promise<Dirent[]> {
 function isSearchableMissionDirectory(entry: Dirent): boolean {
   return entry.isDirectory()
     && SEARCHABLE_MISSION_DIRECTORY_NAME_PATTERN.test(entry.name);
-}
-
-function isMissingFileError(error: unknown): boolean {
-  return typeof error === "object"
-    && error !== null
-    && "code" in error
-    && error.code === "ENOENT";
 }

@@ -506,7 +506,7 @@ function ticketBoardPath(rootDir) {
         mission.id,
     ]);
     strict_1.default.equal(result.exitCode, 1);
-    strict_1.default.match(result.lines.at(-1) ?? "", /Erreur fichier: EPERM: permission denied, open ticket-board\.json/);
+    strict_1.default.match(result.lines.at(-1) ?? "", /erreur_fichier: erreur de lecture projection ticket-board \(EPERM\).*ticket-board\.json/);
     strict_1.default.doesNotMatch(result.lines.at(-1) ?? "", /irreconciliable/);
 });
 (0, node_test_1.default)("mission ticket board signale une projection corrompue au lieu de la masquer", async (t) => {
@@ -534,7 +534,7 @@ function ticketBoardPath(rootDir) {
     strict_1.default.match(result.lines.at(-1) ?? "", /Projection ticket-board corrompue:/);
     strict_1.default.match(result.lines.at(-1) ?? "", /ticket-board\.json/);
 });
-(0, node_test_1.default)("mission ticket board traite un statut inconnu comme non runnable par defaut", async (t) => {
+(0, node_test_1.default)("mission ticket board reconstruit depuis le journal quand un snapshot ticket porte un statut inconnu", async (t) => {
     const rootDir = await (0, promises_1.mkdtemp)(node_path_1.default.join((0, node_os_1.tmpdir)(), "corp-ticket-board-unknown-status-"));
     t.after(async () => {
         await (0, promises_1.rm)(rootDir, { recursive: true, force: true });
@@ -563,9 +563,11 @@ function ticketBoardPath(rootDir) {
     const entry = projection.tickets.find((ticket) => ticket.ticketId === ticketId);
     strict_1.default.equal(result.exitCode, 0);
     strict_1.default.ok(entry);
-    strict_1.default.equal(entry.runnable, false);
-    strict_1.default.equal(entry.planningState, "not_runnable_status");
-    strict_1.default.equal(entry.trackingState, "blocked");
-    strict_1.default.match(result.lines.join("\n"), new RegExp(`${ticketId} \\| statut=on_hold \\| owner=agent_unknown`));
-    strict_1.default.doesNotMatch(result.lines.join("\n"), /motif=pret a lancer/);
+    strict_1.default.equal(entry.runnable, true);
+    strict_1.default.equal(entry.planningState, "runnable");
+    strict_1.default.equal(entry.trackingState, "runnable");
+    strict_1.default.equal(entry.status, "todo");
+    strict_1.default.match(result.lines.join("\n"), new RegExp(`${ticketId} \\| statut=todo \\| owner=agent_unknown`));
+    strict_1.default.doesNotMatch(result.lines.join("\n"), /statut=on_hold/);
+    strict_1.default.match(result.lines.join("\n"), /motif=pret a lancer/);
 });

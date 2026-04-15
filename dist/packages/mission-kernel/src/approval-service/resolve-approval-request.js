@@ -135,11 +135,16 @@ async function resolveApprovalRequest(options) {
             trigger: "operator",
         },
     };
-    await (0, append_event_1.appendEvent)(layout.journalPath, event);
-    await missionRepository.save(updatedMission);
-    await ticketRepository.save(updatedTicket);
-    await attemptRepository.save(mission.id, updatedAttempt);
-    await (0, ticket_service_support_1.rewriteMissionReadModels)(layout, updatedMission, ticketRepository);
+    await persistApprovalTransition({
+        layout,
+        event,
+        mission: updatedMission,
+        ticket: updatedTicket,
+        attempt: updatedAttempt,
+        missionRepository,
+        ticketRepository,
+        attemptRepository,
+    });
     const resumeResult = await (0, read_mission_resume_1.readMissionResume)({
         rootDir: layout.rootDir,
         missionId: updatedMission.id,
@@ -154,6 +159,19 @@ async function resolveApprovalRequest(options) {
         decision,
         resume: resumeResult.resume,
     };
+}
+async function persistApprovalTransition(options) {
+    // journal-as-source-of-truth : l'append est la decision d'autorite ; les 4 saves
+    // sequentiels ci-dessous sont des optimisations de lecture. Un crash entre deux
+    // saves laisse le journal en avance sur les snapshots, et le prochain reader
+    // (readMissionResume, readApprovalQueue, readMissionArtifacts, readTicketBoard)
+    // reconstruit l'etat via reconstructMissionFromJournal. Voir
+    // docs/architecture/journal-as-source-of-truth.md (decision D2, 2026-04-15).
+    await (0, append_event_1.appendEvent)(options.layout.journalPath, options.event);
+    await options.missionRepository.save(options.mission);
+    await options.ticketRepository.save(options.ticket);
+    await options.attemptRepository.save(options.mission.id, options.attempt);
+    await (0, ticket_service_support_1.rewriteMissionReadModels)(options.layout, options.mission, options.ticketRepository);
 }
 async function resolveMissionStatusAfterDecision(options) {
     if (options.queuedApprovals.some((approval) => approval.approvalId !== options.currentApprovalId)) {

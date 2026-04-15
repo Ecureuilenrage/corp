@@ -1,9 +1,16 @@
 import type { Dirent } from "node:fs";
-import { mkdir, readdir, readFile, rename, unlink, writeFile } from "node:fs/promises";
+import { mkdir, readdir } from "node:fs/promises";
 
+import { validateRegisteredCapability } from "../../../contracts/src/guards/persisted-document-guards";
 import type { RegisteredCapability } from "../../../contracts/src/extension/registered-capability";
-import { resolveCapabilityStoragePaths, type WorkspaceLayout } from "../fs-layout/workspace-layout";
 import { deepStrictEqualForComparison } from "../../../ticket-runtime/src/utils/structural-compare";
+import { isAlreadyExistsError, writeJsonAtomic } from "../fs-layout/atomic-json";
+import { isMissingFileError } from "../fs-layout/file-system-read-errors";
+import { resolveCapabilityStoragePaths, type WorkspaceLayout } from "../fs-layout/workspace-layout";
+import {
+  assertValidPersistedDocument,
+  readPersistedJsonDocument,
+} from "./persisted-document-errors";
 
 export interface SaveRegisteredCapabilityResult {
   status: "registered" | "unchanged";
@@ -69,26 +76,7 @@ export class FileCapabilityRegistryRepository implements CapabilityRegistryRepos
       throw error;
     }
 
-    const temporaryCapabilityPath = `${capabilityStoragePaths.capabilityPath}.tmp`;
-
-    try {
-      // Best-effort V1: claim the directory, then write a temp file and rename it to avoid
-      // partially written registry entries without introducing a full lock manager.
-      await writeFile(
-        temporaryCapabilityPath,
-        `${JSON.stringify(registeredCapability, null, 2)}\n`,
-        "utf8",
-      );
-      await rename(temporaryCapabilityPath, capabilityStoragePaths.capabilityPath);
-    } catch (error) {
-      try {
-        await cleanupTemporaryCapabilityFile(temporaryCapabilityPath);
-      } catch {
-        // Best-effort cleanup: the original write/rename error is more important.
-      }
-
-      throw error;
-    }
+    await writeJsonAtomic(capabilityStoragePaths.capabilityPath, registeredCapability);
 
     return {
       status: "registered",
@@ -105,19 +93,24 @@ export class FileCapabilityRegistryRepository implements CapabilityRegistryRepos
       this.layout,
       capabilityId,
     );
+    const context = {
+      filePath: capabilityStoragePaths.capabilityPath,
+      entityLabel: "RegisteredCapability",
+      corruptionLabel: "fichier de registre corrompu pour la capability",
+      documentId: capabilityId,
+    };
 
     try {
-      const storedCapability = await readFile(capabilityStoragePaths.capabilityPath, "utf8");
-      return JSON.parse(storedCapability) as RegisteredCapability;
+      const storedCapability = await readPersistedJsonDocument(context);
+      assertValidPersistedDocument<RegisteredCapability>(
+        storedCapability,
+        validateRegisteredCapability,
+        context,
+      );
+      return storedCapability;
     } catch (error) {
       if (isMissingFileError(error)) {
         return null;
-      }
-
-      if (error instanceof SyntaxError) {
-        throw new Error(
-          `Fichier de registre corrompu pour la capability \`${capabilityId}\`.`,
-        );
       }
 
       throw error;
@@ -165,32 +158,6 @@ async function readDirectoryEntries(directoryPath: string): Promise<Dirent[]> {
   } catch (error) {
     if (isMissingFileError(error)) {
       return [];
-    }
-
-    throw error;
-  }
-}
-
-function isMissingFileError(error: unknown): boolean {
-  return typeof error === "object"
-    && error !== null
-    && "code" in error
-    && error.code === "ENOENT";
-}
-
-function isAlreadyExistsError(error: unknown): boolean {
-  return typeof error === "object"
-    && error !== null
-    && "code" in error
-    && error.code === "EEXIST";
-}
-
-async function cleanupTemporaryCapabilityFile(filePath: string): Promise<void> {
-  try {
-    await unlink(filePath);
-  } catch (error) {
-    if (isMissingFileError(error)) {
-      return;
     }
 
     throw error;

@@ -13,7 +13,12 @@ import {
 import type { Ticket } from "../../../contracts/src/ticket/ticket";
 import type { WorkspaceIsolationMetadata } from "../../../workspace-isolation/src/workspace-isolation";
 import type { JournalEventRecord } from "../../../journal/src/event-log/append-event";
+import { EventLogReadError } from "../../../journal/src/event-log/event-log-errors";
 import { readEventLog } from "../../../journal/src/event-log/file-event-log";
+import {
+  readMissionSnapshotFromJournalOrThrow,
+  reconstructTicketsFromJournal,
+} from "../../../journal/src/reconstruction/mission-reconstruction";
 import {
   createAuditLogProjection,
   type AuditLogProjection,
@@ -29,9 +34,16 @@ import {
   resolveWorkspaceLayout,
   type WorkspaceLayout,
 } from "../../../storage/src/fs-layout/workspace-layout";
+import {
+  createFileSystemReadError,
+  isFileSystemReadError,
+  isMissingFileError,
+  readAccessError,
+} from "../../../storage/src/fs-layout/file-system-read-errors";
 import { createFileArtifactRepository } from "../../../storage/src/repositories/file-artifact-repository";
 import { createFileMissionRepository } from "../../../storage/src/repositories/file-mission-repository";
 import { createFileTicketRepository } from "../../../storage/src/repositories/file-ticket-repository";
+import { isRecoverablePersistedDocumentError } from "../../../storage/src/repositories/persisted-document-errors";
 import { deepStrictEqualForComparison } from "../../../ticket-runtime/src/utils/structural-compare";
 
 export interface MissionAuditDetailField {
@@ -138,16 +150,15 @@ async function loadMissionAuditContext(options: {
   const missionRepository = createFileMissionRepository(layout);
   const ticketRepository = createFileTicketRepository(layout);
   const artifactRepository = createFileArtifactRepository(layout);
-  const mission = await missionRepository.findById(options.missionId);
-
-  if (!mission) {
-    throw new Error(`Mission introuvable: ${options.missionId}.`);
-  }
-
-  const tickets = await ticketRepository.listByMissionId(mission.id);
-  const artifacts = await artifactRepository.listByMissionId(mission.id);
+  const mission = await readMissionSnapshotForAudit(
+    layout,
+    missionRepository,
+    options.missionId,
+  );
   const events = (await readEventLog(layout.journalPath))
     .filter((event) => event.missionId === mission.id);
+  const tickets = await readTicketsForAudit(ticketRepository, mission.id, events);
+  const artifacts = await readArtifactsForAudit(artifactRepository, mission.id);
   const rebuiltProjection = createAuditLogProjection({
     mission,
     tickets,
@@ -182,11 +193,33 @@ async function ensureMissionAuditWorkspaceInitialized(
   layout: WorkspaceLayout,
   commandName: MissionAuditCommandName,
 ): Promise<void> {
-  try {
-    await access(layout.journalPath);
-    await access(layout.projectionsDir);
-    await access(layout.missionsDir);
-  } catch {
+  const journalError = await readAccessError(() => access(layout.journalPath));
+  const projectionsError = await readAccessError(() => access(layout.projectionsDir));
+  const missionsError = await readAccessError(() => access(layout.missionsDir));
+
+  const fileSystemError = [
+    { error: journalError, filePath: layout.journalPath, label: "journal append-only" },
+    { error: projectionsError, filePath: layout.projectionsDir, label: "repertoire projections" },
+    { error: missionsError, filePath: layout.missionsDir, label: "repertoire missions" },
+  ].find((entry) => entry.error && entry.error.code !== "ENOENT" && isFileSystemReadError(entry.error));
+
+  if (fileSystemError?.error) {
+    if (fileSystemError.filePath === layout.journalPath) {
+      throw EventLogReadError.fileSystem(layout.journalPath, fileSystemError.error);
+    }
+
+    throw createFileSystemReadError(
+      fileSystemError.error,
+      fileSystemError.filePath,
+      fileSystemError.label,
+    );
+  }
+
+  if (journalError?.code === "ENOENT" && !projectionsError && !missionsError) {
+    throw EventLogReadError.missing(layout.journalPath, journalError);
+  }
+
+  if (journalError || projectionsError || missionsError) {
     throw new Error(
       `Workspace mission non initialise. Lancez \`corp mission bootstrap --root ${layout.rootDir}\` avant \`corp mission ${commandName}\`.`,
     );
@@ -196,11 +229,17 @@ async function ensureMissionAuditWorkspaceInitialized(
 async function readStoredAuditLog(
   projectionsDir: string,
 ): Promise<AuditLogProjection | null> {
+  const projectionPath = resolveProjectionPath(projectionsDir, "audit-log");
+
   try {
     return JSON.parse(await readProjectionFile(projectionsDir, "audit-log")) as AuditLogProjection;
   } catch (error) {
     if (isMissingFileError(error) || error instanceof SyntaxError) {
       return null;
+    }
+
+    if (isFileSystemReadError(error)) {
+      throw createFileSystemReadError(error, projectionPath, "projection audit-log");
     }
 
     throw error;
@@ -484,6 +523,57 @@ function buildMissionAuditDetailFields(
   return fields;
 }
 
+async function readMissionSnapshotForAudit(
+  layout: WorkspaceLayout,
+  missionRepository: ReturnType<typeof createFileMissionRepository>,
+  missionId: string,
+): Promise<Mission> {
+  try {
+    const mission = await missionRepository.findById(missionId);
+
+    if (mission) {
+      return mission;
+    }
+  } catch (error) {
+    if (!isRecoverablePersistedDocumentError(error)) {
+      throw error;
+    }
+  }
+
+  return readMissionSnapshotFromJournalOrThrow(layout.journalPath, missionId);
+}
+
+async function readTicketsForAudit(
+  ticketRepository: ReturnType<typeof createFileTicketRepository>,
+  missionId: string,
+  events: JournalEventRecord[],
+): Promise<Ticket[]> {
+  try {
+    return await ticketRepository.listByMissionId(missionId);
+  } catch (error) {
+    if (!isRecoverablePersistedDocumentError(error)) {
+      throw error;
+    }
+
+    return reconstructTicketsFromJournal(events, missionId);
+  }
+}
+
+async function readArtifactsForAudit(
+  artifactRepository: ReturnType<typeof createFileArtifactRepository>,
+  missionId: string,
+): Promise<Artifact[]> {
+  try {
+    return await artifactRepository.listByMissionId(missionId);
+  } catch (error) {
+    if (!isRecoverablePersistedDocumentError(error)) {
+      throw error;
+    }
+
+    return [];
+  }
+}
+
 function readApprovalFromPayload(
   payload: Record<string, unknown>,
 ): ApprovalRequest | null {
@@ -742,11 +832,4 @@ function isSkillPackUsageDetails(value: unknown): value is SkillPackUsageDetails
     && Array.isArray(candidate.constraints)
     && typeof candidate.owner === "string"
     && Array.isArray(candidate.tags);
-}
-
-function isMissingFileError(error: unknown): boolean {
-  return typeof error === "object"
-    && error !== null
-    && "code" in error
-    && error.code === "ENOENT";
 }

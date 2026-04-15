@@ -2,8 +2,15 @@ import { access, open } from "node:fs/promises";
 import path from "node:path";
 import { StringDecoder } from "node:string_decoder";
 
+import type { Artifact } from "../../../contracts/src/artifact/artifact";
 import type { Mission } from "../../../contracts/src/mission/mission";
+import type { Ticket } from "../../../contracts/src/ticket/ticket";
+import { EventLogReadError, isEventLogReadError } from "../../../journal/src/event-log/event-log-errors";
 import { readEventLog } from "../../../journal/src/event-log/file-event-log";
+import {
+  readMissionSnapshotFromJournalOrThrow,
+  reconstructTicketsFromJournal,
+} from "../../../journal/src/reconstruction/mission-reconstruction";
 import {
   createArtifactIndexProjection,
   type ArtifactIndexEntry,
@@ -18,9 +25,19 @@ import {
   resolveWorkspaceLayout,
   type WorkspaceLayout,
 } from "../../../storage/src/fs-layout/workspace-layout";
+import {
+  createFileSystemReadError,
+  isFileSystemReadError,
+  isMissingFileError,
+  readAccessError,
+} from "../../../storage/src/fs-layout/file-system-read-errors";
 import { createFileArtifactRepository } from "../../../storage/src/repositories/file-artifact-repository";
 import { createFileMissionRepository } from "../../../storage/src/repositories/file-mission-repository";
 import { createFileTicketRepository } from "../../../storage/src/repositories/file-ticket-repository";
+import {
+  isPersistedDocumentReadError,
+  isRecoverablePersistedDocumentError,
+} from "../../../storage/src/repositories/persisted-document-errors";
 import { deepStrictEqualForComparison } from "../../../ticket-runtime/src/utils/structural-compare";
 
 export interface ReadMissionArtifactsOptions {
@@ -73,18 +90,24 @@ export async function readMissionArtifacts(
     const missionRepository = createFileMissionRepository(layout);
     const ticketRepository = createFileTicketRepository(layout);
     const artifactRepository = createFileArtifactRepository(layout);
-    const mission = await missionRepository.findById(options.missionId);
-
-    if (!mission) {
-      throw new Error(`Mission introuvable: ${options.missionId}.`);
-    }
-
-    const tickets = await ticketRepository.listByMissionId(mission.id);
-    const artifacts = await artifactRepository.listByMissionId(mission.id);
+    const missionSnapshot = await readMissionSnapshotForArtifacts(
+      layout,
+      missionRepository,
+      options.missionId,
+    );
     const events = (await readEventLog(layout.journalPath))
-      .filter((event) => event.missionId === mission.id);
+      .filter((event) => event.missionId === missionSnapshot.id);
+    const tickets = await readTicketsForArtifacts(
+      ticketRepository,
+      missionSnapshot.id,
+      events,
+    );
+    const artifacts = await readStoredArtifactsForArtifacts(
+      artifactRepository,
+      missionSnapshot.id,
+    );
     const rebuiltProjection = createArtifactIndexProjection({
-      mission,
+      mission: missionSnapshot,
       tickets,
       artifacts,
       events,
@@ -96,7 +119,7 @@ export async function readMissionArtifacts(
       await writeProjectionSnapshot(layout.projectionsDir, "artifact-index", rebuiltProjection);
 
       return {
-        mission,
+        mission: missionSnapshot,
         artifacts: rebuiltProjection.artifacts,
         reconstructed: true,
         projectionPath,
@@ -104,7 +127,7 @@ export async function readMissionArtifacts(
     }
 
     return {
-      mission,
+      mission: missionSnapshot,
       artifacts: storedProjection.artifacts,
       reconstructed: false,
       projectionPath,
@@ -112,6 +135,14 @@ export async function readMissionArtifacts(
   } catch (error) {
     if (error instanceof Error && error.message.startsWith("Mission introuvable:")) {
       throw error;
+    }
+
+    if (isClassifiedReadError(error)) {
+      throw error;
+    }
+
+    if (isFileSystemReadError(error)) {
+      throw createFileSystemReadError(error, layout.journalPath, "lecture artefacts mission");
     }
 
     throw new Error(formatArtifactReadError(options.missionId, options.commandName));
@@ -179,11 +210,33 @@ async function ensureArtifactWorkspaceInitialized(
   layout: WorkspaceLayout,
   commandName: "artifact list" | "artifact show" | "resume" | "status" | "compare" | "compare relaunch",
 ): Promise<void> {
-  try {
-    await access(layout.journalPath);
-    await access(layout.projectionsDir);
-    await access(layout.missionsDir);
-  } catch {
+  const journalError = await readAccessError(() => access(layout.journalPath));
+  const projectionsError = await readAccessError(() => access(layout.projectionsDir));
+  const missionsError = await readAccessError(() => access(layout.missionsDir));
+
+  const fileSystemError = [
+    { error: journalError, filePath: layout.journalPath, label: "journal append-only" },
+    { error: projectionsError, filePath: layout.projectionsDir, label: "repertoire projections" },
+    { error: missionsError, filePath: layout.missionsDir, label: "repertoire missions" },
+  ].find((entry) => entry.error && entry.error.code !== "ENOENT" && isFileSystemReadError(entry.error));
+
+  if (fileSystemError?.error) {
+    if (fileSystemError.filePath === layout.journalPath) {
+      throw EventLogReadError.fileSystem(layout.journalPath, fileSystemError.error);
+    }
+
+    throw createFileSystemReadError(
+      fileSystemError.error,
+      fileSystemError.filePath,
+      fileSystemError.label,
+    );
+  }
+
+  if (journalError?.code === "ENOENT" && !projectionsError && !missionsError) {
+    throw EventLogReadError.missing(layout.journalPath, journalError);
+  }
+
+  if (journalError || projectionsError || missionsError) {
     throw new Error(
       `Workspace mission non initialise. Lancez \`corp mission bootstrap --root ${layout.rootDir}\` avant \`corp mission ${commandName}\`.`,
     );
@@ -193,11 +246,17 @@ async function ensureArtifactWorkspaceInitialized(
 async function readStoredArtifactIndex(
   projectionsDir: string,
 ): Promise<ArtifactIndexProjection | null> {
+  const projectionPath = resolveProjectionPath(projectionsDir, "artifact-index");
+
   try {
     return JSON.parse(await readProjectionFile(projectionsDir, "artifact-index")) as ArtifactIndexProjection;
   } catch (error) {
     if (isMissingFileError(error) || error instanceof SyntaxError) {
       return null;
+    }
+
+    if (isFileSystemReadError(error)) {
+      throw createFileSystemReadError(error, projectionPath, "projection artifact-index");
     }
 
     throw error;
@@ -220,6 +279,57 @@ function formatArtifactReadError(
   }
 
   return `Projection artifact-index irreconciliable pour ${missionId}. Impossible d'afficher la mission.`;
+}
+
+async function readMissionSnapshotForArtifacts(
+  layout: WorkspaceLayout,
+  missionRepository: ReturnType<typeof createFileMissionRepository>,
+  missionId: string,
+): Promise<Mission> {
+  try {
+    const mission = await missionRepository.findById(missionId);
+
+    if (mission) {
+      return mission;
+    }
+  } catch (error) {
+    if (!isRecoverablePersistedDocumentError(error)) {
+      throw error;
+    }
+  }
+
+  return readMissionSnapshotFromJournalOrThrow(layout.journalPath, missionId);
+}
+
+async function readTicketsForArtifacts(
+  ticketRepository: ReturnType<typeof createFileTicketRepository>,
+  missionId: string,
+  events: Awaited<ReturnType<typeof readEventLog>>,
+): Promise<Ticket[]> {
+  try {
+    return await ticketRepository.listByMissionId(missionId);
+  } catch (error) {
+    if (!isRecoverablePersistedDocumentError(error)) {
+      throw error;
+    }
+
+    return reconstructTicketsFromJournal(events, missionId);
+  }
+}
+
+async function readStoredArtifactsForArtifacts(
+  artifactRepository: ReturnType<typeof createFileArtifactRepository>,
+  missionId: string,
+): Promise<Artifact[]> {
+  try {
+    return await artifactRepository.listByMissionId(missionId);
+  } catch (error) {
+    if (!isRecoverablePersistedDocumentError(error)) {
+      throw error;
+    }
+
+    return [];
+  }
 }
 
 export async function readPayloadPreview(
@@ -272,9 +382,6 @@ async function readUtf8PreviewContents(
   }
 }
 
-function isMissingFileError(error: unknown): boolean {
-  return typeof error === "object"
-    && error !== null
-    && "code" in error
-    && error.code === "ENOENT";
+function isClassifiedReadError(error: unknown): boolean {
+  return isEventLogReadError(error) || isPersistedDocumentReadError(error);
 }

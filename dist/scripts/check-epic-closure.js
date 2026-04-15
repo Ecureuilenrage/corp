@@ -61,21 +61,39 @@ function unwrapQuotedScalar(value) {
         return value.slice(1, -1).replace(/''/g, "'");
     }
     if (value.startsWith("\"") && value.endsWith("\"")) {
-        return value
-            .slice(1, -1)
-            .replace(/\\"/g, "\"")
-            .replace(/\\\\/g, "\\");
+        const inner = value.slice(1, -1);
+        let result = "";
+        for (let index = 0; index < inner.length; index += 1) {
+            const currentChar = inner[index];
+            if (currentChar === "\\" && index + 1 < inner.length) {
+                const nextChar = inner[index + 1];
+                if (nextChar === "\\" || nextChar === "\"") {
+                    result += nextChar;
+                    index += 1;
+                    continue;
+                }
+            }
+            result += currentChar;
+        }
+        return result;
     }
     return value;
 }
 function normalizeYamlScalar(rawValue) {
     return unwrapQuotedScalar(stripInlineComment(rawValue).trim());
 }
+function isDevelopmentStatusSectionLine(line) {
+    return stripInlineComment(line).trim() === "development_status:";
+}
 function parseDevelopmentStatusEntries(fileContents) {
     const lines = fileContents.split(/\r?\n/);
-    const sectionIndex = lines.findIndex((line) => line.trim() === "development_status:");
+    const sectionIndex = lines.findIndex(isDevelopmentStatusSectionLine);
     if (sectionIndex === -1) {
         throw new Error("Section `development_status` introuvable dans sprint-status.yaml.");
+    }
+    const duplicateSectionIndex = lines.findIndex((line, index) => index > sectionIndex && isDevelopmentStatusSectionLine(line));
+    if (duplicateSectionIndex !== -1) {
+        throw new Error(`development_status: section dupliquee detectee (lignes ${sectionIndex + 1} et ${duplicateSectionIndex + 1}).`);
     }
     const rawEntries = [];
     const duplicateLineNumbersByKey = new Map();
@@ -167,9 +185,53 @@ function buildInspectableEpicStatuses(entries) {
 function extractStoryHeader(fileContents) {
     const lines = fileContents.split(/\r?\n/);
     const headerLines = [];
-    for (const line of lines) {
-        if (line.startsWith("## ") || line.trim() === "---") {
+    let firstNonEmptyIndex = -1;
+    for (let index = 0; index < lines.length; index += 1) {
+        if (lines[index].trim() !== "") {
+            firstNonEmptyIndex = index;
             break;
+        }
+    }
+    let cursor = 0;
+    let frontmatterClosed = true;
+    if (firstNonEmptyIndex !== -1 && lines[firstNonEmptyIndex].trim() === "---") {
+        frontmatterClosed = false;
+        cursor = firstNonEmptyIndex + 1;
+        for (; cursor < lines.length; cursor += 1) {
+            const line = lines[cursor];
+            if (line.trim() === "---") {
+                frontmatterClosed = true;
+                cursor += 1;
+                break;
+            }
+            headerLines.push(line);
+        }
+    }
+    if (!frontmatterClosed) {
+        // Frontmatter ouvert sans fermeture : retourner "" explicitement afin que les
+        // consommateurs (notamment readStoryFileStatus) ne lisent pas par erreur le
+        // contenu accumule du frontmatter tronque comme s'il s'agissait du header.
+        return "";
+    }
+    let fenceMarker = null;
+    for (; cursor < lines.length; cursor += 1) {
+        const line = lines[cursor];
+        if (fenceMarker === null && line.startsWith("## ")) {
+            break;
+        }
+        const fenceMatch = /^ {0,3}(```+|~~~+)/.exec(line);
+        if (fenceMatch !== null) {
+            const marker = fenceMatch[1];
+            if (fenceMarker === null) {
+                fenceMarker = marker;
+            }
+            else if (marker.length >= fenceMarker.length && marker[0] === fenceMarker[0]) {
+                fenceMarker = null;
+            }
+            continue;
+        }
+        if (fenceMarker !== null) {
+            continue;
         }
         headerLines.push(line);
     }
@@ -246,7 +308,10 @@ async function validateEpicStatus(implementationDir, epicStatus) {
 async function checkEpicClosure(rootDir) {
     const implementationDir = node_path_1.default.join(rootDir, "_bmad-output", "implementation");
     const sprintStatusPath = node_path_1.default.join(implementationDir, "sprint-status.yaml");
-    const sprintStatusContents = await (0, promises_1.readFile)(sprintStatusPath, "utf8");
+    const rawContents = await (0, promises_1.readFile)(sprintStatusPath, "utf8");
+    const sprintStatusContents = rawContents.startsWith("\uFEFF")
+        ? rawContents.slice(1)
+        : rawContents;
     const parseResult = parseDevelopmentStatusEntries(sprintStatusContents);
     const epicStatuses = buildInspectableEpicStatuses(parseResult.entries);
     const warnings = [...parseResult.warnings];
@@ -256,6 +321,16 @@ async function checkEpicClosure(rootDir) {
             warnings.push(`${epicStatus.epicKey}: aucune story associee dans development_status alors que l'epic est declare done.`);
         }
         errors.push(...await validateEpicStatus(implementationDir, epicStatus));
+    }
+    for (const entry of parseResult.entries) {
+        if (!isEpicKey(entry.key) || entry.value !== "in-progress") {
+            continue;
+        }
+        const epicNumber = parseEpicNumberFromEpicKey(entry.key);
+        const hasStories = parseResult.entries.some((candidate) => isStoryKey(candidate.key) && candidate.key.startsWith(`${epicNumber}-`));
+        if (!hasStories) {
+            warnings.push(`${entry.key}: aucune story associee dans development_status alors que l'epic est in-progress.`);
+        }
     }
     return {
         errors,
@@ -292,7 +367,7 @@ function parseRootDirFromArgs(args) {
         const currentArg = args[index];
         if (currentArg === "--root") {
             const nextArg = args[index + 1];
-            if (nextArg === undefined || nextArg.startsWith("--")) {
+            if (nextArg === undefined || nextArg === "" || nextArg.startsWith("--")) {
                 throw new Error("L'option --root requiert un chemin.");
             }
             rootDir = node_path_1.default.resolve(nextArg);

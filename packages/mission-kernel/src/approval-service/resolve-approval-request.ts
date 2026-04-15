@@ -221,11 +221,16 @@ export async function resolveApprovalRequest(
     },
   };
 
-  await appendEvent(layout.journalPath, event);
-  await missionRepository.save(updatedMission);
-  await ticketRepository.save(updatedTicket);
-  await attemptRepository.save(mission.id, updatedAttempt);
-  await rewriteMissionReadModels(layout, updatedMission, ticketRepository);
+  await persistApprovalTransition({
+    layout,
+    event,
+    mission: updatedMission,
+    ticket: updatedTicket,
+    attempt: updatedAttempt,
+    missionRepository,
+    ticketRepository,
+    attemptRepository,
+  });
 
   const resumeResult = await readMissionResume({
     rootDir: layout.rootDir,
@@ -242,6 +247,29 @@ export async function resolveApprovalRequest(
     decision,
     resume: resumeResult.resume,
   };
+}
+
+async function persistApprovalTransition(options: {
+  layout: ReturnType<typeof resolveWorkspaceLayout>;
+  event: JournalEventRecord;
+  mission: Mission;
+  ticket: Ticket;
+  attempt: ExecutionAttempt;
+  missionRepository: ReturnType<typeof createFileMissionRepository>;
+  ticketRepository: ReturnType<typeof createFileTicketRepository>;
+  attemptRepository: ReturnType<typeof createFileExecutionAttemptRepository>;
+}): Promise<void> {
+  // journal-as-source-of-truth : l'append est la decision d'autorite ; les 4 saves
+  // sequentiels ci-dessous sont des optimisations de lecture. Un crash entre deux
+  // saves laisse le journal en avance sur les snapshots, et le prochain reader
+  // (readMissionResume, readApprovalQueue, readMissionArtifacts, readTicketBoard)
+  // reconstruit l'etat via reconstructMissionFromJournal. Voir
+  // docs/architecture/journal-as-source-of-truth.md (decision D2, 2026-04-15).
+  await appendEvent(options.layout.journalPath, options.event);
+  await options.missionRepository.save(options.mission);
+  await options.ticketRepository.save(options.ticket);
+  await options.attemptRepository.save(options.mission.id, options.attempt);
+  await rewriteMissionReadModels(options.layout, options.mission, options.ticketRepository);
 }
 
 async function resolveMissionStatusAfterDecision(options: {

@@ -103,9 +103,18 @@ export async function selectMissionExtensions(
     },
   };
 
-  await appendEvent(layout.journalPath, event);
-  await missionRepository.save(updatedMission);
-  await rewriteMissionReadModels(layout, updatedMission, ticketRepository);
+  // journal-as-source-of-truth : l'append precede la reconstruction des read-models ;
+  // les deux s'executent dans la callback beforeSave de saveIfUnchanged pour fermer la
+  // fenetre unlock->rewrite (AC2 de la story 5.1.1). Voir
+  // docs/architecture/journal-as-source-of-truth.md.
+  await missionRepository.saveIfUnchanged(
+    updatedMission,
+    mission,
+    async () => {
+      await appendEvent(layout.journalPath, event);
+      await rewriteMissionReadModels(layout, updatedMission, ticketRepository);
+    },
+  );
 
   return {
     mission: updatedMission,

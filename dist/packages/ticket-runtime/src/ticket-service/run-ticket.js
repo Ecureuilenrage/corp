@@ -23,6 +23,7 @@ const detect_ticket_artifacts_1 = require("../artifact-service/detect-ticket-art
 const register_artifacts_1 = require("../artifact-service/register-artifacts");
 const build_ticket_board_1 = require("../planner/build-ticket-board");
 const ticket_service_support_1 = require("./ticket-service-support");
+const structural_compare_1 = require("../utils/structural-compare");
 let runTicketDependencyOverrides = null;
 function setRunTicketDependenciesForTesting(overrides) {
     runTicketDependencyOverrides = overrides;
@@ -317,8 +318,12 @@ async function runTicket(options) {
     }
     let transitionResult;
     let adapterResult = null;
+    // Declare au scope externe pour que le catch voie l'etat mission apres les ecritures
+    // concurrentes (notamment les tickets ajoutes par un autre runTicket en vol). Fallback
+    // sur `mission` si le findById lui-meme echoue avant l'assignation.
+    let latestMission = null;
     try {
-        const latestMission = await missionRepository.findById(mission.id);
+        latestMission = await missionRepository.findById(mission.id);
         if (!latestMission) {
             throw new Error(`Mission introuvable: ${mission.id}.`);
         }
@@ -327,6 +332,8 @@ async function runTicket(options) {
             allowedCapabilities: currentTicket.allowedCapabilities,
             skillPackRefs: currentTicket.skillPackRefs,
         });
+        const latestTicket = (0, ticket_service_support_1.requireTicketInMission)(await ticketRepository.findById(latestMission.id, ticket.id), latestMission, ticket.id);
+        ensureTicketHasNoConcurrentExtensionMutation(currentTicket, latestTicket);
         adapterResult = await adapter.launch({
             mission: currentMission,
             ticket: currentTicket,
@@ -383,8 +390,10 @@ async function runTicket(options) {
     }
     catch (error) {
         const failedAt = new Date().toISOString();
-        const hasOtherActiveAttempts = await (0, ticket_service_support_1.missionHasOtherActiveAttempts)(mission.id, ticket.id, mission.ticketIds, attemptRepository);
-        currentMission = withMissionEvent(currentMission, {
+        const failureMissionBase = latestMission ?? currentMission;
+        const missionTicketIdsForScan = failureMissionBase.ticketIds;
+        const hasOtherActiveAttempts = await (0, ticket_service_support_1.missionHasOtherActiveAttempts)(mission.id, ticket.id, missionTicketIdsForScan, attemptRepository);
+        currentMission = withMissionEvent(failureMissionBase, {
             eventId: dependencies.createEventId(),
             occurredAt: failedAt,
             status: hasOtherActiveAttempts ? "running" : "failed",
@@ -439,6 +448,24 @@ async function runTicket(options) {
             currentMission = artifactRegistrationResult.mission;
             currentTicket = artifactRegistrationResult.ticket;
             events.push(...artifactRegistrationResult.events);
+            const latestArtifactEvent = artifactRegistrationResult.events.at(-1);
+            if (latestArtifactEvent) {
+                // journal-as-source-of-truth AC7 : on recalcule les projections apres persist
+                // des artefacts pour que resume-view/audit-log/ticket-board refletent bien
+                // execution.failed ET artifact.registered au moment du rethrow. Voir
+                // docs/architecture/journal-as-source-of-truth.md (decision D4, 2026-04-15).
+                await persistRunTransition({
+                    layout,
+                    event: latestArtifactEvent,
+                    mission: currentMission,
+                    ticket: currentTicket,
+                    attempt: currentAttempt,
+                    ticketRepository,
+                    missionRepository,
+                    attemptRepository,
+                    eventAlreadyAppended: true,
+                });
+            }
         }
         catch (artifactDetectionError) {
             console.warn(`Avertissement: impossible de detecter/enregistrer les artefacts apres l'echec du ticket \`${ticket.id}\`: ${artifactDetectionError instanceof Error ? artifactDetectionError.message : String(artifactDetectionError)}`);
@@ -675,6 +702,13 @@ async function finalizeAdapterOutcome(options) {
         },
     };
 }
+function ensureTicketHasNoConcurrentExtensionMutation(currentTicket, latestTicket) {
+    if ((0, structural_compare_1.deepStrictEqualIgnoringArrayOrder)(currentTicket.allowedCapabilities, latestTicket.allowedCapabilities)
+        && (0, structural_compare_1.deepStrictEqualIgnoringArrayOrder)(currentTicket.skillPackRefs, latestTicket.skillPackRefs)) {
+        return;
+    }
+    throw new Error(`Conflit d'ecriture concurrente detecte pour le ticket \`${currentTicket.id}\`.`);
+}
 function buildTicketInProgressTransition(options) {
     const occurredAt = new Date().toISOString();
     const mission = withMissionEvent(options.mission, {
@@ -737,7 +771,15 @@ async function detectAndRegisterTerminalArtifacts(options) {
     };
 }
 async function persistRunTransition(options) {
-    await (0, append_event_1.appendEvent)(options.layout.journalPath, options.event);
+    // journal-as-source-of-truth : l'append est la decision d'autorite. Les saves
+    // ticket/mission/attempt ci-dessous sont des optimisations de lecture ; un crash
+    // entre deux d'entre eux laisse les snapshots en retard sur le journal, et le
+    // prochain reader (readMissionResume, readTicketBoard, readMissionArtifacts)
+    // reconstruit via reconstructMissionFromJournal. Voir
+    // docs/architecture/journal-as-source-of-truth.md (decisions D1/D4, 2026-04-15).
+    if (!options.eventAlreadyAppended) {
+        await (0, append_event_1.appendEvent)(options.layout.journalPath, options.event);
+    }
     await options.ticketRepository.save(options.ticket);
     await options.missionRepository.save(options.mission);
     if (options.attempt && options.attemptRepository) {

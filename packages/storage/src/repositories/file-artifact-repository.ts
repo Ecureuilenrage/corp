@@ -1,14 +1,21 @@
 import type { Dirent } from "node:fs";
-import { mkdir, readdir, readFile, writeFile } from "node:fs/promises";
+import { mkdir, readdir } from "node:fs/promises";
 import path from "node:path";
 
+import { validateArtifact } from "../../../contracts/src/guards/persisted-document-guards";
 import type { Artifact } from "../../../contracts/src/artifact/artifact";
+import { writeJsonAtomic } from "../fs-layout/atomic-json";
+import { isMissingFileError } from "../fs-layout/file-system-read-errors";
 import {
   resolveArtifactStoragePaths,
   resolveMissionStoragePaths,
   resolveTicketStoragePaths,
   type WorkspaceLayout,
 } from "../fs-layout/workspace-layout";
+import {
+  assertValidPersistedDocument,
+  readPersistedJsonDocument,
+} from "./persisted-document-errors";
 
 export interface SaveArtifactResult {
   artifactsDir: string;
@@ -28,11 +35,7 @@ export class FileArtifactRepository {
     );
 
     await mkdir(artifactStoragePaths.artifactDir, { recursive: true });
-    await writeFile(
-      artifactStoragePaths.artifactPath,
-      `${JSON.stringify(artifact, null, 2)}\n`,
-      "utf8",
-    );
+    await writeJsonAtomic(artifactStoragePaths.artifactPath, artifact);
 
     return artifactStoragePaths;
   }
@@ -98,10 +101,16 @@ export class FileArtifactRepository {
       ticketId,
       artifactId,
     );
+    const context = {
+      filePath: artifactStoragePaths.artifactPath,
+      entityLabel: "Artifact",
+      documentId: artifactId,
+    };
 
     try {
-      const storedArtifact = await readFile(artifactStoragePaths.artifactPath, "utf8");
-      return JSON.parse(storedArtifact) as Artifact;
+      const storedArtifact = await readPersistedJsonDocument(context);
+      assertValidPersistedDocument<Artifact>(storedArtifact, validateArtifact, context);
+      return storedArtifact;
     } catch (error) {
       if (isMissingFileError(error)) {
         return null;
@@ -128,11 +137,4 @@ async function readDirectoryEntries(directoryPath: string): Promise<Dirent[]> {
 
     throw error;
   }
-}
-
-function isMissingFileError(error: unknown): boolean {
-  return typeof error === "object"
-    && error !== null
-    && "code" in error
-    && error.code === "ENOENT";
 }

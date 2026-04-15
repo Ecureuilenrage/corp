@@ -12,6 +12,7 @@ const index_1 = require("../../apps/corp-cli/src/index");
 const codex_responses_adapter_1 = require("../../packages/execution-adapters/codex-responses/src/codex-responses-adapter");
 const run_ticket_1 = require("../../packages/ticket-runtime/src/ticket-service/run-ticket");
 const workspace_layout_1 = require("../../packages/storage/src/fs-layout/workspace-layout");
+const file_mission_repository_1 = require("../../packages/storage/src/repositories/file-mission-repository");
 const workspace_isolation_1 = require("../../packages/workspace-isolation/src/workspace-isolation");
 async function runCommand(args) {
     const lines = [];
@@ -80,6 +81,56 @@ async function readTicket(rootDir, missionId, ticketId) {
 }
 async function readAttempt(rootDir, missionId, ticketId, attemptId) {
     return readJson(node_path_1.default.join(rootDir, ".corp", "missions", missionId, "tickets", ticketId, "attempts", attemptId, "attempt.json"));
+}
+async function injectActiveTicketSnapshot(rootDir, mission, ticketId) {
+    const occurredAt = new Date().toISOString();
+    const attemptId = `attempt_${ticketId}`;
+    const ticket = {
+        id: ticketId,
+        missionId: mission.id,
+        kind: "implement",
+        goal: "Ticket concurrent actif",
+        status: "in_progress",
+        owner: "agent_concurrent",
+        dependsOn: [],
+        successCriteria: ["La tentative concurrente reste active"],
+        allowedCapabilities: [],
+        skillPackRefs: [],
+        workspaceIsolationId: "iso_concurrent_active",
+        executionHandle: {
+            adapter: "codex_responses",
+            adapterState: {},
+        },
+        artifactIds: [],
+        eventIds: [],
+        createdAt: occurredAt,
+        updatedAt: occurredAt,
+    };
+    const attempt = {
+        id: attemptId,
+        ticketId,
+        adapter: "codex_responses",
+        status: "running",
+        workspaceIsolationId: "iso_concurrent_active",
+        backgroundRequested: true,
+        adapterState: {},
+        startedAt: occurredAt,
+        endedAt: null,
+    };
+    const missionPath = node_path_1.default.join(rootDir, ".corp", "missions", mission.id, "mission.json");
+    const ticketDir = node_path_1.default.join(rootDir, ".corp", "missions", mission.id, "tickets", ticketId);
+    const attemptDir = node_path_1.default.join(ticketDir, "attempts", attemptId);
+    const updatedMission = {
+        ...mission,
+        ticketIds: mission.ticketIds.includes(ticketId)
+            ? mission.ticketIds
+            : [...mission.ticketIds, ticketId],
+        updatedAt: occurredAt,
+    };
+    await (0, promises_1.mkdir)(attemptDir, { recursive: true });
+    await (0, promises_1.writeFile)(node_path_1.default.join(ticketDir, "ticket.json"), `${JSON.stringify(ticket, null, 2)}\n`, "utf8");
+    await (0, promises_1.writeFile)(node_path_1.default.join(attemptDir, "attempt.json"), `${JSON.stringify(attempt, null, 2)}\n`, "utf8");
+    await (0, promises_1.writeFile)(missionPath, `${JSON.stringify(updatedMission, null, 2)}\n`, "utf8");
 }
 async function readJournal(rootDir) {
     return (await (0, promises_1.readFile)(node_path_1.default.join(rootDir, ".corp", "journal", "events.jsonl"), "utf8"))
@@ -583,6 +634,113 @@ async function readJournal(rootDir) {
     strict_1.default.equal(ticketBoardProjection.tickets.find((entry) => entry.ticketId === firstTicketId)?.activeAttemptStatus, "running");
     strict_1.default.equal(ticketBoardProjection.tickets.find((entry) => entry.ticketId === secondTicketId)?.trackingState, "failed");
 });
+(0, node_test_1.default)("mission ticket run execute deux tentatives concurrentes et garde la mission running quand l'une echoue tandis que l'autre reste active", async (t) => {
+    const rootDir = await (0, promises_1.mkdtemp)(node_path_1.default.join((0, node_os_1.tmpdir)(), "corp-run-ticket-concurrent-failure-"));
+    t.after(async () => {
+        (0, run_ticket_1.setRunTicketDependenciesForTesting)(null);
+        await (0, promises_1.rm)(rootDir, { recursive: true, force: true });
+    });
+    // L'adapter simule deux attempts concurrents : le premier reste "running" en arriere-plan
+    // (pour maintenir une tentative active sur la mission), le second echoue avec une erreur
+    // adapteur. Le catch de runTicket doit utiliser `latestMission.ticketIds` afin de
+    // detecter la tentative active du premier ticket meme si `mission.ticketIds` initial
+    // ne contenait qu'une sous-liste au moment du fetch top-level.
+    let launchCount = 0;
+    (0, run_ticket_1.setRunTicketDependenciesForTesting)({
+        createAdapter: () => ({
+            id: "codex_responses",
+            launch: async ({ background }) => {
+                launchCount += 1;
+                if (background) {
+                    return {
+                        status: "running",
+                        adapterState: {
+                            responseId: `resp_concurrent_${launchCount}`,
+                            pollCursor: `cursor_concurrent_${launchCount}`,
+                            vendorStatus: "in_progress",
+                        },
+                    };
+                }
+                throw new Error("adapter boom concurrent");
+            },
+        }),
+    });
+    await bootstrapWorkspace(rootDir);
+    const mission = await createMission(rootDir, "Mission concurrent runs");
+    const firstTicketResult = await createTicket(rootDir, mission.id, [
+        "--goal",
+        "Ticket background actif",
+    ]);
+    const secondTicketResult = await createTicket(rootDir, mission.id, [
+        "--goal",
+        "Ticket qui echoue",
+        "--owner",
+        "agent_second",
+    ]);
+    strict_1.default.equal(firstTicketResult.exitCode, 0);
+    strict_1.default.equal(secondTicketResult.exitCode, 0);
+    const firstTicketId = String(firstTicketResult.lines.find((line) => line.startsWith("Ticket cree: "))?.slice("Ticket cree: ".length));
+    const secondTicketId = String(secondTicketResult.lines.find((line) => line.startsWith("Ticket cree: "))?.slice("Ticket cree: ".length));
+    // Runs sequentiels : d'abord le background, puis le foreground qui echoue.
+    // Le test exerce le chemin catch restructure avec `latestMission` au scope externe.
+    const firstRun = await runCommand([
+        "mission",
+        "ticket",
+        "run",
+        "--root",
+        rootDir,
+        "--mission-id",
+        mission.id,
+        "--ticket-id",
+        firstTicketId,
+        "--background",
+    ]);
+    strict_1.default.equal(firstRun.exitCode, 0);
+    const concurrentTicketId = "ticket_concurrent_active";
+    const originalFindById = file_mission_repository_1.FileMissionRepository.prototype.findById;
+    let missionReadsDuringSecondRun = 0;
+    let injectedConcurrentTicket = false;
+    file_mission_repository_1.FileMissionRepository.prototype.findById = async function patchedFindById(missionId) {
+        const foundMission = await originalFindById.call(this, missionId);
+        if (missionId === mission.id) {
+            missionReadsDuringSecondRun += 1;
+            if (missionReadsDuringSecondRun === 2
+                && foundMission
+                && !injectedConcurrentTicket) {
+                injectedConcurrentTicket = true;
+                await injectActiveTicketSnapshot(rootDir, foundMission, concurrentTicketId);
+                return await originalFindById.call(this, missionId);
+            }
+        }
+        return foundMission;
+    };
+    t.after(() => {
+        file_mission_repository_1.FileMissionRepository.prototype.findById = originalFindById;
+    });
+    const secondRun = await runCommand([
+        "mission",
+        "ticket",
+        "run",
+        "--root",
+        rootDir,
+        "--mission-id",
+        mission.id,
+        "--ticket-id",
+        secondTicketId,
+    ]);
+    strict_1.default.equal(secondRun.exitCode, 1);
+    strict_1.default.equal(secondRun.lines.at(-1), "adapter boom concurrent");
+    // Verifie que le catch (chemin fixe par AC4) a bien consulte les tickets actifs
+    // via `latestMission.ticketIds` et non via un snapshot obsolete : la mission doit
+    // rester "running" car le ticket 1 est actif, meme apres l'echec du ticket 2.
+    const updatedMission = await readMission(rootDir, mission.id);
+    strict_1.default.equal(updatedMission.status, "running");
+    strict_1.default.deepEqual(updatedMission.ticketIds.sort(), [firstTicketId, secondTicketId, concurrentTicketId].sort());
+    const failedTicket = await readTicket(rootDir, mission.id, secondTicketId);
+    strict_1.default.equal(failedTicket.status, "failed");
+    const activeTicket = await readTicket(rootDir, mission.id, firstTicketId);
+    strict_1.default.equal(activeTicket.status, "in_progress");
+});
 (0, node_test_1.default)("mission ticket run autorise la relance d'un ticket failed quand la mission est en echec", async (t) => {
     const rootDir = await (0, promises_1.mkdtemp)(node_path_1.default.join((0, node_os_1.tmpdir)(), "corp-run-ticket-retry-failed-"));
     const layout = (0, workspace_layout_1.resolveWorkspaceLayout)(rootDir);
@@ -714,6 +872,8 @@ async function readJournal(rootDir) {
     strict_1.default.equal(updatedTicket.status, "failed");
     strict_1.default.equal(updatedMission.artifactIds.length, 1);
     strict_1.default.deepEqual(updatedMission.artifactIds, updatedTicket.artifactIds);
+    strict_1.default.equal(updatedMission.resumeCursor, journal.at(-1)?.eventId);
+    strict_1.default.equal(updatedTicket.eventIds.at(-1), journal.at(-1)?.eventId);
     strict_1.default.deepEqual(journal.slice(-3).map((event) => event.type), ["execution.failed", "artifact.detected", "artifact.registered"]);
     strict_1.default.equal(journal.at(-1)?.type, "artifact.registered");
     strict_1.default.equal(artifactIndexProjection.artifacts.length, 1);
@@ -728,6 +888,17 @@ async function readJournal(rootDir) {
             sourceEventType: "execution.failed",
         },
     ]);
+    // AC7 (Story 5.1.1) : apres retrait de skipProjectionRewrite dans le catch,
+    // audit-log.json et resume-view.json doivent refleter execution.failed ET
+    // artifact.registered au moment du rethrow. Auparavant seule artifact-index
+    // etait a jour car les autres projections restaient figees sur execution.failed.
+    const auditLogProjection = await readJson(node_path_1.default.join(rootDir, ".corp", "projections", "audit-log.json"));
+    const resumeViewProjection = await readJson(node_path_1.default.join(rootDir, ".corp", "projections", "resume-view.json"));
+    const auditEventIds = auditLogProjection.entries.map((entry) => entry.eventId);
+    const artifactRegisteredEvent = journal.at(-1);
+    strict_1.default.ok(artifactRegisteredEvent);
+    strict_1.default.equal(auditEventIds.includes(artifactRegisteredEvent.eventId), true, "audit-log doit contenir l'event artifact.registered apres rewrite post-catch.");
+    strict_1.default.equal(resumeViewProjection.resume?.lastEventId, artifactRegisteredEvent.eventId, "resume-view doit pointer sur artifact.registered apres rewrite post-catch.");
 });
 (0, node_test_1.default)("mission ticket run background ne declenche pas la detection d'artefacts avant completion terminale", async (t) => {
     const rootDir = await (0, promises_1.mkdtemp)(node_path_1.default.join((0, node_os_1.tmpdir)(), "corp-run-ticket-background-artifacts-"));
@@ -850,6 +1021,69 @@ async function readJournal(rootDir) {
     strict_1.default.deepEqual(await (0, promises_1.readdir)(attemptsDir), attemptsBefore);
     strict_1.default.deepEqual(await readMission(rootDir, mission.id), missionBefore);
     strict_1.default.deepEqual(await readTicket(rootDir, mission.id, ticketId), ticketBefore);
+});
+(0, node_test_1.default)("mission ticket run relit le ticket juste avant adapter.launch et bloque une mutation concurrente non autorisee", async (t) => {
+    const rootDir = await (0, promises_1.mkdtemp)(node_path_1.default.join((0, node_os_1.tmpdir)(), "corp-run-ticket-reread-ticket-"));
+    let launchCount = 0;
+    t.after(async () => {
+        (0, run_ticket_1.setRunTicketDependenciesForTesting)(null);
+        await (0, promises_1.rm)(rootDir, { recursive: true, force: true });
+    });
+    (0, run_ticket_1.setRunTicketDependenciesForTesting)({
+        createAdapter: () => ({
+            id: "codex_responses",
+            launch: async () => {
+                launchCount += 1;
+                return {
+                    status: "completed",
+                    adapterState: {},
+                };
+            },
+        }),
+    });
+    await bootstrapWorkspace(rootDir);
+    const mission = await createMission(rootDir, "Mission reread ticket");
+    const ticketCreateResult = await createTicket(rootDir, mission.id, [
+        "--allow-capability",
+        "fs.read",
+    ]);
+    strict_1.default.equal(ticketCreateResult.exitCode, 0);
+    const ticketId = String(ticketCreateResult.lines.find((line) => line.startsWith("Ticket cree: "))?.slice("Ticket cree: ".length));
+    const originalFindById = file_mission_repository_1.FileMissionRepository.prototype.findById;
+    let missionReads = 0;
+    file_mission_repository_1.FileMissionRepository.prototype.findById = async function patchedFindById(missionId) {
+        const foundMission = await originalFindById.call(this, missionId);
+        if (missionId === mission.id) {
+            missionReads += 1;
+            if (missionReads === 2) {
+                const ticket = await readTicket(rootDir, mission.id, ticketId);
+                const ticketPath = node_path_1.default.join(rootDir, ".corp", "missions", mission.id, "tickets", ticketId, "ticket.json");
+                await (0, promises_1.writeFile)(ticketPath, `${JSON.stringify({
+                    ...ticket,
+                    allowedCapabilities: [...ticket.allowedCapabilities, "shell.exec"],
+                    updatedAt: new Date().toISOString(),
+                }, null, 2)}\n`, "utf8");
+            }
+        }
+        return foundMission;
+    };
+    t.after(() => {
+        file_mission_repository_1.FileMissionRepository.prototype.findById = originalFindById;
+    });
+    const runResult = await runCommand([
+        "mission",
+        "ticket",
+        "run",
+        "--root",
+        rootDir,
+        "--mission-id",
+        mission.id,
+        "--ticket-id",
+        ticketId,
+    ]);
+    strict_1.default.equal(runResult.exitCode, 1);
+    strict_1.default.equal(launchCount, 0);
+    strict_1.default.match(runResult.lines.at(-1) ?? "", /conflit d'ecriture concurrente.*ticket/i);
 });
 (0, node_test_1.default)("mission ticket run refuse un ticket non runnable sans muter journal, projections, snapshots ni isolations", async (t) => {
     const rootDir = await (0, promises_1.mkdtemp)(node_path_1.default.join((0, node_os_1.tmpdir)(), "corp-run-ticket-non-runnable-"));

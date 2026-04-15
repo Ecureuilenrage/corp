@@ -96,6 +96,25 @@ async function createMission(rootDir) {
         strict_1.default.doesNotMatch(output, /codex|openai|response_id|thread_id/i);
     }
 });
+(0, node_test_1.default)("mission resume expose le diagnostic journal_invalide quand le journal est illisible", async (t) => {
+    const rootDir = await (0, promises_1.mkdtemp)(node_path_1.default.join((0, node_os_1.tmpdir)(), "corp-mission-resume-invalid-journal-"));
+    t.after(async () => {
+        await (0, promises_1.rm)(rootDir, { recursive: true, force: true });
+    });
+    const { missionId } = await createMission(rootDir);
+    await (0, promises_1.writeFile)(node_path_1.default.join(rootDir, ".corp", "journal", "events.jsonl"), "{json invalide\n", "utf8");
+    const result = await runCommand([
+        "mission",
+        "resume",
+        "--root",
+        rootDir,
+        "--mission-id",
+        missionId,
+    ]);
+    strict_1.default.equal(result.exitCode, 1);
+    strict_1.default.match(result.lines.at(-1) ?? "", /journal_invalide: journal append-only invalide a la ligne 1 .*JSON corrompu\./);
+    strict_1.default.doesNotMatch(result.lines.at(-1) ?? "", /SyntaxError|Journal mission irreconciliable/);
+});
 (0, node_test_1.default)("mission status et mission resume restent strictement read-only pour le journal", async (t) => {
     const rootDir = await (0, promises_1.mkdtemp)(node_path_1.default.join((0, node_os_1.tmpdir)(), "corp-mission-resume-read-only-"));
     t.after(async () => {
@@ -1098,7 +1117,7 @@ async function createMission(rootDir) {
     strict_1.default.ok(artifact);
     strict_1.default.equal(artifact.path, "README.md");
 });
-(0, node_test_1.default)("mission resume ne masque plus les statuts fantomes completed et closed comme des tickets fermes", async (t) => {
+(0, node_test_1.default)("mission resume reconstruit depuis le journal quand un snapshot ticket porte un statut fantome", async (t) => {
     const rootDir = await (0, promises_1.mkdtemp)(node_path_1.default.join((0, node_os_1.tmpdir)(), "corp-mission-resume-ghost-statuses-"));
     t.after(async () => {
         await (0, promises_1.rm)(rootDir, { recursive: true, force: true });
@@ -1146,10 +1165,11 @@ async function createMission(rootDir) {
             strict_1.default.equal(result.exitCode, 0);
             strict_1.default.match(output, new RegExp(`Tickets ouverts: ${ticketId}`));
             strict_1.default.doesNotMatch(output, /Tickets ouverts: aucun/);
-            strict_1.default.match(output, /Prochain arbitrage utile: Aucun ticket n'est runnable pour le moment\. Replanifiez ou debloquez la mission avant de poursuivre\./);
+            strict_1.default.match(output, /Prochain arbitrage utile: Traitez le prochain ticket runnable: Ticket au statut fantome\./);
+            strict_1.default.doesNotMatch(output, new RegExp(`statut=${ghostStatus}`));
         }
         const resumeView = await readJson(resumeViewPath);
         strict_1.default.equal(resumeView.resume?.openTickets[0]?.ticketId, ticketId);
-        strict_1.default.equal(resumeView.resume?.openTickets[0]?.status, ghostStatus);
+        strict_1.default.equal(resumeView.resume?.openTickets[0]?.status, "todo");
     }
 });

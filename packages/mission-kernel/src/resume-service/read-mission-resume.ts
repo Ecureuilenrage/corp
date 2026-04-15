@@ -1,10 +1,7 @@
 import { access } from "node:fs/promises";
 
 import { TERMINAL_APPROVAL_REQUEST_STATUSES } from "../../../contracts/src/approval/approval-request";
-import {
-  hydrateMission,
-  type Mission,
-} from "../../../contracts/src/mission/mission";
+import type { Mission } from "../../../contracts/src/mission/mission";
 import type {
   MissionResume,
   MissionResumeArtifact,
@@ -12,7 +9,11 @@ import type {
 } from "../../../contracts/src/mission/mission-resume";
 import { TERMINAL_TICKET_STATUSES } from "../../../contracts/src/ticket/ticket";
 import type { JournalEventRecord } from "../../../journal/src/event-log/append-event";
-import { readEventLog } from "../../../journal/src/event-log/file-event-log";
+import { EventLogReadError, isEventLogReadError } from "../../../journal/src/event-log/event-log-errors";
+import {
+  readMissionEvents,
+  reconstructMissionFromJournal,
+} from "../../../journal/src/reconstruction/mission-reconstruction";
 import type { TicketBoardProjection } from "../../../journal/src/projections/ticket-board-projection";
 import {
   createMissionResume,
@@ -28,7 +29,14 @@ import {
   resolveWorkspaceLayout,
   type WorkspaceLayout,
 } from "../../../storage/src/fs-layout/workspace-layout";
+import {
+  createFileSystemReadError,
+  isFileSystemReadError,
+  isMissingFileError,
+  readAccessError,
+} from "../../../storage/src/fs-layout/file-system-read-errors";
 import { createFileMissionRepository } from "../../../storage/src/repositories/file-mission-repository";
+import { isRecoverablePersistedDocumentError } from "../../../storage/src/repositories/persisted-document-errors";
 import { readTicketBoard } from "../../../ticket-runtime/src/planner/read-ticket-board";
 import { readApprovalQueue } from "./read-approval-queue";
 import { readMissionArtifacts } from "./read-mission-artifacts";
@@ -62,9 +70,31 @@ export async function readMissionResume(
   await ensureMissionWorkspaceInitialized(layout, options.commandName);
 
   const repository = createFileMissionRepository(layout);
-  const storedMission = await repository.findById(options.missionId);
+  const storedMission = await readStoredMissionSnapshot(repository, options.missionId);
 
-  if (!storedMission) {
+  let missionEvents: JournalEventRecord[];
+
+  try {
+    missionEvents = await readMissionEvents(layout.journalPath, options.missionId);
+  } catch (error) {
+    if (isEventLogReadError(error)) {
+      throw error;
+    }
+
+    throw new Error(
+      `Journal mission irreconciliable pour ${options.missionId}. Impossible de reconstruire la reprise.`,
+    );
+  }
+
+  const missionFromJournal = missionEvents.length > 0
+    ? reconstructMissionFromJournal(missionEvents, options.missionId, {
+        errorContextNoun: "la reprise",
+      })
+    : null;
+
+  const baseMission = storedMission ?? missionFromJournal;
+
+  if (!baseMission) {
     throw new Error(`Mission introuvable: ${options.missionId}.`);
   }
   const ticketBoardResult = await readTicketBoard({
@@ -83,7 +113,6 @@ export async function readMissionResume(
     commandName: options.commandName,
   });
 
-  const missionEvents = await readMissionEvents(layout.journalPath, options.missionId);
   const lastMissionEvent = missionEvents.at(-1);
 
   if (!lastMissionEvent) {
@@ -94,7 +123,8 @@ export async function readMissionResume(
 
   const projectionPath = resolveProjectionPath(layout.projectionsDir, "resume-view");
   const rawResumeView = await readStoredResumeView(layout.projectionsDir);
-  const shouldReconstruct = isMissionSnapshotSuspicious(storedMission, lastMissionEvent.eventId)
+  const shouldReconstruct = !storedMission
+    || isMissionSnapshotSuspicious(storedMission, lastMissionEvent.eventId)
     || approvalQueueResult.reconstructed
     || ticketBoardResult.reconstructed
     || artifactIndexResult.reconstructed
@@ -104,8 +134,10 @@ export async function readMissionResume(
       lastMissionEvent.eventId,
     );
   const mission = shouldReconstruct
-    ? reconstructMissionFromJournal(missionEvents, options.missionId)
-    : storedMission;
+    ? reconstructMissionFromJournal(missionEvents, options.missionId, {
+        errorContextNoun: "la reprise",
+      })
+    : baseMission;
   const resume = buildMissionResume({
     mission,
     missionEvents,
@@ -152,26 +184,35 @@ async function ensureMissionWorkspaceInitialized(
   layout: WorkspaceLayout,
   commandName: "status" | "resume" | "compare" | "compare relaunch",
 ): Promise<void> {
-  try {
-    await access(layout.journalPath);
-    await access(layout.projectionsDir);
-    await access(layout.missionsDir);
-  } catch {
-    throw new Error(
-      `Workspace mission non initialise. Lancez \`corp mission bootstrap --root ${layout.rootDir}\` avant \`corp mission ${commandName}\`.`,
+  const journalError = await readAccessError(() => access(layout.journalPath));
+  const projectionsError = await readAccessError(() => access(layout.projectionsDir));
+  const missionsError = await readAccessError(() => access(layout.missionsDir));
+
+  const fileSystemError = [
+    { error: journalError, filePath: layout.journalPath, label: "journal append-only" },
+    { error: projectionsError, filePath: layout.projectionsDir, label: "repertoire projections" },
+    { error: missionsError, filePath: layout.missionsDir, label: "repertoire missions" },
+  ].find((entry) => entry.error && entry.error.code !== "ENOENT" && isFileSystemReadError(entry.error));
+
+  if (fileSystemError?.error) {
+    if (fileSystemError.filePath === layout.journalPath) {
+      throw EventLogReadError.fileSystem(layout.journalPath, fileSystemError.error);
+    }
+
+    throw createFileSystemReadError(
+      fileSystemError.error,
+      fileSystemError.filePath,
+      fileSystemError.label,
     );
   }
-}
 
-async function readMissionEvents(
-  journalPath: string,
-  missionId: string,
-): Promise<JournalEventRecord[]> {
-  try {
-    return (await readEventLog(journalPath)).filter((event) => event.missionId === missionId);
-  } catch {
+  if (journalError?.code === "ENOENT" && !projectionsError && !missionsError) {
+    throw EventLogReadError.missing(layout.journalPath, journalError);
+  }
+
+  if (journalError || projectionsError || missionsError) {
     throw new Error(
-      `Journal mission irreconciliable pour ${missionId}. Impossible de reconstruire la reprise.`,
+      `Workspace mission non initialise. Lancez \`corp mission bootstrap --root ${layout.rootDir}\` avant \`corp mission ${commandName}\`.`,
     );
   }
 }
@@ -179,6 +220,8 @@ async function readMissionEvents(
 async function readStoredResumeView(
   projectionsDir: string,
 ): Promise<ResumeViewProjection | null> {
+  const projectionPath = resolveProjectionPath(projectionsDir, "resume-view");
+
   try {
     return JSON.parse(await readProjectionFile(projectionsDir, "resume-view")) as ResumeViewProjection;
   } catch (error) {
@@ -188,6 +231,10 @@ async function readStoredResumeView(
 
     if (error instanceof SyntaxError) {
       return null;
+    }
+
+    if (isFileSystemReadError(error)) {
+      throw createFileSystemReadError(error, projectionPath, "projection resume-view");
     }
 
     throw error;
@@ -262,27 +309,19 @@ function isMissionSnapshotSuspicious(mission: Mission, lastEventId: string): boo
   return mission.resumeCursor !== lastEventId;
 }
 
-function reconstructMissionFromJournal(
-  missionEvents: JournalEventRecord[],
+async function readStoredMissionSnapshot(
+  repository: ReturnType<typeof createFileMissionRepository>,
   missionId: string,
-): Mission {
-  let reconstructedMission: Mission | null = null;
-
-  for (const event of missionEvents) {
-    const payloadMission = (event.payload as Record<string, unknown>).mission;
-
-    if (isMission(payloadMission) && payloadMission.id === missionId) {
-      reconstructedMission = hydrateMission(payloadMission);
+): Promise<Mission | null> {
+  try {
+    return await repository.findById(missionId);
+  } catch (error) {
+    if (isRecoverablePersistedDocumentError(error)) {
+      return null;
     }
-  }
 
-  if (!reconstructedMission) {
-    throw new Error(
-      `Journal mission irreconciliable pour ${missionId}. Impossible de reconstruire la reprise.`,
-    );
+    throw error;
   }
-
-  return reconstructedMission;
 }
 
 function filterMissionEntities<T extends object>(
@@ -382,32 +421,6 @@ function isMissionResumeBlockage(
     );
 }
 
-function isMission(value: unknown): value is Mission {
-  if (typeof value !== "object" || value === null) {
-    return false;
-  }
-
-  const candidate = value as Record<string, unknown>;
-
-  return typeof candidate.id === "string"
-    && typeof candidate.title === "string"
-    && typeof candidate.objective === "string"
-    && typeof candidate.status === "string"
-    && Array.isArray(candidate.successCriteria)
-    && candidate.successCriteria.every((criterion) => typeof criterion === "string")
-    && typeof candidate.policyProfileId === "string"
-    && (
-      candidate.authorizedExtensions === undefined
-      || isAuthorizedExtensions(candidate.authorizedExtensions)
-    )
-    && Array.isArray(candidate.ticketIds)
-    && Array.isArray(candidate.artifactIds)
-    && Array.isArray(candidate.eventIds)
-    && typeof candidate.resumeCursor === "string"
-    && typeof candidate.createdAt === "string"
-    && typeof candidate.updatedAt === "string";
-}
-
 function isAuthorizedExtensions(value: unknown): boolean {
   if (!isRecord(value)) {
     return false;
@@ -427,11 +440,4 @@ function isOptionalString(
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null;
-}
-
-function isMissingFileError(error: unknown): boolean {
-  return typeof error === "object"
-    && error !== null
-    && "code" in error
-    && error.code === "ENOENT";
 }

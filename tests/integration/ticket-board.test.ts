@@ -712,7 +712,10 @@ test("mission ticket board remonte une erreur fichier explicite sur EPERM", asyn
   ]);
 
   assert.equal(result.exitCode, 1);
-  assert.match(result.lines.at(-1) ?? "", /Erreur fichier: EPERM: permission denied, open ticket-board\.json/);
+  assert.match(
+    result.lines.at(-1) ?? "",
+    /erreur_fichier: erreur de lecture projection ticket-board \(EPERM\).*ticket-board\.json/,
+  );
   assert.doesNotMatch(result.lines.at(-1) ?? "", /irreconciliable/);
 });
 
@@ -748,7 +751,7 @@ test("mission ticket board signale une projection corrompue au lieu de la masque
   assert.match(result.lines.at(-1) ?? "", /ticket-board\.json/);
 });
 
-test("mission ticket board traite un statut inconnu comme non runnable par defaut", async (t) => {
+test("mission ticket board reconstruit depuis le journal quand un snapshot ticket porte un statut inconnu", async (t) => {
   const rootDir = await mkdtemp(path.join(tmpdir(), "corp-ticket-board-unknown-status-"));
 
   t.after(async () => {
@@ -782,9 +785,11 @@ test("mission ticket board traite un statut inconnu comme non runnable par defau
 
   assert.equal(result.exitCode, 0);
   assert.ok(entry);
-  assert.equal(entry.runnable, false);
-  assert.equal(entry.planningState, "not_runnable_status");
-  assert.equal(entry.trackingState, "blocked");
-  assert.match(result.lines.join("\n"), new RegExp(`${ticketId} \\| statut=on_hold \\| owner=agent_unknown`));
-  assert.doesNotMatch(result.lines.join("\n"), /motif=pret a lancer/);
+  assert.equal(entry.runnable, true);
+  assert.equal(entry.planningState, "runnable");
+  assert.equal(entry.trackingState, "runnable");
+  assert.equal(entry.status, "todo");
+  assert.match(result.lines.join("\n"), new RegExp(`${ticketId} \\| statut=todo \\| owner=agent_unknown`));
+  assert.doesNotMatch(result.lines.join("\n"), /statut=on_hold/);
+  assert.match(result.lines.join("\n"), /motif=pret a lancer/);
 });

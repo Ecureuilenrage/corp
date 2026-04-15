@@ -3,8 +3,12 @@ Object.defineProperty(exports, "__esModule", { value: true });
 exports.FileCapabilityRegistryRepository = void 0;
 exports.createFileCapabilityRegistryRepository = createFileCapabilityRegistryRepository;
 const promises_1 = require("node:fs/promises");
-const workspace_layout_1 = require("../fs-layout/workspace-layout");
+const persisted_document_guards_1 = require("../../../contracts/src/guards/persisted-document-guards");
 const structural_compare_1 = require("../../../ticket-runtime/src/utils/structural-compare");
+const atomic_json_1 = require("../fs-layout/atomic-json");
+const file_system_read_errors_1 = require("../fs-layout/file-system-read-errors");
+const workspace_layout_1 = require("../fs-layout/workspace-layout");
+const persisted_document_errors_1 = require("./persisted-document-errors");
 class FileCapabilityRegistryRepository {
     layout;
     constructor(layout) {
@@ -29,27 +33,12 @@ class FileCapabilityRegistryRepository {
             await (0, promises_1.mkdir)(capabilityStoragePaths.capabilityDir);
         }
         catch (error) {
-            if (isAlreadyExistsError(error)) {
+            if ((0, atomic_json_1.isAlreadyExistsError)(error)) {
                 throw new Error(`Enregistrement concurrent detecte pour la capability \`${registeredCapability.capabilityId}\`.`);
             }
             throw error;
         }
-        const temporaryCapabilityPath = `${capabilityStoragePaths.capabilityPath}.tmp`;
-        try {
-            // Best-effort V1: claim the directory, then write a temp file and rename it to avoid
-            // partially written registry entries without introducing a full lock manager.
-            await (0, promises_1.writeFile)(temporaryCapabilityPath, `${JSON.stringify(registeredCapability, null, 2)}\n`, "utf8");
-            await (0, promises_1.rename)(temporaryCapabilityPath, capabilityStoragePaths.capabilityPath);
-        }
-        catch (error) {
-            try {
-                await cleanupTemporaryCapabilityFile(temporaryCapabilityPath);
-            }
-            catch {
-                // Best-effort cleanup: the original write/rename error is more important.
-            }
-            throw error;
-        }
+        await (0, atomic_json_1.writeJsonAtomic)(capabilityStoragePaths.capabilityPath, registeredCapability);
         return {
             status: "registered",
             capabilityDir: capabilityStoragePaths.capabilityDir,
@@ -59,16 +48,20 @@ class FileCapabilityRegistryRepository {
     }
     async findByCapabilityId(capabilityId) {
         const capabilityStoragePaths = (0, workspace_layout_1.resolveCapabilityStoragePaths)(this.layout, capabilityId);
+        const context = {
+            filePath: capabilityStoragePaths.capabilityPath,
+            entityLabel: "RegisteredCapability",
+            corruptionLabel: "fichier de registre corrompu pour la capability",
+            documentId: capabilityId,
+        };
         try {
-            const storedCapability = await (0, promises_1.readFile)(capabilityStoragePaths.capabilityPath, "utf8");
-            return JSON.parse(storedCapability);
+            const storedCapability = await (0, persisted_document_errors_1.readPersistedJsonDocument)(context);
+            (0, persisted_document_errors_1.assertValidPersistedDocument)(storedCapability, persisted_document_guards_1.validateRegisteredCapability, context);
+            return storedCapability;
         }
         catch (error) {
-            if (isMissingFileError(error)) {
+            if ((0, file_system_read_errors_1.isMissingFileError)(error)) {
                 return null;
-            }
-            if (error instanceof SyntaxError) {
-                throw new Error(`Fichier de registre corrompu pour la capability \`${capabilityId}\`.`);
             }
             throw error;
         }
@@ -101,31 +94,8 @@ async function readDirectoryEntries(directoryPath) {
         return await (0, promises_1.readdir)(directoryPath, { withFileTypes: true, encoding: "utf8" });
     }
     catch (error) {
-        if (isMissingFileError(error)) {
+        if ((0, file_system_read_errors_1.isMissingFileError)(error)) {
             return [];
-        }
-        throw error;
-    }
-}
-function isMissingFileError(error) {
-    return typeof error === "object"
-        && error !== null
-        && "code" in error
-        && error.code === "ENOENT";
-}
-function isAlreadyExistsError(error) {
-    return typeof error === "object"
-        && error !== null
-        && "code" in error
-        && error.code === "EEXIST";
-}
-async function cleanupTemporaryCapabilityFile(filePath) {
-    try {
-        await (0, promises_1.unlink)(filePath);
-    }
-    catch (error) {
-        if (isMissingFileError(error)) {
-            return;
         }
         throw error;
     }

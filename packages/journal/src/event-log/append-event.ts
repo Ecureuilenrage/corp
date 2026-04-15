@@ -1,5 +1,16 @@
 import { appendFile } from "node:fs/promises";
 
+// journal-as-source-of-truth : appendFile n'est pas atomique cross-platform. Sur NTFS
+// (Windows) et sur POSIX sous forte concurrence intra-process, plusieurs appels
+// paralleles peuvent entrelacer leurs octets et produire des lignes JSONL corrompues
+// (Story 5.1.1 AC5, dette D-35). On serialise donc les appends par chemin via une
+// mini-file d'attente asynchrone : chaque path possede une chaine Promise dediee, et
+// chaque nouvel append attend que le precedent sur le meme path soit termine avant
+// d'emettre son propre appendFile. Cela garantit l'atomicite logique de l'ajout de
+// ligne dans le seul processus courant (suffisant pour la V1 mono-operateur CLI ;
+// voir docs/architecture/journal-as-source-of-truth.md).
+const appendQueuesByPath: Map<string, Promise<void>> = new Map();
+
 export interface JournalEventRecord {
   eventId: string;
   type: string;
@@ -16,7 +27,21 @@ export async function appendEvent(
   journalPath: string,
   event: JournalEventRecord,
 ): Promise<void> {
-  await appendFile(journalPath, `${JSON.stringify(redactEventPayload(event))}\n`, "utf8");
+  const serializedLine = `${JSON.stringify(redactEventPayload(event))}\n`;
+  const previousInQueue = appendQueuesByPath.get(journalPath) ?? Promise.resolve();
+  const nextInQueue = previousInQueue
+    .catch(() => undefined)
+    .then(() => appendFile(journalPath, serializedLine, "utf8"));
+
+  appendQueuesByPath.set(journalPath, nextInQueue);
+
+  try {
+    await nextInQueue;
+  } finally {
+    if (appendQueuesByPath.get(journalPath) === nextInQueue) {
+      appendQueuesByPath.delete(journalPath);
+    }
+  }
 }
 
 const VENDOR_DETAIL_KEYS = new Set([

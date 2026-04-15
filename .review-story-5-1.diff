@@ -1,0 +1,2515 @@
+diff --git a/packages/journal/src/event-log/file-event-log.ts b/packages/journal/src/event-log/file-event-log.ts
+index 8d9d590..1befc07 100644
+--- a/packages/journal/src/event-log/file-event-log.ts
++++ b/packages/journal/src/event-log/file-event-log.ts
+@@ -1,14 +1,17 @@
+-import { access, readFile, writeFile } from "node:fs/promises";
++import { readFile, writeFile } from "node:fs/promises";
+ 
+ import type { JournalEventRecord } from "./append-event";
+ 
+ export async function ensureAppendOnlyEventLog(journalPath: string): Promise<boolean> {
+   try {
+-    await access(journalPath);
+-    return false;
+-  } catch {
+-    await writeFile(journalPath, "", "utf8");
++    await writeFile(journalPath, "", { encoding: "utf8", flag: "wx" });
+     return true;
++  } catch (error) {
++    if (isAlreadyExistsError(error)) {
++      return false;
++    }
++
++    throw error;
+   }
+ }
+ 
+@@ -59,3 +62,10 @@ function isJournalEventRecord(value: unknown): value is JournalEventRecord {
+     && typeof candidate.payload === "object"
+     && candidate.payload !== null;
+ }
++
++function isAlreadyExistsError(error: unknown): boolean {
++  return typeof error === "object"
++    && error !== null
++    && "code" in error
++    && error.code === "EEXIST";
++}
+diff --git a/packages/mission-kernel/src/approval-service/resolve-approval-request.ts b/packages/mission-kernel/src/approval-service/resolve-approval-request.ts
+index c0ec049..e4a6a92 100644
+--- a/packages/mission-kernel/src/approval-service/resolve-approval-request.ts
++++ b/packages/mission-kernel/src/approval-service/resolve-approval-request.ts
+@@ -221,11 +221,16 @@ export async function resolveApprovalRequest(
+     },
+   };
+ 
+-  await appendEvent(layout.journalPath, event);
+-  await missionRepository.save(updatedMission);
+-  await ticketRepository.save(updatedTicket);
+-  await attemptRepository.save(mission.id, updatedAttempt);
+-  await rewriteMissionReadModels(layout, updatedMission, ticketRepository);
++  await persistApprovalTransition({
++    layout,
++    event,
++    mission: updatedMission,
++    ticket: updatedTicket,
++    attempt: updatedAttempt,
++    missionRepository,
++    ticketRepository,
++    attemptRepository,
++  });
+ 
+   const resumeResult = await readMissionResume({
+     rootDir: layout.rootDir,
+@@ -244,6 +249,23 @@ export async function resolveApprovalRequest(
+   };
+ }
+ 
++async function persistApprovalTransition(options: {
++  layout: ReturnType<typeof resolveWorkspaceLayout>;
++  event: JournalEventRecord;
++  mission: Mission;
++  ticket: Ticket;
++  attempt: ExecutionAttempt;
++  missionRepository: ReturnType<typeof createFileMissionRepository>;
++  ticketRepository: ReturnType<typeof createFileTicketRepository>;
++  attemptRepository: ReturnType<typeof createFileExecutionAttemptRepository>;
++}): Promise<void> {
++  await appendEvent(options.layout.journalPath, options.event);
++  await options.missionRepository.save(options.mission);
++  await options.ticketRepository.save(options.ticket);
++  await options.attemptRepository.save(options.mission.id, options.attempt);
++  await rewriteMissionReadModels(options.layout, options.mission, options.ticketRepository);
++}
++
+ async function resolveMissionStatusAfterDecision(options: {
+   mission: Mission;
+   currentTicketId: string;
+diff --git a/packages/mission-kernel/src/mission-service/create-mission.ts b/packages/mission-kernel/src/mission-service/create-mission.ts
+index 5bf5729..ec6d5a3 100644
+--- a/packages/mission-kernel/src/mission-service/create-mission.ts
++++ b/packages/mission-kernel/src/mission-service/create-mission.ts
+@@ -6,19 +6,17 @@ import {
+   type Mission,
+ } from "../../../contracts/src/mission/mission";
+ import { appendEvent, type JournalEventRecord } from "../../../journal/src/event-log/append-event";
+-import { createAuditLogProjection } from "../../../journal/src/projections/audit-log-projection";
+ import { DEFAULT_PROJECTIONS } from "../../../journal/src/projections/default-projections";
+-import { createMissionStatusProjection } from "../../../journal/src/projections/mission-status-projection";
+-import { createResumeViewProjection } from "../../../journal/src/projections/resume-view-projection";
+ import {
+   resolveProjectionPath,
+-  writeProjectionSnapshot,
+ } from "../../../storage/src/projection-store/file-projection-store";
+ import {
+   resolveWorkspaceLayout,
+   type WorkspaceLayout,
+ } from "../../../storage/src/fs-layout/workspace-layout";
+ import { createFileMissionRepository } from "../../../storage/src/repositories/file-mission-repository";
++import { createFileTicketRepository } from "../../../storage/src/repositories/file-ticket-repository";
++import { rewriteMissionReadModels } from "../../../ticket-runtime/src/ticket-service/ticket-service-support";
+ 
+ export interface CreateMissionOptions {
+   rootDir: string;
+@@ -88,27 +86,9 @@ export async function createMission(
+ 
+   const repository = createFileMissionRepository(layout);
+   const missionLocation = await repository.save(mission);
++  const ticketRepository = createFileTicketRepository(layout);
+ 
+-  await writeProjectionSnapshot(
+-    layout.projectionsDir,
+-    "mission-status",
+-    createMissionStatusProjection(mission),
+-  );
+-  await writeProjectionSnapshot(
+-    layout.projectionsDir,
+-    "resume-view",
+-    createResumeViewProjection(mission),
+-  );
+-  await writeProjectionSnapshot(
+-    layout.projectionsDir,
+-    "audit-log",
+-    createAuditLogProjection({
+-      mission,
+-      tickets: [],
+-      artifacts: [],
+-      events: [event],
+-    }),
+-  );
++  await rewriteMissionReadModels(layout, mission, ticketRepository);
+ 
+   return {
+     mission,
+diff --git a/packages/mission-kernel/src/mission-service/select-mission-extensions.ts b/packages/mission-kernel/src/mission-service/select-mission-extensions.ts
+index 83fa708..c6c4099 100644
+--- a/packages/mission-kernel/src/mission-service/select-mission-extensions.ts
++++ b/packages/mission-kernel/src/mission-service/select-mission-extensions.ts
+@@ -103,8 +103,13 @@ export async function selectMissionExtensions(
+     },
+   };
+ 
+-  await appendEvent(layout.journalPath, event);
+-  await missionRepository.save(updatedMission);
++  await missionRepository.saveIfUnchanged(
++    updatedMission,
++    mission,
++    async () => {
++      await appendEvent(layout.journalPath, event);
++    },
++  );
+   await rewriteMissionReadModels(layout, updatedMission, ticketRepository);
+ 
+   return {
+diff --git a/packages/mission-kernel/src/mission-service/update-mission-lifecycle.ts b/packages/mission-kernel/src/mission-service/update-mission-lifecycle.ts
+index 5f427b5..e2dae2e 100644
+--- a/packages/mission-kernel/src/mission-service/update-mission-lifecycle.ts
++++ b/packages/mission-kernel/src/mission-service/update-mission-lifecycle.ts
+@@ -4,22 +4,18 @@ import { randomUUID } from "node:crypto";
+ import type { Mission, MissionStatus } from "../../../contracts/src/mission/mission";
+ import type { MissionResume } from "../../../contracts/src/mission/mission-resume";
+ import { appendEvent, type JournalEventRecord } from "../../../journal/src/event-log/append-event";
+-import { readEventLog } from "../../../journal/src/event-log/file-event-log";
+-import { createAuditLogProjection } from "../../../journal/src/projections/audit-log-projection";
+ import { DEFAULT_PROJECTIONS } from "../../../journal/src/projections/default-projections";
+-import { createMissionStatusProjection } from "../../../journal/src/projections/mission-status-projection";
+ import { readMissionResume } from "../resume-service/read-mission-resume";
+ import {
+   resolveProjectionPath,
+-  writeProjectionSnapshot,
+ } from "../../../storage/src/projection-store/file-projection-store";
+ import {
+   resolveWorkspaceLayout,
+   type WorkspaceLayout,
+ } from "../../../storage/src/fs-layout/workspace-layout";
+-import { createFileArtifactRepository } from "../../../storage/src/repositories/file-artifact-repository";
+ import { createFileMissionRepository } from "../../../storage/src/repositories/file-mission-repository";
+ import { createFileTicketRepository } from "../../../storage/src/repositories/file-ticket-repository";
++import { rewriteMissionReadModels } from "../../../ticket-runtime/src/ticket-service/ticket-service-support";
+ 
+ export type MissionLifecycleAction = "pause" | "relaunch" | "close";
+ export type MissionCloseOutcome = "completed" | "cancelled";
+@@ -129,27 +125,9 @@ export async function updateMissionLifecycle(
+   await appendEvent(layout.journalPath, event);
+ 
+   const missionLocation = await repository.save(updatedMission);
+-
+-  await writeProjectionSnapshot(
+-    layout.projectionsDir,
+-    "mission-status",
+-    createMissionStatusProjection(updatedMission),
+-  );
+   const ticketRepository = createFileTicketRepository(layout);
+-  const artifactRepository = createFileArtifactRepository(layout);
+-  const missionEvents = (await readEventLog(layout.journalPath))
+-    .filter((journalEvent) => journalEvent.missionId === updatedMission.id);
+-
+-  await writeProjectionSnapshot(
+-    layout.projectionsDir,
+-    "audit-log",
+-    createAuditLogProjection({
+-      mission: updatedMission,
+-      tickets: await ticketRepository.listByMissionId(updatedMission.id),
+-      artifacts: await artifactRepository.listByMissionId(updatedMission.id),
+-      events: missionEvents,
+-    }),
+-  );
++
++  await rewriteMissionReadModels(layout, updatedMission, ticketRepository);
+ 
+   const resumeResult = await readMissionResume({
+     rootDir: layout.rootDir,
+diff --git a/packages/mission-kernel/src/resume-service/read-approval-queue.ts b/packages/mission-kernel/src/resume-service/read-approval-queue.ts
+index 2e0e26b..65a8824 100644
+--- a/packages/mission-kernel/src/resume-service/read-approval-queue.ts
++++ b/packages/mission-kernel/src/resume-service/read-approval-queue.ts
+@@ -3,6 +3,7 @@ import { access } from "node:fs/promises";
+ import type { ApprovalQueueEntry } from "../../../contracts/src/approval/approval-request";
+ import type { Mission } from "../../../contracts/src/mission/mission";
+ import { readEventLog } from "../../../journal/src/event-log/file-event-log";
++import { readMissionFromJournal } from "../../../journal/src/reconstruction/mission-reconstruction";
+ import {
+   createApprovalQueueProjection,
+   type ApprovalQueueProjection,
+@@ -51,17 +52,18 @@ export async function readApprovalQueue(
+   const missionRepository = createFileMissionRepository(layout);
+   const mission = await missionRepository.findById(options.missionId);
+ 
+-  if (!mission) {
+-    throw new Error(`Mission introuvable: ${options.missionId}.`);
+-  }
++  const missionSnapshot = mission ?? await readMissionSnapshotFromJournalOrThrow(
++    layout.journalPath,
++    options.missionId,
++  );
+ 
+   const projectionPath = resolveProjectionPath(layout.projectionsDir, "approval-queue");
+ 
+   try {
+     const missionEvents = (await readEventLog(layout.journalPath))
+-      .filter((event) => event.missionId === mission.id);
++      .filter((event) => event.missionId === missionSnapshot.id);
+     const rebuiltProjection = createApprovalQueueProjection({
+-      missionId: mission.id,
++      missionId: missionSnapshot.id,
+       events: missionEvents,
+     });
+     const storedProjection = await readStoredApprovalQueue(layout.projectionsDir);
+@@ -70,7 +72,7 @@ export async function readApprovalQueue(
+       await writeProjectionSnapshot(layout.projectionsDir, "approval-queue", rebuiltProjection);
+ 
+       return {
+-        mission,
++        mission: missionSnapshot,
+         approvals: rebuiltProjection.approvals,
+         reconstructed: true,
+         projectionPath,
+@@ -78,7 +80,7 @@ export async function readApprovalQueue(
+     }
+ 
+     return {
+-      mission,
++      mission: missionSnapshot,
+       approvals: storedProjection.approvals,
+       reconstructed: false,
+       projectionPath,
+@@ -109,6 +111,17 @@ async function ensureApprovalQueueWorkspaceInitialized(
+   }
+ }
+ 
++async function readMissionSnapshotFromJournalOrThrow(
++  journalPath: string,
++  missionId: string,
++): Promise<Mission> {
++  try {
++    return await readMissionFromJournal(journalPath, missionId);
++  } catch {
++    throw new Error(`Mission introuvable: ${missionId}.`);
++  }
++}
++
+ async function readStoredApprovalQueue(
+   projectionsDir: string,
+ ): Promise<ApprovalQueueProjection | null> {
+diff --git a/packages/mission-kernel/src/resume-service/read-mission-artifacts.ts b/packages/mission-kernel/src/resume-service/read-mission-artifacts.ts
+index 87c2762..d6bb93d 100644
+--- a/packages/mission-kernel/src/resume-service/read-mission-artifacts.ts
++++ b/packages/mission-kernel/src/resume-service/read-mission-artifacts.ts
+@@ -4,6 +4,7 @@ import { StringDecoder } from "node:string_decoder";
+ 
+ import type { Mission } from "../../../contracts/src/mission/mission";
+ import { readEventLog } from "../../../journal/src/event-log/file-event-log";
++import { readMissionFromJournal } from "../../../journal/src/reconstruction/mission-reconstruction";
+ import {
+   createArtifactIndexProjection,
+   type ArtifactIndexEntry,
+@@ -75,16 +76,17 @@ export async function readMissionArtifacts(
+     const artifactRepository = createFileArtifactRepository(layout);
+     const mission = await missionRepository.findById(options.missionId);
+ 
+-    if (!mission) {
+-      throw new Error(`Mission introuvable: ${options.missionId}.`);
+-    }
++    const missionSnapshot = mission ?? await readMissionSnapshotFromJournalOrThrow(
++      layout.journalPath,
++      options.missionId,
++    );
+ 
+-    const tickets = await ticketRepository.listByMissionId(mission.id);
+-    const artifacts = await artifactRepository.listByMissionId(mission.id);
++    const tickets = await ticketRepository.listByMissionId(missionSnapshot.id);
++    const artifacts = await artifactRepository.listByMissionId(missionSnapshot.id);
+     const events = (await readEventLog(layout.journalPath))
+-      .filter((event) => event.missionId === mission.id);
++      .filter((event) => event.missionId === missionSnapshot.id);
+     const rebuiltProjection = createArtifactIndexProjection({
+-      mission,
++      mission: missionSnapshot,
+       tickets,
+       artifacts,
+       events,
+@@ -96,7 +98,7 @@ export async function readMissionArtifacts(
+       await writeProjectionSnapshot(layout.projectionsDir, "artifact-index", rebuiltProjection);
+ 
+       return {
+-        mission,
++        mission: missionSnapshot,
+         artifacts: rebuiltProjection.artifacts,
+         reconstructed: true,
+         projectionPath,
+@@ -104,7 +106,7 @@ export async function readMissionArtifacts(
+     }
+ 
+     return {
+-      mission,
++      mission: missionSnapshot,
+       artifacts: storedProjection.artifacts,
+       reconstructed: false,
+       projectionPath,
+@@ -190,6 +192,17 @@ async function ensureArtifactWorkspaceInitialized(
+   }
+ }
+ 
++async function readMissionSnapshotFromJournalOrThrow(
++  journalPath: string,
++  missionId: string,
++): Promise<Mission> {
++  try {
++    return await readMissionFromJournal(journalPath, missionId);
++  } catch {
++    throw new Error(`Mission introuvable: ${missionId}.`);
++  }
++}
++
+ async function readStoredArtifactIndex(
+   projectionsDir: string,
+ ): Promise<ArtifactIndexProjection | null> {
+diff --git a/packages/mission-kernel/src/resume-service/read-mission-resume.ts b/packages/mission-kernel/src/resume-service/read-mission-resume.ts
+index 3f1ab80..befee49 100644
+--- a/packages/mission-kernel/src/resume-service/read-mission-resume.ts
++++ b/packages/mission-kernel/src/resume-service/read-mission-resume.ts
+@@ -1,10 +1,7 @@
+ import { access } from "node:fs/promises";
+ 
+ import { TERMINAL_APPROVAL_REQUEST_STATUSES } from "../../../contracts/src/approval/approval-request";
+-import {
+-  hydrateMission,
+-  type Mission,
+-} from "../../../contracts/src/mission/mission";
++import type { Mission } from "../../../contracts/src/mission/mission";
+ import type {
+   MissionResume,
+   MissionResumeArtifact,
+@@ -12,7 +9,10 @@ import type {
+ } from "../../../contracts/src/mission/mission-resume";
+ import { TERMINAL_TICKET_STATUSES } from "../../../contracts/src/ticket/ticket";
+ import type { JournalEventRecord } from "../../../journal/src/event-log/append-event";
+-import { readEventLog } from "../../../journal/src/event-log/file-event-log";
++import {
++  readMissionEvents,
++  reconstructMissionFromJournal,
++} from "../../../journal/src/reconstruction/mission-reconstruction";
+ import type { TicketBoardProjection } from "../../../journal/src/projections/ticket-board-projection";
+ import {
+   createMissionResume,
+@@ -64,7 +64,18 @@ export async function readMissionResume(
+   const repository = createFileMissionRepository(layout);
+   const storedMission = await repository.findById(options.missionId);
+ 
+-  if (!storedMission) {
++  const missionEvents = await readMissionEvents(layout.journalPath, options.missionId);
++  const missionFromJournal = missionEvents.length > 0
++    ? reconstructMissionFromJournal(missionEvents, options.missionId)
++    : null;
++
++  if (!storedMission && !missionFromJournal) {
++    throw new Error(`Mission introuvable: ${options.missionId}.`);
++  }
++
++  const baseMission = storedMission ?? missionFromJournal;
++
++  if (!baseMission) {
+     throw new Error(`Mission introuvable: ${options.missionId}.`);
+   }
+   const ticketBoardResult = await readTicketBoard({
+@@ -83,7 +94,6 @@ export async function readMissionResume(
+     commandName: options.commandName,
+   });
+ 
+-  const missionEvents = await readMissionEvents(layout.journalPath, options.missionId);
+   const lastMissionEvent = missionEvents.at(-1);
+ 
+   if (!lastMissionEvent) {
+@@ -94,7 +104,8 @@ export async function readMissionResume(
+ 
+   const projectionPath = resolveProjectionPath(layout.projectionsDir, "resume-view");
+   const rawResumeView = await readStoredResumeView(layout.projectionsDir);
+-  const shouldReconstruct = isMissionSnapshotSuspicious(storedMission, lastMissionEvent.eventId)
++  const shouldReconstruct = !storedMission
++    || isMissionSnapshotSuspicious(storedMission, lastMissionEvent.eventId)
+     || approvalQueueResult.reconstructed
+     || ticketBoardResult.reconstructed
+     || artifactIndexResult.reconstructed
+@@ -105,7 +116,7 @@ export async function readMissionResume(
+     );
+   const mission = shouldReconstruct
+     ? reconstructMissionFromJournal(missionEvents, options.missionId)
+-    : storedMission;
++    : baseMission;
+   const resume = buildMissionResume({
+     mission,
+     missionEvents,
+@@ -163,19 +174,6 @@ async function ensureMissionWorkspaceInitialized(
+   }
+ }
+ 
+-async function readMissionEvents(
+-  journalPath: string,
+-  missionId: string,
+-): Promise<JournalEventRecord[]> {
+-  try {
+-    return (await readEventLog(journalPath)).filter((event) => event.missionId === missionId);
+-  } catch {
+-    throw new Error(
+-      `Journal mission irreconciliable pour ${missionId}. Impossible de reconstruire la reprise.`,
+-    );
+-  }
+-}
+-
+ async function readStoredResumeView(
+   projectionsDir: string,
+ ): Promise<ResumeViewProjection | null> {
+@@ -262,29 +260,6 @@ function isMissionSnapshotSuspicious(mission: Mission, lastEventId: string): boo
+   return mission.resumeCursor !== lastEventId;
+ }
+ 
+-function reconstructMissionFromJournal(
+-  missionEvents: JournalEventRecord[],
+-  missionId: string,
+-): Mission {
+-  let reconstructedMission: Mission | null = null;
+-
+-  for (const event of missionEvents) {
+-    const payloadMission = (event.payload as Record<string, unknown>).mission;
+-
+-    if (isMission(payloadMission) && payloadMission.id === missionId) {
+-      reconstructedMission = hydrateMission(payloadMission);
+-    }
+-  }
+-
+-  if (!reconstructedMission) {
+-    throw new Error(
+-      `Journal mission irreconciliable pour ${missionId}. Impossible de reconstruire la reprise.`,
+-    );
+-  }
+-
+-  return reconstructedMission;
+-}
+-
+ function filterMissionEntities<T extends object>(
+   entities: T[],
+   missionId: string,
+@@ -382,32 +357,6 @@ function isMissionResumeBlockage(
+     );
+ }
+ 
+-function isMission(value: unknown): value is Mission {
+-  if (typeof value !== "object" || value === null) {
+-    return false;
+-  }
+-
+-  const candidate = value as Record<string, unknown>;
+-
+-  return typeof candidate.id === "string"
+-    && typeof candidate.title === "string"
+-    && typeof candidate.objective === "string"
+-    && typeof candidate.status === "string"
+-    && Array.isArray(candidate.successCriteria)
+-    && candidate.successCriteria.every((criterion) => typeof criterion === "string")
+-    && typeof candidate.policyProfileId === "string"
+-    && (
+-      candidate.authorizedExtensions === undefined
+-      || isAuthorizedExtensions(candidate.authorizedExtensions)
+-    )
+-    && Array.isArray(candidate.ticketIds)
+-    && Array.isArray(candidate.artifactIds)
+-    && Array.isArray(candidate.eventIds)
+-    && typeof candidate.resumeCursor === "string"
+-    && typeof candidate.createdAt === "string"
+-    && typeof candidate.updatedAt === "string";
+-}
+-
+ function isAuthorizedExtensions(value: unknown): boolean {
+   if (!isRecord(value)) {
+     return false;
+diff --git a/packages/storage/src/projection-store/file-projection-store.ts b/packages/storage/src/projection-store/file-projection-store.ts
+index 5e6156b..987264f 100644
+--- a/packages/storage/src/projection-store/file-projection-store.ts
++++ b/packages/storage/src/projection-store/file-projection-store.ts
+@@ -1,6 +1,8 @@
+-import { access, readFile, writeFile } from "node:fs/promises";
++import { readFile, writeFile } from "node:fs/promises";
+ import path from "node:path";
+ 
++import { writeJsonAtomic } from "../fs-layout/atomic-json";
++
+ export type ProjectionSnapshot = object;
+ export type ProjectionCatalog = Record<string, ProjectionSnapshot>;
+ 
+@@ -55,17 +57,27 @@ export async function writeProjectionSnapshot(
+ ): Promise<string> {
+   const projectionPath = resolveProjectionPath(projectionsDir, projectionName);
+ 
+-  await writeFile(projectionPath, `${JSON.stringify(snapshot, null, 2)}\n`, "utf8");
++  await writeJsonAtomic(projectionPath, snapshot);
+ 
+   return projectionPath;
+ }
+ 
+ async function writeFileIfMissing(filePath: string, contents: string): Promise<boolean> {
+   try {
+-    await access(filePath);
+-    return false;
+-  } catch {
+-    await writeFile(filePath, contents, "utf8");
++    await writeFile(filePath, contents, { encoding: "utf8", flag: "wx" });
+     return true;
++  } catch (error) {
++    if (isAlreadyExistsError(error)) {
++      return false;
++    }
++
++    throw error;
+   }
+ }
++
++function isAlreadyExistsError(error: unknown): boolean {
++  return typeof error === "object"
++    && error !== null
++    && "code" in error
++    && error.code === "EEXIST";
++}
+diff --git a/packages/storage/src/repositories/file-artifact-repository.ts b/packages/storage/src/repositories/file-artifact-repository.ts
+index f6074a9..9274f6c 100644
+--- a/packages/storage/src/repositories/file-artifact-repository.ts
++++ b/packages/storage/src/repositories/file-artifact-repository.ts
+@@ -1,8 +1,9 @@
+ import type { Dirent } from "node:fs";
+-import { mkdir, readdir, readFile, writeFile } from "node:fs/promises";
++import { mkdir, readdir, readFile } from "node:fs/promises";
+ import path from "node:path";
+ 
+ import type { Artifact } from "../../../contracts/src/artifact/artifact";
++import { writeJsonAtomic } from "../fs-layout/atomic-json";
+ import {
+   resolveArtifactStoragePaths,
+   resolveMissionStoragePaths,
+@@ -28,11 +29,7 @@ export class FileArtifactRepository {
+     );
+ 
+     await mkdir(artifactStoragePaths.artifactDir, { recursive: true });
+-    await writeFile(
+-      artifactStoragePaths.artifactPath,
+-      `${JSON.stringify(artifact, null, 2)}\n`,
+-      "utf8",
+-    );
++    await writeJsonAtomic(artifactStoragePaths.artifactPath, artifact);
+ 
+     return artifactStoragePaths;
+   }
+diff --git a/packages/storage/src/repositories/file-capability-registry-repository.ts b/packages/storage/src/repositories/file-capability-registry-repository.ts
+index d381566..943d1d2 100644
+--- a/packages/storage/src/repositories/file-capability-registry-repository.ts
++++ b/packages/storage/src/repositories/file-capability-registry-repository.ts
+@@ -1,9 +1,10 @@
+ import type { Dirent } from "node:fs";
+-import { mkdir, readdir, readFile, rename, unlink, writeFile } from "node:fs/promises";
++import { mkdir, readdir, readFile } from "node:fs/promises";
+ 
+ import type { RegisteredCapability } from "../../../contracts/src/extension/registered-capability";
+-import { resolveCapabilityStoragePaths, type WorkspaceLayout } from "../fs-layout/workspace-layout";
+ import { deepStrictEqualForComparison } from "../../../ticket-runtime/src/utils/structural-compare";
++import { writeJsonAtomic } from "../fs-layout/atomic-json";
++import { resolveCapabilityStoragePaths, type WorkspaceLayout } from "../fs-layout/workspace-layout";
+ 
+ export interface SaveRegisteredCapabilityResult {
+   status: "registered" | "unchanged";
+@@ -69,26 +70,7 @@ export class FileCapabilityRegistryRepository implements CapabilityRegistryRepos
+       throw error;
+     }
+ 
+-    const temporaryCapabilityPath = `${capabilityStoragePaths.capabilityPath}.tmp`;
+-
+-    try {
+-      // Best-effort V1: claim the directory, then write a temp file and rename it to avoid
+-      // partially written registry entries without introducing a full lock manager.
+-      await writeFile(
+-        temporaryCapabilityPath,
+-        `${JSON.stringify(registeredCapability, null, 2)}\n`,
+-        "utf8",
+-      );
+-      await rename(temporaryCapabilityPath, capabilityStoragePaths.capabilityPath);
+-    } catch (error) {
+-      try {
+-        await cleanupTemporaryCapabilityFile(temporaryCapabilityPath);
+-      } catch {
+-        // Best-effort cleanup: the original write/rename error is more important.
+-      }
+-
+-      throw error;
+-    }
++    await writeJsonAtomic(capabilityStoragePaths.capabilityPath, registeredCapability);
+ 
+     return {
+       status: "registered",
+@@ -184,15 +166,3 @@ function isAlreadyExistsError(error: unknown): boolean {
+     && "code" in error
+     && error.code === "EEXIST";
+ }
+-
+-async function cleanupTemporaryCapabilityFile(filePath: string): Promise<void> {
+-  try {
+-    await unlink(filePath);
+-  } catch (error) {
+-    if (isMissingFileError(error)) {
+-      return;
+-    }
+-
+-    throw error;
+-  }
+-}
+diff --git a/packages/storage/src/repositories/file-execution-attempt-repository.ts b/packages/storage/src/repositories/file-execution-attempt-repository.ts
+index cd3390a..43e03cf 100644
+--- a/packages/storage/src/repositories/file-execution-attempt-repository.ts
++++ b/packages/storage/src/repositories/file-execution-attempt-repository.ts
+@@ -1,11 +1,12 @@
+ import type { Dirent } from "node:fs";
+-import { mkdir, readdir, readFile, writeFile } from "node:fs/promises";
++import { mkdir, readdir, readFile } from "node:fs/promises";
+ import path from "node:path";
+ 
+ import {
+   ACTIVE_EXECUTION_ATTEMPT_STATUSES,
+   type ExecutionAttempt,
+ } from "../../../contracts/src/execution-attempt/execution-attempt";
++import { writeJsonAtomic } from "../fs-layout/atomic-json";
+ import {
+   resolveExecutionAttemptStoragePaths,
+   resolveTicketStoragePaths,
+@@ -33,11 +34,7 @@ export class FileExecutionAttemptRepository {
+     );
+ 
+     await mkdir(attemptStoragePaths.attemptDir, { recursive: true });
+-    await writeFile(
+-      attemptStoragePaths.attemptPath,
+-      `${JSON.stringify(attempt, null, 2)}\n`,
+-      "utf8",
+-    );
++    await writeJsonAtomic(attemptStoragePaths.attemptPath, attempt);
+ 
+     return attemptStoragePaths;
+   }
+diff --git a/packages/storage/src/repositories/file-mission-repository.ts b/packages/storage/src/repositories/file-mission-repository.ts
+index 756d17e..2c071ef 100644
+--- a/packages/storage/src/repositories/file-mission-repository.ts
++++ b/packages/storage/src/repositories/file-mission-repository.ts
+@@ -1,6 +1,7 @@
+-import { mkdir, readFile, writeFile } from "node:fs/promises";
++import { mkdir, readFile, unlink, writeFile } from "node:fs/promises";
+ 
+ import { hydrateMission, type Mission } from "../../../contracts/src/mission/mission";
++import { writeJsonAtomic } from "../fs-layout/atomic-json";
+ import {
+   resolveMissionStoragePaths,
+   type WorkspaceLayout,
+@@ -18,15 +19,57 @@ export class FileMissionRepository {
+     const missionStoragePaths = resolveMissionStoragePaths(this.layout, mission.id);
+ 
+     await mkdir(missionStoragePaths.missionDir, { recursive: true });
+-    await writeFile(
+-      missionStoragePaths.missionPath,
+-      `${JSON.stringify(mission, null, 2)}\n`,
+-      "utf8",
+-    );
++    await writeJsonAtomic(missionStoragePaths.missionPath, mission);
+ 
+     return missionStoragePaths;
+   }
+ 
++  public async saveIfUnchanged(
++    mission: Mission,
++    expectedMission: Mission,
++    beforeSave?: () => Promise<void>,
++  ): Promise<SaveMissionResult> {
++    const missionStoragePaths = resolveMissionStoragePaths(this.layout, mission.id);
++    const lockPath = `${missionStoragePaths.missionPath}.lock`;
++
++    await mkdir(missionStoragePaths.missionDir, { recursive: true });
++
++    try {
++      await writeFile(lockPath, "", { encoding: "utf8", flag: "wx" });
++    } catch (error) {
++      if (isAlreadyExistsError(error)) {
++        throw new Error(
++          `Conflit d'ecriture concurrente detecte pour la mission \`${mission.id}\`.`,
++        );
++      }
++
++      throw error;
++    }
++
++    try {
++      const currentMission = await this.findById(mission.id);
++
++      if (!currentMission || !areMissionSnapshotsEqual(currentMission, expectedMission)) {
++        throw new Error(
++          `Conflit d'ecriture concurrente detecte pour la mission \`${mission.id}\`.`,
++        );
++      }
++
++      await beforeSave?.();
++      await writeJsonAtomic(missionStoragePaths.missionPath, mission);
++
++      return missionStoragePaths;
++    } finally {
++      try {
++        await unlink(lockPath);
++      } catch (error) {
++        if (!isMissingFileError(error)) {
++          throw error;
++        }
++      }
++    }
++  }
++
+   public async findById(missionId: string): Promise<Mission | null> {
+     const missionStoragePaths = resolveMissionStoragePaths(this.layout, missionId);
+ 
+@@ -55,3 +98,14 @@ function isMissingFileError(error: unknown): boolean {
+     && "code" in error
+     && error.code === "ENOENT";
+ }
++
++function isAlreadyExistsError(error: unknown): boolean {
++  return typeof error === "object"
++    && error !== null
++    && "code" in error
++    && error.code === "EEXIST";
++}
++
++function areMissionSnapshotsEqual(left: Mission, right: Mission): boolean {
++  return JSON.stringify(left) === JSON.stringify(right);
++}
+diff --git a/packages/storage/src/repositories/file-skill-pack-registry-repository.ts b/packages/storage/src/repositories/file-skill-pack-registry-repository.ts
+index 2805d15..0ba5913 100644
+--- a/packages/storage/src/repositories/file-skill-pack-registry-repository.ts
++++ b/packages/storage/src/repositories/file-skill-pack-registry-repository.ts
+@@ -1,12 +1,13 @@
+ import type { Dirent } from "node:fs";
+-import { mkdir, readdir, readFile, rename, rm, unlink, writeFile } from "node:fs/promises";
++import { mkdir, readdir, readFile, rm } from "node:fs/promises";
+ 
+ import type { RegisteredSkillPack } from "../../../contracts/src/extension/registered-skill-pack";
++import { deepStrictEqualForComparison } from "../../../ticket-runtime/src/utils/structural-compare";
++import { writeJsonAtomic } from "../fs-layout/atomic-json";
+ import {
+   resolveSkillPackStoragePaths,
+   type WorkspaceLayout,
+ } from "../fs-layout/workspace-layout";
+-import { deepStrictEqualForComparison } from "../../../ticket-runtime/src/utils/structural-compare";
+ 
+ export interface SaveRegisteredSkillPackResult {
+   status: "registered" | "unchanged";
+@@ -61,33 +62,22 @@ export class FileSkillPackRegistryRepository implements SkillPackRegistryReposit
+     await mkdir(this.layout.skillPacksDir, { recursive: true });
+ 
+     try {
+-      await mkdir(skillPackStoragePaths.skillPackDir);
++      await mkdir(skillPackStoragePaths.skillPackDir, { recursive: false });
+     } catch (error) {
+       if (isAlreadyExistsError(error)) {
+-        throw new Error(
+-          `Enregistrement concurrent detecte pour le skill pack \`${registeredSkillPack.packRef}\`.`,
++        return await resolveConcurrentSkillPackRegistration(
++          this,
++          skillPackStoragePaths,
++          registeredSkillPack,
+         );
+       }
+ 
+       throw error;
+     }
+ 
+-    const temporarySkillPackPath = `${skillPackStoragePaths.skillPackPath}.tmp`;
+-
+     try {
+-      await writeFile(
+-        temporarySkillPackPath,
+-        `${JSON.stringify(registeredSkillPack, null, 2)}\n`,
+-        "utf8",
+-      );
+-      await rename(temporarySkillPackPath, skillPackStoragePaths.skillPackPath);
++      await writeJsonAtomic(skillPackStoragePaths.skillPackPath, registeredSkillPack);
+     } catch (error) {
+-      try {
+-        await cleanupTemporarySkillPackFile(temporarySkillPackPath);
+-      } catch {
+-        // Best-effort cleanup du fichier temporaire.
+-      }
+-
+       try {
+         await rm(skillPackStoragePaths.skillPackDir, { recursive: true, force: true });
+       } catch {
+@@ -163,6 +153,59 @@ function toComparableRegisteredSkillPack(
+   return comparableSkillPack;
+ }
+ 
++async function resolveConcurrentSkillPackRegistration(
++  repository: FileSkillPackRegistryRepository,
++  skillPackStoragePaths: ReturnType<typeof resolveSkillPackStoragePaths>,
++  registeredSkillPack: RegisteredSkillPack,
++): Promise<SaveRegisteredSkillPackResult> {
++  const existingSkillPack = await waitForConcurrentSkillPackWrite(
++    repository,
++    registeredSkillPack.packRef,
++  );
++
++  if (
++    existingSkillPack
++    && deepStrictEqualForComparison(
++      toComparableRegisteredSkillPack(existingSkillPack),
++      toComparableRegisteredSkillPack(registeredSkillPack),
++    )
++  ) {
++    return {
++      status: "unchanged",
++      skillPackDir: skillPackStoragePaths.skillPackDir,
++      skillPackPath: skillPackStoragePaths.skillPackPath,
++      registeredSkillPack: existingSkillPack,
++    };
++  }
++
++  throw new Error(
++    `Enregistrement concurrent detecte pour le skill pack \`${registeredSkillPack.packRef}\`.`,
++  );
++}
++
++async function waitForConcurrentSkillPackWrite(
++  repository: FileSkillPackRegistryRepository,
++  packRef: string,
++): Promise<RegisteredSkillPack | null> {
++  for (let attempt = 0; attempt < 5; attempt += 1) {
++    const existingSkillPack = await repository.findByPackRef(packRef);
++
++    if (existingSkillPack) {
++      return existingSkillPack;
++    }
++
++    await delay(10);
++  }
++
++  return null;
++}
++
++async function delay(durationMs: number): Promise<void> {
++  await new Promise<void>((resolve) => {
++    setTimeout(resolve, durationMs);
++  });
++}
++
+ async function readDirectoryEntries(directoryPath: string): Promise<Dirent[]> {
+   try {
+     return await readdir(directoryPath, { withFileTypes: true, encoding: "utf8" });
+@@ -188,15 +231,3 @@ function isAlreadyExistsError(error: unknown): boolean {
+     && "code" in error
+     && error.code === "EEXIST";
+ }
+-
+-async function cleanupTemporarySkillPackFile(filePath: string): Promise<void> {
+-  try {
+-    await unlink(filePath);
+-  } catch (error) {
+-    if (isMissingFileError(error)) {
+-      return;
+-    }
+-
+-    throw error;
+-  }
+-}
+diff --git a/packages/storage/src/repositories/file-ticket-repository.ts b/packages/storage/src/repositories/file-ticket-repository.ts
+index f01036d..f07f702 100644
+--- a/packages/storage/src/repositories/file-ticket-repository.ts
++++ b/packages/storage/src/repositories/file-ticket-repository.ts
+@@ -1,9 +1,10 @@
+ import type { Dirent } from "node:fs";
+-import { mkdir, readdir, readFile, writeFile } from "node:fs/promises";
++import { mkdir, readdir, readFile } from "node:fs/promises";
+ import path from "node:path";
+ 
+ import type { Mission } from "../../../contracts/src/mission/mission";
+ import type { Ticket } from "../../../contracts/src/ticket/ticket";
++import { writeJsonAtomic } from "../fs-layout/atomic-json";
+ import {
+   resolveMissionStoragePaths,
+   resolveTicketStoragePaths,
+@@ -31,11 +32,7 @@ export class FileTicketRepository {
+     );
+ 
+     await mkdir(ticketStoragePaths.ticketDir, { recursive: true });
+-    await writeFile(
+-      ticketStoragePaths.ticketPath,
+-      `${JSON.stringify(ticket, null, 2)}\n`,
+-      "utf8",
+-    );
++    await writeJsonAtomic(ticketStoragePaths.ticketPath, ticket);
+ 
+     return ticketStoragePaths;
+   }
+diff --git a/packages/ticket-runtime/src/planner/read-ticket-board.ts b/packages/ticket-runtime/src/planner/read-ticket-board.ts
+index b56286c..92c7cfb 100644
+--- a/packages/ticket-runtime/src/planner/read-ticket-board.ts
++++ b/packages/ticket-runtime/src/planner/read-ticket-board.ts
+@@ -3,6 +3,7 @@ import { access } from "node:fs/promises";
+ import type { Mission } from "../../../contracts/src/mission/mission";
+ import type { ExecutionAttempt } from "../../../contracts/src/execution-attempt/execution-attempt";
+ import { readEventLog } from "../../../journal/src/event-log/file-event-log";
++import { readMissionFromJournal } from "../../../journal/src/reconstruction/mission-reconstruction";
+ import type { TicketBoardProjection } from "../../../journal/src/projections/ticket-board-projection";
+ import {
+   readProjectionFile,
+@@ -45,19 +46,20 @@ export async function readTicketBoard(
+   const attemptRepository = createFileExecutionAttemptRepository(layout);
+   const mission = await missionRepository.findById(options.missionId);
+ 
+-  if (!mission) {
+-    throw new Error(`Mission introuvable: ${options.missionId}.`);
+-  }
++  const missionFromJournal = mission ?? await readMissionSnapshotFromJournalOrThrow(
++    layout.journalPath,
++    options.missionId,
++  );
+ 
+   const projectionPath = resolveProjectionPath(layout.projectionsDir, "ticket-board");
+ 
+   try {
+-    const missionTickets = await ticketRepository.listByMissionId(mission.id);
+-    const missionAttempts = await listMissionAttempts(mission, attemptRepository);
++    const missionTickets = await ticketRepository.listByMissionId(missionFromJournal.id);
++    const missionAttempts = await listMissionAttempts(missionFromJournal, attemptRepository);
+     const missionEvents = (await readEventLog(layout.journalPath))
+-      .filter((event) => event.missionId === mission.id);
++      .filter((event) => event.missionId === missionFromJournal.id);
+     const rebuiltBoard = buildTicketBoardProjection(
+-      mission,
++      missionFromJournal,
+       missionTickets,
+       missionAttempts,
+       missionEvents,
+@@ -72,7 +74,7 @@ export async function readTicketBoard(
+       await writeProjectionSnapshot(layout.projectionsDir, "ticket-board", rebuiltBoard);
+ 
+       return {
+-        mission,
++        mission: missionFromJournal,
+         board: rebuiltBoard,
+         reconstructed: true,
+         projectionPath,
+@@ -80,7 +82,7 @@ export async function readTicketBoard(
+     }
+ 
+     return {
+-      mission,
++      mission: missionFromJournal,
+       board: storedBoard,
+       reconstructed: false,
+       projectionPath,
+@@ -94,6 +96,17 @@ export async function readTicketBoard(
+   }
+ }
+ 
++async function readMissionSnapshotFromJournalOrThrow(
++  journalPath: string,
++  missionId: string,
++): Promise<Mission> {
++  try {
++    return await readMissionFromJournal(journalPath, missionId);
++  } catch {
++    throw new Error(`Mission introuvable: ${missionId}.`);
++  }
++}
++
+ async function ensureTicketBoardWorkspaceInitialized(
+   layout: WorkspaceLayout,
+   commandName: "status" | "resume" | "ticket board" | "compare" | "compare relaunch",
+diff --git a/packages/ticket-runtime/src/ticket-service/run-ticket.ts b/packages/ticket-runtime/src/ticket-service/run-ticket.ts
+index 980f622..613e6b5 100644
+--- a/packages/ticket-runtime/src/ticket-service/run-ticket.ts
++++ b/packages/ticket-runtime/src/ticket-service/run-ticket.ts
+@@ -52,6 +52,7 @@ import {
+   requireTicketInMission,
+   rewriteMissionReadModels,
+ } from "./ticket-service-support";
++import { deepStrictEqualIgnoringArrayOrder } from "../utils/structural-compare";
+ 
+ export interface RunTicketOptions {
+   rootDir: string;
+@@ -441,6 +442,14 @@ export async function runTicket(
+       skillPackRefs: currentTicket.skillPackRefs,
+     });
+ 
++    const latestTicket = requireTicketInMission(
++      await ticketRepository.findById(latestMission.id, ticket.id),
++      latestMission,
++      ticket.id,
++    );
++
++    ensureTicketHasNoConcurrentExtensionMutation(currentTicket, latestTicket);
++
+     adapterResult = await adapter.launch({
+       mission: currentMission,
+       ticket: currentTicket,
+@@ -567,6 +576,23 @@ export async function runTicket(
+       currentMission = artifactRegistrationResult.mission;
+       currentTicket = artifactRegistrationResult.ticket;
+       events.push(...artifactRegistrationResult.events);
++
++      const latestArtifactEvent = artifactRegistrationResult.events.at(-1);
++
++      if (latestArtifactEvent) {
++        await persistRunTransition({
++          layout,
++          event: latestArtifactEvent,
++          mission: currentMission,
++          ticket: currentTicket,
++          attempt: currentAttempt,
++          ticketRepository,
++          missionRepository,
++          attemptRepository,
++          eventAlreadyAppended: true,
++          skipProjectionRewrite: true,
++        });
++      }
+     } catch (artifactDetectionError) {
+       console.warn(
+         `Avertissement: impossible de detecter/enregistrer les artefacts apres l'echec du ticket \`${ticket.id}\`: ${artifactDetectionError instanceof Error ? artifactDetectionError.message : String(artifactDetectionError)}`,
+@@ -865,6 +891,28 @@ async function finalizeAdapterOutcome(options: {
+   };
+ }
+ 
++function ensureTicketHasNoConcurrentExtensionMutation(
++  currentTicket: Ticket,
++  latestTicket: Ticket,
++): void {
++  if (
++    deepStrictEqualIgnoringArrayOrder(
++      currentTicket.allowedCapabilities,
++      latestTicket.allowedCapabilities,
++    )
++    && deepStrictEqualIgnoringArrayOrder(
++      currentTicket.skillPackRefs,
++      latestTicket.skillPackRefs,
++    )
++  ) {
++    return;
++  }
++
++  throw new Error(
++    `Conflit d'ecriture concurrente detecte pour le ticket \`${currentTicket.id}\`.`,
++  );
++}
++
+ function buildTicketInProgressTransition(options: {
+   mission: Mission;
+   ticket: Ticket;
+@@ -975,9 +1023,13 @@ async function persistRunTransition(options: {
+   ticketRepository: ReturnType<typeof createFileTicketRepository>;
+   missionRepository: ReturnType<typeof createFileMissionRepository>;
+   attemptRepository?: ReturnType<typeof createFileExecutionAttemptRepository>;
++  eventAlreadyAppended?: boolean;
+   skipProjectionRewrite?: boolean;
+ }): Promise<void> {
+-  await appendEvent(options.layout.journalPath, options.event);
++  if (!options.eventAlreadyAppended) {
++    await appendEvent(options.layout.journalPath, options.event);
++  }
++
+   await options.ticketRepository.save(options.ticket);
+   await options.missionRepository.save(options.mission);
+ 
+diff --git a/scripts/check-epic-closure.ts b/scripts/check-epic-closure.ts
+index 1330586..454e73f 100644
+--- a/scripts/check-epic-closure.ts
++++ b/scripts/check-epic-closure.ts
+@@ -104,10 +104,26 @@ function unwrapQuotedScalar(value: string): string {
+   }
+ 
+   if (value.startsWith("\"") && value.endsWith("\"")) {
+-    return value
+-      .slice(1, -1)
+-      .replace(/\\"/g, "\"")
+-      .replace(/\\\\/g, "\\");
++    const inner = value.slice(1, -1);
++    let result = "";
++
++    for (let index = 0; index < inner.length; index += 1) {
++      const currentChar = inner[index];
++
++      if (currentChar === "\\" && index + 1 < inner.length) {
++        const nextChar = inner[index + 1];
++
++        if (nextChar === "\\" || nextChar === "\"") {
++          result += nextChar;
++          index += 1;
++          continue;
++        }
++      }
++
++      result += currentChar;
++    }
++
++    return result;
+   }
+ 
+   return value;
+@@ -117,14 +133,28 @@ function normalizeYamlScalar(rawValue: string): string {
+   return unwrapQuotedScalar(stripInlineComment(rawValue).trim());
+ }
+ 
++function isDevelopmentStatusSectionLine(line: string): boolean {
++  return stripInlineComment(line).trim() === "development_status:";
++}
++
+ function parseDevelopmentStatusEntries(fileContents: string): ParseDevelopmentStatusResult {
+   const lines = fileContents.split(/\r?\n/);
+-  const sectionIndex = lines.findIndex((line) => line.trim() === "development_status:");
++  const sectionIndex = lines.findIndex(isDevelopmentStatusSectionLine);
+ 
+   if (sectionIndex === -1) {
+     throw new Error("Section `development_status` introuvable dans sprint-status.yaml.");
+   }
+ 
++  const duplicateSectionIndex = lines.findIndex(
++    (line, index) => index > sectionIndex && isDevelopmentStatusSectionLine(line),
++  );
++
++  if (duplicateSectionIndex !== -1) {
++    throw new Error(
++      `development_status: section dupliquee detectee (lignes ${sectionIndex + 1} et ${duplicateSectionIndex + 1}).`,
++    );
++  }
++
+   const rawEntries: DevelopmentStatusEntry[] = [];
+   const duplicateLineNumbersByKey = new Map<string, number[]>();
+ 
+@@ -250,12 +280,66 @@ function buildInspectableEpicStatuses(entries: DevelopmentStatusEntry[]): EpicSt
+ function extractStoryHeader(fileContents: string): string {
+   const lines = fileContents.split(/\r?\n/);
+   const headerLines: string[] = [];
++  let firstNonEmptyIndex = -1;
++
++  for (let index = 0; index < lines.length; index += 1) {
++    if (lines[index].trim() !== "") {
++      firstNonEmptyIndex = index;
++      break;
++    }
++  }
++
++  let cursor = 0;
++  let frontmatterClosed = true;
++
++  if (firstNonEmptyIndex !== -1 && lines[firstNonEmptyIndex].trim() === "---") {
++    frontmatterClosed = false;
++    cursor = firstNonEmptyIndex + 1;
++
++    for (; cursor < lines.length; cursor += 1) {
++      const line = lines[cursor];
++
++      if (line.trim() === "---") {
++        frontmatterClosed = true;
++        cursor += 1;
++        break;
++      }
++
++      headerLines.push(line);
++    }
++  }
+ 
+-  for (const line of lines) {
+-    if (line.startsWith("## ") || line.trim() === "---") {
++  if (!frontmatterClosed) {
++    return headerLines.join("\n");
++  }
++
++  let fenceMarker: string | null = null;
++
++  for (; cursor < lines.length; cursor += 1) {
++    const line = lines[cursor];
++
++    if (fenceMarker === null && line.startsWith("## ")) {
+       break;
+     }
+ 
++    const fenceMatch = /^ {0,3}(```+|~~~+)/.exec(line);
++
++    if (fenceMatch !== null) {
++      const marker = fenceMatch[1];
++
++      if (fenceMarker === null) {
++        fenceMarker = marker;
++      } else if (marker.length >= fenceMarker.length && marker[0] === fenceMarker[0]) {
++        fenceMarker = null;
++      }
++
++      continue;
++    }
++
++    if (fenceMarker !== null) {
++      continue;
++    }
++
+     headerLines.push(line);
+   }
+ 
+@@ -365,7 +449,10 @@ async function validateEpicStatus(
+ export async function checkEpicClosure(rootDir: string): Promise<EpicClosureCheckResult> {
+   const implementationDir = path.join(rootDir, "_bmad-output", "implementation");
+   const sprintStatusPath = path.join(implementationDir, "sprint-status.yaml");
+-  const sprintStatusContents = await readFile(sprintStatusPath, "utf8");
++  const rawContents = await readFile(sprintStatusPath, "utf8");
++  const sprintStatusContents = rawContents.startsWith("\uFEFF")
++    ? rawContents.slice(1)
++    : rawContents;
+   const parseResult = parseDevelopmentStatusEntries(sprintStatusContents);
+   const epicStatuses = buildInspectableEpicStatuses(parseResult.entries);
+   const warnings = [...parseResult.warnings];
+@@ -381,6 +468,23 @@ export async function checkEpicClosure(rootDir: string): Promise<EpicClosureChec
+     errors.push(...await validateEpicStatus(implementationDir, epicStatus));
+   }
+ 
++  for (const entry of parseResult.entries) {
++    if (!isEpicKey(entry.key) || entry.value !== "in-progress") {
++      continue;
++    }
++
++    const epicNumber = parseEpicNumberFromEpicKey(entry.key);
++    const hasStories = parseResult.entries.some(
++      (candidate) => isStoryKey(candidate.key) && candidate.key.startsWith(`${epicNumber}-`),
++    );
++
++    if (!hasStories) {
++      warnings.push(
++        `${entry.key}: aucune story associee dans development_status alors que l'epic est in-progress.`,
++      );
++    }
++  }
++
+   return {
+     errors,
+     warnings,
+@@ -426,7 +530,7 @@ function parseRootDirFromArgs(args: string[]): string {
+     if (currentArg === "--root") {
+       const nextArg = args[index + 1];
+ 
+-      if (nextArg === undefined || nextArg.startsWith("--")) {
++      if (nextArg === undefined || nextArg === "" || nextArg.startsWith("--")) {
+         throw new Error("L'option --root requiert un chemin.");
+       }
+ 
+diff --git a/tests/integration/check-epic-closure.test.ts b/tests/integration/check-epic-closure.test.ts
+index 172c6b8..68d011e 100644
+--- a/tests/integration/check-epic-closure.test.ts
++++ b/tests/integration/check-epic-closure.test.ts
+@@ -594,3 +594,267 @@ test("le hook pre-commit opt-in bloque un commit si un epic pret a clore reste d
+   assert.equal(commitResult.exitCode, 1);
+   assert.match(commitResult.output, /check-epic-closure|epic pret a clore mais desynchronise/i);
+ });
++
++test("check-epic-closure lit le Status d'un story file a frontmatter YAML uniquement", async (t) => {
++  const rootDir = await mkdtemp(path.join(tmpdir(), "corp-epic-closure-frontmatter-"));
++
++  t.after(async () => {
++    await rm(rootDir, { recursive: true, force: true });
++  });
++
++  await writeImplementationFixture(rootDir, {
++    entries: [
++      ["epic-9", "done"],
++      ["9-1-preparer-la-cloture", "done"],
++      ["epic-9-retrospective", "done"],
++    ],
++    stories: {
++      "9-1-preparer-la-cloture": {
++        contents: [
++          "---",
++          "Status: done",
++          "---",
++          "# Story 9-1-preparer-la-cloture",
++          "",
++          "## Story",
++          "",
++          "Fixture de test.",
++          "",
++        ].join("\n"),
++      },
++    },
++  });
++
++  const result = await runCheck(rootDir);
++
++  assert.equal(result.exitCode, 0);
++  assert.match(result.output, /Verification cloture epic: ok/);
++});
++
++test("check-epic-closure ignore Status uniquement present dans une fence Markdown", async (t) => {
++  const rootDir = await mkdtemp(path.join(tmpdir(), "corp-epic-closure-fence-only-"));
++
++  t.after(async () => {
++    await rm(rootDir, { recursive: true, force: true });
++  });
++
++  await writeImplementationFixture(rootDir, {
++    entries: [
++      ["epic-9", "done"],
++      ["9-1-preparer-la-cloture", "done"],
++      ["epic-9-retrospective", "done"],
++    ],
++    stories: {
++      "9-1-preparer-la-cloture": {
++        contents: [
++          "# Story 9-1-preparer-la-cloture",
++          "",
++          "```yaml",
++          "Status: review",
++          "```",
++          "",
++          "## Story",
++          "",
++          "Fixture de test.",
++          "",
++        ].join("\n"),
++      },
++    },
++  });
++
++  const result = await runCheck(rootDir);
++
++  assert.equal(result.exitCode, 1);
++  assert.match(result.output, /9-1-preparer-la-cloture/);
++  assert.match(result.output, /Status: \(absent\)/);
++});
++
++test("check-epic-closure ignore Status dans une fence Markdown indentee", async (t) => {
++  const rootDir = await mkdtemp(path.join(tmpdir(), "corp-epic-closure-indented-fence-"));
++
++  t.after(async () => {
++    await rm(rootDir, { recursive: true, force: true });
++  });
++
++  await writeImplementationFixture(rootDir, {
++    entries: [
++      ["epic-9", "done"],
++      ["9-1-preparer-la-cloture", "done"],
++      ["epic-9-retrospective", "done"],
++    ],
++    stories: {
++      "9-1-preparer-la-cloture": {
++        contents: [
++          "# Story 9-1-preparer-la-cloture",
++          "",
++          "   ```yaml",
++          "Status: review",
++          "   ```",
++          "",
++          "## Story",
++          "",
++          "Fixture de test.",
++          "",
++        ].join("\n"),
++      },
++    },
++  });
++
++  const result = await runCheck(rootDir);
++
++  assert.equal(result.exitCode, 1);
++  assert.match(result.output, /9-1-preparer-la-cloture/);
++  assert.match(result.output, /Status: \(absent\)/);
++});
++
++test("check-epic-closure rejette un sprint-status.yaml avec deux sections development_status", async (t) => {
++  const rootDir = await mkdtemp(path.join(tmpdir(), "corp-epic-closure-duplicate-section-"));
++
++  t.after(async () => {
++    await rm(rootDir, { recursive: true, force: true });
++  });
++
++  await writeImplementationFixture(rootDir, {
++    sprintStatusContents: [
++      'generated: "2026-04-14T00:00:00+02:00"',
++      'last_updated: "2026-04-14T00:00:00+02:00"',
++      'project: "corp"',
++      'project_key: "NOKEY"',
++      'tracking_system: "file-system"',
++      'story_location: "C:/tmp/_bmad-output/implementation"',
++      "",
++      "development_status:",
++      "  epic-9: done",
++      "  9-1-preparer-la-cloture: done",
++      "  epic-9-retrospective: done",
++      "",
++      "development_status: # duplicate generated block",
++      "  epic-8: done",
++      "",
++    ].join("\n"),
++    stories: {
++      "9-1-preparer-la-cloture": "done",
++    },
++  });
++
++  const result = await runCheck(rootDir);
++
++  assert.equal(result.exitCode, 1);
++  assert.match(result.output, /development_status: section dupliquee detectee \(lignes \d+ et \d+\)\./);
++});
++
++test("check-epic-closure tolere un BOM UTF-8 en tete du sprint-status.yaml", async (t) => {
++  const rootDir = await mkdtemp(path.join(tmpdir(), "corp-epic-closure-bom-"));
++
++  t.after(async () => {
++    await rm(rootDir, { recursive: true, force: true });
++  });
++
++  const baseContents = buildSprintStatus([
++    ["epic-9", "done"],
++    ["9-1-preparer-la-cloture", "done"],
++    ["epic-9-retrospective", "done"],
++  ]);
++
++  await writeImplementationFixture(rootDir, {
++    sprintStatusContents: `\uFEFF${baseContents}`,
++    stories: {
++      "9-1-preparer-la-cloture": "done",
++    },
++  });
++
++  const result = await runCheck(rootDir);
++
++  assert.equal(result.exitCode, 0);
++  assert.match(result.output, /Verification cloture epic: ok/);
++});
++
++test("check-epic-closure refuse une option --root avec un chemin vide", async (t) => {
++  const rootDir = await mkdtemp(path.join(tmpdir(), "corp-epic-closure-empty-root-"));
++
++  t.after(async () => {
++    await rm(rootDir, { recursive: true, force: true });
++  });
++
++  await writeImplementationFixture(rootDir, {
++    entries: [
++      ["epic-9", "done"],
++      ["9-1-preparer-la-cloture", "done"],
++      ["epic-9-retrospective", "done"],
++    ],
++    stories: {
++      "9-1-preparer-la-cloture": "done",
++    },
++  });
++
++  const result = await runCheck(rootDir, ["--root", ""]);
++
++  assert.equal(result.exitCode, 1);
++  assert.match(result.output, /L'option --root requiert un chemin\./);
++});
++
++test("check-epic-closure alerte quand un epic in-progress n'a aucune story associee", async (t) => {
++  const rootDir = await mkdtemp(path.join(tmpdir(), "corp-epic-closure-inprogress-no-story-"));
++
++  t.after(async () => {
++    await rm(rootDir, { recursive: true, force: true });
++  });
++
++  await writeImplementationFixture(rootDir, {
++    entries: [
++      ["epic-9", "in-progress"],
++      ["epic-9-retrospective", "required"],
++    ],
++    stories: {},
++  });
++
++  const result = await runCheck(rootDir);
++
++  assert.equal(result.exitCode, 0);
++  assert.match(
++    result.output,
++    /epic-9: aucune story associee dans development_status alors que l'epic est in-progress\./,
++  );
++});
++
++test("check-epic-closure unwrappe un scalaire double-quote avec backslash echappe suivi de guillemet echappe", async (t) => {
++  const rootDir = await mkdtemp(path.join(tmpdir(), "corp-epic-closure-escaped-quote-"));
++
++  t.after(async () => {
++    await rm(rootDir, { recursive: true, force: true });
++  });
++
++  await writeImplementationFixture(rootDir, {
++    sprintStatusContents: [
++      'generated: "2026-04-14T00:00:00+02:00"',
++      'last_updated: "2026-04-14T00:00:00+02:00"',
++      'project: "corp"',
++      'project_key: "NOKEY"',
++      'tracking_system: "file-system"',
++      'story_location: "C:/tmp/_bmad-output/implementation"',
++      "",
++      "development_status:",
++      "  epic-9: done",
++      "  9-1-preparer-la-cloture: \"foo\\\\\\\"\"",
++      "  epic-9-retrospective: done",
++      "",
++    ].join("\n"),
++    stories: {
++      "9-1-preparer-la-cloture": "done",
++    },
++  });
++
++  const result = await runCheck(rootDir);
++
++  assert.equal(result.exitCode, 1);
++  assert.match(result.output, /9-1-preparer-la-cloture/);
++  assert.match(result.output, /foo\\"/);
++});
++
++test(".gitattributes force LF pour les hooks et scripts shell", async () => {
++  const contents = await readFile(path.join(process.cwd(), ".gitattributes"), "utf8");
++
++  assert.doesNotMatch(contents, /^\* text=auto$/m);
++  assert.match(contents, /^\.githooks\/\*\* text eol=lf$/m);
++  assert.match(contents, /^scripts\/\*\*\.sh text eol=lf$/m);
++});
+diff --git a/tests/integration/mission-extension-selection.test.ts b/tests/integration/mission-extension-selection.test.ts
+index ca2f73a..e046743 100644
+--- a/tests/integration/mission-extension-selection.test.ts
++++ b/tests/integration/mission-extension-selection.test.ts
+@@ -10,6 +10,7 @@ import type { Mission } from "../../packages/contracts/src/mission/mission";
+ import type { Ticket } from "../../packages/contracts/src/ticket/ticket";
+ import type { JournalEventRecord } from "../../packages/journal/src/event-log/append-event";
+ import { runCli } from "../../apps/corp-cli/src/index";
++import { FileMissionRepository } from "../../packages/storage/src/repositories/file-mission-repository";
+ import { setRunTicketDependenciesForTesting } from "../../packages/ticket-runtime/src/ticket-service/run-ticket";
+ 
+ interface CommandResult {
+@@ -420,6 +421,59 @@ test("mission extension select rejette les missions terminales de maniere determ
+   }
+ });
+ 
++test("mission extension select detecte un conflit concurrent au lieu d'un dernier-writer-gagne", async (t) => {
++  const rootDir = await mkdtemp(path.join(tmpdir(), "corp-mission-extension-concurrent-"));
++
++  t.after(async () => {
++    await rm(rootDir, { recursive: true, force: true });
++  });
++
++  await bootstrapWorkspace(rootDir);
++  await registerCapability(rootDir);
++  await registerSkillPack(rootDir);
++
++  const mission = await createMission(rootDir);
++  const originalFindById = FileMissionRepository.prototype.findById;
++  let synchronizedReads = 0;
++  let releaseReads!: () => void;
++  const readBarrier = new Promise<void>((resolve) => {
++    releaseReads = resolve;
++  });
++
++  FileMissionRepository.prototype.findById = async function patchedFindById(
++    missionId: string,
++  ): Promise<Mission | null> {
++    const foundMission = await originalFindById.call(this, missionId);
++
++    if (missionId === mission.id && synchronizedReads < 2) {
++      synchronizedReads += 1;
++
++      if (synchronizedReads === 2) {
++        releaseReads();
++      }
++
++      await readBarrier;
++    }
++
++    return foundMission;
++  };
++
++  t.after(() => {
++    FileMissionRepository.prototype.findById = originalFindById;
++  });
++
++  const results = await Promise.all([
++    selectMissionExtensions(rootDir, mission.id, ["--allow-capability", "shell.exec"]),
++    selectMissionExtensions(rootDir, mission.id, ["--skill-pack", "pack.triage.local"]),
++  ]);
++  const successes = results.filter((result) => result.exitCode === 0);
++  const failures = results.filter((result) => result.exitCode === 1);
++
++  assert.equal(successes.length, 1);
++  assert.equal(failures.length, 1);
++  assert.match(failures[0].lines.at(-1) ?? "", /conflit d'ecriture concurrente/i);
++});
++
+ test("la selection mission borne create update approval et run sans casser les built-ins", async (t) => {
+   const rootDir = await mkdtemp(path.join(tmpdir(), "corp-mission-extension-governance-"));
+   let launchCount = 0;
+diff --git a/tests/integration/run-ticket.test.ts b/tests/integration/run-ticket.test.ts
+index 8be5006..8e0a84d 100644
+--- a/tests/integration/run-ticket.test.ts
++++ b/tests/integration/run-ticket.test.ts
+@@ -11,6 +11,7 @@ import { runCli } from "../../apps/corp-cli/src/index";
+ import { createCodexResponsesAdapterFromEnvironment } from "../../packages/execution-adapters/codex-responses/src/codex-responses-adapter";
+ import { setRunTicketDependenciesForTesting } from "../../packages/ticket-runtime/src/ticket-service/run-ticket";
+ import { resolveWorkspaceLayout } from "../../packages/storage/src/fs-layout/workspace-layout";
++import { FileMissionRepository } from "../../packages/storage/src/repositories/file-mission-repository";
+ import { resolvePreferredIsolationKind } from "../../packages/workspace-isolation/src/workspace-isolation";
+ 
+ interface CommandResult {
+@@ -1036,6 +1037,8 @@ test("mission ticket run foreground detecte et enregistre les artefacts du works
+   assert.equal(updatedTicket.status, "failed");
+   assert.equal(updatedMission.artifactIds.length, 1);
+   assert.deepEqual(updatedMission.artifactIds, updatedTicket.artifactIds);
++  assert.equal(updatedMission.resumeCursor, journal.at(-1)?.eventId);
++  assert.equal(updatedTicket.eventIds.at(-1), journal.at(-1)?.eventId);
+   assert.deepEqual(
+     journal.slice(-3).map((event) => event.type),
+     ["execution.failed", "artifact.detected", "artifact.registered"],
+@@ -1225,6 +1228,99 @@ test("mission ticket run refuse une seconde execution tant qu'une tentative acti
+   assert.deepEqual(await readTicket(rootDir, mission.id, ticketId), ticketBefore);
+ });
+ 
++test("mission ticket run relit le ticket juste avant adapter.launch et bloque une mutation concurrente non autorisee", async (t) => {
++  const rootDir = await mkdtemp(path.join(tmpdir(), "corp-run-ticket-reread-ticket-"));
++  let launchCount = 0;
++
++  t.after(async () => {
++    setRunTicketDependenciesForTesting(null);
++    await rm(rootDir, { recursive: true, force: true });
++  });
++
++  setRunTicketDependenciesForTesting({
++    createAdapter: () => ({
++      id: "codex_responses",
++      launch: async () => {
++        launchCount += 1;
++        return {
++          status: "completed",
++          adapterState: {},
++        };
++      },
++    }),
++  });
++
++  await bootstrapWorkspace(rootDir);
++  const mission = await createMission(rootDir, "Mission reread ticket");
++  const ticketCreateResult = await createTicket(rootDir, mission.id, [
++    "--allow-capability",
++    "fs.read",
++  ]);
++
++  assert.equal(ticketCreateResult.exitCode, 0);
++
++  const ticketId = String(
++    ticketCreateResult.lines.find((line) => line.startsWith("Ticket cree: "))?.slice("Ticket cree: ".length),
++  );
++  const originalFindById = FileMissionRepository.prototype.findById;
++  let missionReads = 0;
++
++  FileMissionRepository.prototype.findById = async function patchedFindById(
++    missionId: string,
++  ): Promise<Mission | null> {
++    const foundMission = await originalFindById.call(this, missionId);
++
++    if (missionId === mission.id) {
++      missionReads += 1;
++
++      if (missionReads === 2) {
++        const ticket = await readTicket(rootDir, mission.id, ticketId);
++        const ticketPath = path.join(
++          rootDir,
++          ".corp",
++          "missions",
++          mission.id,
++          "tickets",
++          ticketId,
++          "ticket.json",
++        );
++
++        await writeFile(
++          ticketPath,
++          `${JSON.stringify({
++            ...ticket,
++            allowedCapabilities: [...ticket.allowedCapabilities, "shell.exec"],
++            updatedAt: new Date().toISOString(),
++          }, null, 2)}\n`,
++          "utf8",
++        );
++      }
++    }
++
++    return foundMission;
++  };
++
++  t.after(() => {
++    FileMissionRepository.prototype.findById = originalFindById;
++  });
++
++  const runResult = await runCommand([
++    "mission",
++    "ticket",
++    "run",
++    "--root",
++    rootDir,
++    "--mission-id",
++    mission.id,
++    "--ticket-id",
++    ticketId,
++  ]);
++
++  assert.equal(runResult.exitCode, 1);
++  assert.equal(launchCount, 0);
++  assert.match(runResult.lines.at(-1) ?? "", /conflit d'ecriture concurrente.*ticket/i);
++});
++
+ test("mission ticket run refuse un ticket non runnable sans muter journal, projections, snapshots ni isolations", async (t) => {
+   const rootDir = await mkdtemp(path.join(tmpdir(), "corp-run-ticket-non-runnable-"));
+   const layout = resolveWorkspaceLayout(rootDir);
+diff --git a/tests/unit/skill-pack-registration.test.ts b/tests/unit/skill-pack-registration.test.ts
+index ce1e488..6e88e86 100644
+--- a/tests/unit/skill-pack-registration.test.ts
++++ b/tests/unit/skill-pack-registration.test.ts
+@@ -6,6 +6,7 @@ import test from "node:test";
+ 
+ import type { Mission } from "../../packages/contracts/src/mission/mission";
+ import type { Ticket } from "../../packages/contracts/src/ticket/ticket";
++import type { RegisteredSkillPack } from "../../packages/contracts/src/extension/registered-skill-pack";
+ import { registerSkillPack } from "../../packages/skill-pack/src/loader/register-skill-pack";
+ import { resolveTicketSkillPacks } from "../../packages/skill-pack/src/loader/resolve-ticket-skill-packs";
+ import { ensureWorkspaceLayout } from "../../packages/storage/src/fs-layout/workspace-layout";
+@@ -260,6 +261,71 @@ test("registerSkillPack detecte une collision ambigue quand le contenu differe p
+   assert.equal((await repository.list()).length, 1);
+ });
+ 
++test("FileSkillPackRegistryRepository traite un enregistrement concurrent identique comme unchanged", async (t) => {
++  const rootDir = await mkdtemp(path.join(tmpdir(), "corp-skill-pack-concurrent-identical-"));
++
++  t.after(async () => {
++    await rm(rootDir, { recursive: true, force: true });
++  });
++
++  const layout = await ensureWorkspaceLayout(rootDir);
++  const repository = createFileSkillPackRegistryRepository(layout);
++  const registeredSkillPack: RegisteredSkillPack = {
++    packRef: "pack.concurrent",
++    registrationId: "ext.skill-pack.concurrent",
++    schemaVersion: "corp.extension.v1",
++    displayName: "Pack concurrent",
++    version: "0.1.0",
++    permissions: ["docs.read"],
++    constraints: ["local_only", "workspace_scoped"],
++    metadata: {
++      description: "Pack concurrent identique.",
++      owner: "core-platform",
++      tags: ["skill-pack", "concurrent"],
++    },
++    localRefs: {
++      rootDir,
++      references: [],
++      scripts: [],
++    },
++    registeredAt: "2026-04-15T10:00:00.000Z",
++    sourceManifestPath: path.join(rootDir, "pack.concurrent.json"),
++  };
++  const originalFindByPackRef = repository.findByPackRef.bind(repository);
++  let synchronizedReads = 0;
++  let releaseReads!: () => void;
++  const readBarrier = new Promise<void>((resolve) => {
++    releaseReads = resolve;
++  });
++
++  repository.findByPackRef = async (packRef: string) => {
++    const existingSkillPack = await originalFindByPackRef(packRef);
++
++    if (packRef === registeredSkillPack.packRef && synchronizedReads < 2) {
++      synchronizedReads += 1;
++
++      if (synchronizedReads === 2) {
++        releaseReads();
++      }
++
++      await readBarrier;
++    }
++
++    return existingSkillPack;
++  };
++
++  const results = await Promise.all([
++    repository.save(registeredSkillPack),
++    repository.save(registeredSkillPack),
++  ]);
++
++  assert.deepEqual(
++    results.map((result) => result.status).sort(),
++    ["registered", "unchanged"],
++  );
++  assert.equal((await repository.list()).length, 1);
++});
++
+ test("resolveTicketSkillPacks deduplique les packRefs en double dans un ticket", async (t) => {
+   const rootDir = await mkdtemp(path.join(tmpdir(), "corp-skill-pack-dedup-"));
+ 
+diff --git a/packages/storage/src/fs-layout/atomic-json.ts b/packages/storage/src/fs-layout/atomic-json.ts
+new file mode 100644
+index 0000000..80fceed
+--- /dev/null
++++ b/packages/storage/src/fs-layout/atomic-json.ts
+@@ -0,0 +1,89 @@
++import { randomUUID } from "node:crypto";
++import { rename, unlink, writeFile } from "node:fs/promises";
++
++export async function writeJsonAtomic(filePath: string, value: unknown): Promise<void> {
++  const serializedValue = JSON.stringify(value, null, 2);
++
++  if (serializedValue === undefined) {
++    throw new Error("Impossible de serialiser une valeur JSON undefined.");
++  }
++
++  const temporaryPath = await writeTemporaryJsonFile(filePath, `${serializedValue}\n`);
++
++  try {
++    await renameWithTransientRetry(temporaryPath, filePath);
++  } catch (error) {
++    try {
++      await unlink(temporaryPath);
++    } catch {
++      // Best-effort cleanup: preserve the original write/rename failure.
++    }
++
++    throw error;
++  }
++}
++
++async function renameWithTransientRetry(
++  sourcePath: string,
++  destinationPath: string,
++): Promise<void> {
++  let lastError: unknown;
++
++  for (let attempt = 0; attempt < 10; attempt += 1) {
++    try {
++      await rename(sourcePath, destinationPath);
++      return;
++    } catch (error) {
++      if (!isTransientRenameError(error)) {
++        throw error;
++      }
++
++      lastError = error;
++      await delay(5 * (attempt + 1));
++    }
++  }
++
++  throw lastError;
++}
++
++async function writeTemporaryJsonFile(filePath: string, contents: string): Promise<string> {
++  const preferredTemporaryPath = `${filePath}.tmp`;
++
++  try {
++    await writeFile(preferredTemporaryPath, contents, { encoding: "utf8", flag: "wx" });
++    return preferredTemporaryPath;
++  } catch (error) {
++    if (!isAlreadyExistsError(error)) {
++      throw error;
++    }
++  }
++
++  const contendedTemporaryPath = `${filePath}.${process.pid}.${randomUUID()}.tmp`;
++
++  await writeFile(contendedTemporaryPath, contents, { encoding: "utf8", flag: "wx" });
++  return contendedTemporaryPath;
++}
++
++function isAlreadyExistsError(error: unknown): boolean {
++  return typeof error === "object"
++    && error !== null
++    && "code" in error
++    && error.code === "EEXIST";
++}
++
++function isTransientRenameError(error: unknown): boolean {
++  return typeof error === "object"
++    && error !== null
++    && "code" in error
++    && (
++      error.code === "EACCES"
++      || error.code === "EBUSY"
++      || error.code === "EPERM"
++    );
++}
++
++async function delay(durationMs: number): Promise<void> {
++  await new Promise<void>((resolve) => {
++    setTimeout(resolve, durationMs);
++  });
++}
+diff --git a/packages/journal/src/reconstruction/mission-reconstruction.ts b/packages/journal/src/reconstruction/mission-reconstruction.ts
+new file mode 100644
+index 0000000..ae433f0
+--- /dev/null
++++ b/packages/journal/src/reconstruction/mission-reconstruction.ts
+@@ -0,0 +1,79 @@
++import { hydrateMission, type Mission } from "../../../contracts/src/mission/mission";
++import type { JournalEventRecord } from "../event-log/append-event";
++import { readEventLog } from "../event-log/file-event-log";
++
++export async function readMissionEvents(
++  journalPath: string,
++  missionId: string,
++): Promise<JournalEventRecord[]> {
++  return (await readEventLog(journalPath)).filter((event) => event.missionId === missionId);
++}
++
++export async function readMissionFromJournal(
++  journalPath: string,
++  missionId: string,
++): Promise<Mission> {
++  return reconstructMissionFromJournal(await readMissionEvents(journalPath, missionId), missionId);
++}
++
++export function reconstructMissionFromJournal(
++  missionEvents: JournalEventRecord[],
++  missionId: string,
++): Mission {
++  let reconstructedMission: Mission | null = null;
++
++  for (const event of missionEvents) {
++    const payloadMission = (event.payload as Record<string, unknown>).mission;
++
++    if (isMission(payloadMission) && payloadMission.id === missionId) {
++      reconstructedMission = hydrateMission(payloadMission);
++    }
++  }
++
++  if (!reconstructedMission) {
++    throw new Error(
++      `Journal mission irreconciliable pour ${missionId}. Impossible de reconstruire la mission.`,
++    );
++  }
++
++  return reconstructedMission;
++}
++
++function isMission(value: unknown): value is Mission {
++  if (typeof value !== "object" || value === null) {
++    return false;
++  }
++
++  const candidate = value as Record<string, unknown>;
++
++  return typeof candidate.id === "string"
++    && typeof candidate.title === "string"
++    && typeof candidate.objective === "string"
++    && typeof candidate.status === "string"
++    && Array.isArray(candidate.successCriteria)
++    && candidate.successCriteria.every((criterion) => typeof criterion === "string")
++    && typeof candidate.policyProfileId === "string"
++    && (
++      candidate.authorizedExtensions === undefined
++      || isAuthorizedExtensions(candidate.authorizedExtensions)
++    )
++    && Array.isArray(candidate.ticketIds)
++    && Array.isArray(candidate.artifactIds)
++    && Array.isArray(candidate.eventIds)
++    && typeof candidate.resumeCursor === "string"
++    && typeof candidate.createdAt === "string"
++    && typeof candidate.updatedAt === "string";
++}
++
++function isAuthorizedExtensions(value: unknown): boolean {
++  if (typeof value !== "object" || value === null) {
++    return false;
++  }
++
++  const candidate = value as Record<string, unknown>;
++
++  return Array.isArray(candidate.allowedCapabilities)
++    && candidate.allowedCapabilities.every((entry) => typeof entry === "string")
++    && Array.isArray(candidate.skillPackRefs)
++    && candidate.skillPackRefs.every((entry) => typeof entry === "string");
++}
+diff --git a/tests/integration/read-model-rewrite-idempotency.test.ts b/tests/integration/read-model-rewrite-idempotency.test.ts
+new file mode 100644
+index 0000000..80d10c5
+--- /dev/null
++++ b/tests/integration/read-model-rewrite-idempotency.test.ts
+@@ -0,0 +1,351 @@
++import assert from "node:assert/strict";
++import { mkdtemp, readFile, rm } from "node:fs/promises";
++import path from "node:path";
++import { tmpdir } from "node:os";
++import test from "node:test";
++
++import { runCli } from "../../apps/corp-cli/src/index";
++import type { ApprovalQueueProjection } from "../../packages/journal/src/projections/approval-queue-projection";
++import type { TicketBoardProjection } from "../../packages/journal/src/projections/ticket-board-projection";
++import { FileMissionRepository } from "../../packages/storage/src/repositories/file-mission-repository";
++import { setRunTicketDependenciesForTesting } from "../../packages/ticket-runtime/src/ticket-service/run-ticket";
++
++interface CommandResult {
++  exitCode: number;
++  lines: string[];
++}
++
++async function runCommand(args: string[]): Promise<CommandResult> {
++  const lines: string[] = [];
++  const exitCode = await runCli(args, {
++    writeLine: (line: string) => lines.push(line),
++  });
++
++  return {
++    exitCode,
++    lines,
++  };
++}
++
++async function bootstrapWorkspace(rootDir: string): Promise<void> {
++  const result = await runCommand(["mission", "bootstrap", "--root", rootDir]);
++  assert.equal(result.exitCode, 0);
++}
++
++async function createMission(rootDir: string): Promise<string> {
++  const result = await runCommand([
++    "mission",
++    "create",
++    "--root",
++    rootDir,
++    "--title",
++    "Mission rewrite",
++    "--objective",
++    "Verifier la reconstruction centralisee",
++    "--success-criterion",
++    "Les read-models sont idempotents",
++    "--policy-profile",
++    "policy_profile_local",
++  ]);
++
++  assert.equal(result.exitCode, 0);
++
++  const missionLine = result.lines.find((line) => line.startsWith("Mission creee: "));
++  assert.ok(missionLine);
++
++  return missionLine.slice("Mission creee: ".length);
++}
++
++async function createTicket(rootDir: string, missionId: string): Promise<string> {
++  const result = await runCommand([
++    "mission",
++    "ticket",
++    "create",
++    "--root",
++    rootDir,
++    "--mission-id",
++    missionId,
++    "--kind",
++    "implement",
++    "--goal",
++    "Verifier la reconstruction d'un ticket",
++    "--owner",
++    "agent_recovery",
++    "--success-criterion",
++    "Le ticket est reconstructible",
++    "--allow-capability",
++    "fs.read",
++  ]);
++
++  assert.equal(result.exitCode, 0);
++
++  const ticketLine = result.lines.find((line) => line.startsWith("Ticket cree: "));
++  assert.ok(ticketLine);
++
++  return ticketLine.slice("Ticket cree: ".length);
++}
++
++async function readJson<T>(filePath: string): Promise<T> {
++  return JSON.parse(await readFile(filePath, "utf8")) as T;
++}
++
++async function removeProjectionFiles(rootDir: string, projectionNames: string[]): Promise<void> {
++  await Promise.all(
++    projectionNames.map((projectionName) =>
++      rm(path.join(rootDir, ".corp", "projections", `${projectionName}.json`), {
++        force: true,
++      })
++    ),
++  );
++}
++
++async function readJournalEvents(rootDir: string): Promise<Array<{
++  type: string;
++  missionId: string;
++}>> {
++  return (await readFile(path.join(rootDir, ".corp", "journal", "events.jsonl"), "utf8"))
++    .split("\n")
++    .filter((line) => line.trim().length > 0)
++    .map((line) => JSON.parse(line) as { type: string; missionId: string });
++}
++
++function patchProjectionWrites(t: test.TestContext): string[] {
++  const projectionStoreModule = require("../../packages/storage/src/projection-store/file-projection-store") as {
++    writeProjectionSnapshot: (
++      projectionsDir: string,
++      projectionName: string,
++      snapshot: object,
++    ) => Promise<string>;
++  };
++  const originalWriteProjectionSnapshot = projectionStoreModule.writeProjectionSnapshot;
++  const projectionWrites: string[] = [];
++
++  projectionStoreModule.writeProjectionSnapshot = async (
++    ...args: Parameters<typeof originalWriteProjectionSnapshot>
++  ): Promise<string> => {
++    projectionWrites.push(args[1]);
++    return originalWriteProjectionSnapshot(...args);
++  };
++
++  t.after(() => {
++    projectionStoreModule.writeProjectionSnapshot = originalWriteProjectionSnapshot;
++  });
++
++  return projectionWrites;
++}
++
++function assertCoreReadModelsWereRewritten(projectionWrites: string[]): void {
++  for (const projectionName of [
++    "mission-status",
++    "ticket-board",
++    "artifact-index",
++    "audit-log",
++    "resume-view",
++  ]) {
++    assert.ok(
++      projectionWrites.includes(projectionName),
++      `projection attendue manquante: ${projectionName}`,
++    );
++  }
++}
++
++test("mission create declenche la reconstruction centralisee des read-models apres persist", async (t) => {
++  const rootDir = await mkdtemp(path.join(tmpdir(), "corp-create-rewrite-read-models-"));
++
++  t.after(async () => {
++    await rm(rootDir, { recursive: true, force: true });
++  });
++
++  await bootstrapWorkspace(rootDir);
++
++  const projectionWrites = patchProjectionWrites(t);
++
++  await createMission(rootDir);
++
++  assertCoreReadModelsWereRewritten(projectionWrites);
++});
++
++test("mission lifecycle declenche la reconstruction centralisee des read-models apres persist", async (t) => {
++  const rootDir = await mkdtemp(path.join(tmpdir(), "corp-lifecycle-rewrite-read-models-"));
++
++  t.after(async () => {
++    await rm(rootDir, { recursive: true, force: true });
++  });
++
++  await bootstrapWorkspace(rootDir);
++  const missionId = await createMission(rootDir);
++  const projectionWrites = patchProjectionWrites(t);
++  const result = await runCommand([
++    "mission",
++    "pause",
++    "--root",
++    rootDir,
++    "--mission-id",
++    missionId,
++  ]);
++
++  assert.equal(result.exitCode, 0);
++  assertCoreReadModelsWereRewritten(projectionWrites);
++});
++
++test("mission resume reconstruit les read-models mission et ticket apres perte post-persist", async (t) => {
++  const rootDir = await mkdtemp(path.join(tmpdir(), "corp-resume-crash-recovery-"));
++
++  t.after(async () => {
++    await rm(rootDir, { recursive: true, force: true });
++  });
++
++  await bootstrapWorkspace(rootDir);
++  const missionId = await createMission(rootDir);
++  const ticketId = await createTicket(rootDir, missionId);
++
++  await removeProjectionFiles(rootDir, [
++    "resume-view",
++    "ticket-board",
++    "approval-queue",
++    "artifact-index",
++  ]);
++
++  const result = await runCommand([
++    "mission",
++    "resume",
++    "--root",
++    rootDir,
++    "--mission-id",
++    missionId,
++  ]);
++
++  assert.equal(result.exitCode, 0);
++
++  const ticketBoard = await readJson<TicketBoardProjection>(
++    path.join(rootDir, ".corp", "projections", "ticket-board.json"),
++  );
++
++  assert.ok(ticketBoard.tickets.some((ticket) => ticket.ticketId === ticketId));
++});
++
++test("approval queue reconstruit une ApprovalRequest apres perte des read-models", async (t) => {
++  const rootDir = await mkdtemp(path.join(tmpdir(), "corp-approval-crash-recovery-"));
++
++  t.after(async () => {
++    setRunTicketDependenciesForTesting(null);
++    await rm(rootDir, { recursive: true, force: true });
++  });
++
++  await bootstrapWorkspace(rootDir);
++  const missionId = await createMission(rootDir);
++  const ticketId = await createTicket(rootDir, missionId);
++
++  setRunTicketDependenciesForTesting({
++    createAdapter: () => ({
++      id: "codex_responses",
++      launch: async () => ({
++        status: "awaiting_approval",
++        adapterState: {
++          responseId: "resp_crash_recovery",
++          vendorStatus: "requires_approval",
++        },
++        approvalRequest: {
++          title: "Validation crash recovery",
++          actionType: "workspace_write",
++          actionSummary: "Verifier la reconstruction de la queue",
++          guardrails: ["manual_review: workspace_write"],
++        },
++      }),
++    }),
++  });
++
++  const runResult = await runCommand([
++    "mission",
++    "ticket",
++    "run",
++    "--root",
++    rootDir,
++    "--mission-id",
++    missionId,
++    "--ticket-id",
++    ticketId,
++    "--background",
++  ]);
++
++  assert.equal(runResult.exitCode, 0);
++
++  await removeProjectionFiles(rootDir, ["approval-queue", "resume-view"]);
++
++  const queueResult = await runCommand([
++    "mission",
++    "approval",
++    "queue",
++    "--root",
++    rootDir,
++    "--mission-id",
++    missionId,
++  ]);
++
++  assert.equal(queueResult.exitCode, 0);
++
++  const approvalQueue = await readJson<ApprovalQueueProjection>(
++    path.join(rootDir, ".corp", "projections", "approval-queue.json"),
++  );
++
++  assert.equal(approvalQueue.approvals.length, 1);
++  assert.equal(approvalQueue.approvals[0]?.ticketId, ticketId);
++  assert.equal(approvalQueue.approvals[0]?.status, "requested");
++});
++
++test("mission resume reconstruit une mission creee si le crash survient apres appendEvent avant save", async (t) => {
++  const rootDir = await mkdtemp(path.join(tmpdir(), "corp-create-append-crash-recovery-"));
++  const originalSave = FileMissionRepository.prototype.save;
++  let shouldCrashAfterAppend = true;
++
++  t.after(async () => {
++    FileMissionRepository.prototype.save = originalSave;
++    await rm(rootDir, { recursive: true, force: true });
++  });
++
++  await bootstrapWorkspace(rootDir);
++
++  FileMissionRepository.prototype.save = async function patchedSave(...args) {
++    if (shouldCrashAfterAppend) {
++      shouldCrashAfterAppend = false;
++      throw new Error("crash simule apres appendEvent");
++    }
++
++    return originalSave.apply(this, args);
++  };
++
++  const createResult = await runCommand([
++    "mission",
++    "create",
++    "--root",
++    rootDir,
++    "--title",
++    "Mission crash append",
++    "--objective",
++    "Reconstruire sans snapshot mission",
++    "--success-criterion",
++    "Le journal suffit",
++    "--policy-profile",
++    "policy_profile_local",
++  ]);
++
++  assert.equal(createResult.exitCode, 1);
++  assert.equal(createResult.lines.at(-1), "crash simule apres appendEvent");
++
++  const missionCreatedEvent = (await readJournalEvents(rootDir))
++    .find((event) => event.type === "mission.created");
++
++  assert.ok(missionCreatedEvent);
++
++  const resumeResult = await runCommand([
++    "mission",
++    "resume",
++    "--root",
++    rootDir,
++    "--mission-id",
++    missionCreatedEvent.missionId,
++  ]);
++
++  assert.equal(resumeResult.exitCode, 0);
++  assert.match(resumeResult.lines.join("\n"), /Mission crash append/);
++});
+diff --git a/tests/unit/exclusive-file-creation.test.ts b/tests/unit/exclusive-file-creation.test.ts
+new file mode 100644
+index 0000000..ac63d79
+--- /dev/null
++++ b/tests/unit/exclusive-file-creation.test.ts
+@@ -0,0 +1,45 @@
++import assert from "node:assert/strict";
++import { mkdtemp, rm } from "node:fs/promises";
++import path from "node:path";
++import { tmpdir } from "node:os";
++import test from "node:test";
++
++import { ensureAppendOnlyEventLog } from "../../packages/journal/src/event-log/file-event-log";
++import { seedProjectionStore } from "../../packages/storage/src/projection-store/file-projection-store";
++
++test("ensureAppendOnlyEventLog ne signale qu'une creation sous appels concurrents", async (t) => {
++  const rootDir = await mkdtemp(path.join(tmpdir(), "corp-event-log-exclusive-"));
++
++  t.after(async () => {
++    await rm(rootDir, { recursive: true, force: true });
++  });
++
++  const journalPath = path.join(rootDir, "events.jsonl");
++  const results = await Promise.all(
++    Array.from({ length: 20 }, () => ensureAppendOnlyEventLog(journalPath)),
++  );
++
++  assert.equal(results.filter(Boolean).length, 1);
++});
++
++test("seedProjectionStore traite EEXIST comme benign sous appels concurrents", async (t) => {
++  const rootDir = await mkdtemp(path.join(tmpdir(), "corp-projection-seed-exclusive-"));
++
++  t.after(async () => {
++    await rm(rootDir, { recursive: true, force: true });
++  });
++
++  const results = await Promise.all(
++    Array.from({ length: 20 }, () =>
++      seedProjectionStore(rootDir, {
++        "resume-view": { schemaVersion: 1, resume: null },
++      })
++    ),
++  );
++  const createdCount = results
++    .flatMap((result) => result.createdPaths)
++    .filter((createdPath) => createdPath.endsWith("resume-view.json"))
++    .length;
++
++  assert.equal(createdCount, 1);
++});
+diff --git a/tests/unit/write-json-atomic.test.ts b/tests/unit/write-json-atomic.test.ts
+new file mode 100644
+index 0000000..212c678
+--- /dev/null
++++ b/tests/unit/write-json-atomic.test.ts
+@@ -0,0 +1,74 @@
++import assert from "node:assert/strict";
++import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
++import path from "node:path";
++import { tmpdir } from "node:os";
++import test from "node:test";
++
++import { writeJsonAtomic } from "../../packages/storage/src/fs-layout/atomic-json";
++
++test("writeJsonAtomic ecrit un JSON formate via un fichier temporaire", async (t) => {
++  const rootDir = await mkdtemp(path.join(tmpdir(), "corp-write-json-atomic-success-"));
++
++  t.after(async () => {
++    await rm(rootDir, { recursive: true, force: true });
++  });
++
++  const targetPath = path.join(rootDir, "snapshot.json");
++
++  await writeJsonAtomic(targetPath, { answer: 42, nested: { ok: true } });
++
++  assert.equal(
++    await readFile(targetPath, "utf8"),
++    `${JSON.stringify({ answer: 42, nested: { ok: true } }, null, 2)}\n`,
++  );
++});
++
++test("writeJsonAtomic nettoie le temporaire et laisse la cible intacte si rename echoue", async (t) => {
++  const rootDir = await mkdtemp(path.join(tmpdir(), "corp-write-json-atomic-rename-fail-"));
++
++  t.after(async () => {
++    await rm(rootDir, { recursive: true, force: true });
++  });
++
++  const targetPath = path.join(rootDir, "snapshot.json");
++  const targetMarkerPath = path.join(targetPath, "marker.txt");
++  const temporaryPath = `${targetPath}.tmp`;
++
++  await mkdir(targetPath);
++  await writeFile(targetMarkerPath, "target-still-here", "utf8");
++
++  await assert.rejects(() => writeJsonAtomic(targetPath, { next: true }));
++
++  assert.equal(await readFile(targetMarkerPath, "utf8"), "target-still-here");
++  await assert.rejects(() => readFile(temporaryPath, "utf8"), /ENOENT/);
++});
++
++test("writeJsonAtomic supporte 10 ecritures concurrentes sans JSON tronque", async (t) => {
++  const rootDir = await mkdtemp(path.join(tmpdir(), "corp-write-json-atomic-concurrent-"));
++
++  t.after(async () => {
++    await rm(rootDir, { recursive: true, force: true });
++  });
++
++  const targetPath = path.join(rootDir, "projection.json");
++
++  await Promise.all(
++    Array.from({ length: 10 }, (_, index) =>
++      writeJsonAtomic(targetPath, {
++        schemaVersion: 1,
++        writer: index,
++        payload: `value-${index}`,
++      })
++    ),
++  );
++
++  const parsed = JSON.parse(await readFile(targetPath, "utf8")) as {
++    schemaVersion?: unknown;
++    writer?: unknown;
++    payload?: unknown;
++  };
++
++  assert.equal(parsed.schemaVersion, 1);
++  assert.equal(typeof parsed.writer, "number");
++  assert.equal(typeof parsed.payload, "string");
++});

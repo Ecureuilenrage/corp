@@ -1,5 +1,7 @@
-import { access, readFile, writeFile } from "node:fs/promises";
+import { readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
+
+import { isAlreadyExistsError, writeJsonAtomic } from "../fs-layout/atomic-json";
 
 export type ProjectionSnapshot = object;
 export type ProjectionCatalog = Record<string, ProjectionSnapshot>;
@@ -55,17 +57,21 @@ export async function writeProjectionSnapshot(
 ): Promise<string> {
   const projectionPath = resolveProjectionPath(projectionsDir, projectionName);
 
-  await writeFile(projectionPath, `${JSON.stringify(snapshot, null, 2)}\n`, "utf8");
+  await writeJsonAtomic(projectionPath, snapshot);
 
   return projectionPath;
 }
 
 async function writeFileIfMissing(filePath: string, contents: string): Promise<boolean> {
   try {
-    await access(filePath);
-    return false;
-  } catch {
-    await writeFile(filePath, contents, "utf8");
+    await writeFile(filePath, contents, { encoding: "utf8", flag: "wx" });
     return true;
+  } catch (error) {
+    if (isAlreadyExistsError(error)) {
+      return false;
+    }
+
+    throw error;
   }
 }
+

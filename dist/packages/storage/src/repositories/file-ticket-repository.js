@@ -7,7 +7,12 @@ exports.FileTicketRepository = exports.MAX_EXHAUSTIVE_MISSION_OWNERSHIP_LOOKUP =
 exports.createFileTicketRepository = createFileTicketRepository;
 const promises_1 = require("node:fs/promises");
 const node_path_1 = __importDefault(require("node:path"));
+const persisted_document_guards_1 = require("../../../contracts/src/guards/persisted-document-guards");
+const mission_1 = require("../../../contracts/src/mission/mission");
+const atomic_json_1 = require("../fs-layout/atomic-json");
+const file_system_read_errors_1 = require("../fs-layout/file-system-read-errors");
 const workspace_layout_1 = require("../fs-layout/workspace-layout");
+const persisted_document_errors_1 = require("./persisted-document-errors");
 exports.MAX_EXHAUSTIVE_MISSION_OWNERSHIP_LOOKUP = 50;
 const SEARCHABLE_MISSION_DIRECTORY_NAME_PATTERN = /^mission_[A-Za-z0-9_-]+$/;
 class FileTicketRepository {
@@ -18,17 +23,23 @@ class FileTicketRepository {
     async save(ticket) {
         const ticketStoragePaths = (0, workspace_layout_1.resolveTicketStoragePaths)(this.layout, ticket.missionId, ticket.id);
         await (0, promises_1.mkdir)(ticketStoragePaths.ticketDir, { recursive: true });
-        await (0, promises_1.writeFile)(ticketStoragePaths.ticketPath, `${JSON.stringify(ticket, null, 2)}\n`, "utf8");
+        await (0, atomic_json_1.writeJsonAtomic)(ticketStoragePaths.ticketPath, ticket);
         return ticketStoragePaths;
     }
     async findById(missionId, ticketId) {
         const ticketStoragePaths = (0, workspace_layout_1.resolveTicketStoragePaths)(this.layout, missionId, ticketId);
+        const context = {
+            filePath: ticketStoragePaths.ticketPath,
+            entityLabel: "Ticket",
+            documentId: ticketId,
+        };
         try {
-            const storedTicket = await (0, promises_1.readFile)(ticketStoragePaths.ticketPath, "utf8");
-            return JSON.parse(storedTicket);
+            const storedTicket = await (0, persisted_document_errors_1.readPersistedJsonDocument)(context);
+            (0, persisted_document_errors_1.assertValidPersistedDocument)(storedTicket, persisted_document_guards_1.validateTicket, context);
+            return storedTicket;
         }
         catch (error) {
-            if (isMissingFileError(error)) {
+            if ((0, file_system_read_errors_1.isMissingFileError)(error)) {
                 return null;
             }
             throw error;
@@ -72,12 +83,18 @@ class FileTicketRepository {
     }
     async readMissionSnapshot(missionId) {
         const missionStoragePaths = (0, workspace_layout_1.resolveMissionStoragePaths)(this.layout, missionId);
+        const context = {
+            filePath: missionStoragePaths.missionPath,
+            entityLabel: "Mission",
+            documentId: missionId,
+        };
         try {
-            const storedMission = await (0, promises_1.readFile)(missionStoragePaths.missionPath, "utf8");
-            return JSON.parse(storedMission);
+            const storedMission = await (0, persisted_document_errors_1.readPersistedJsonDocument)(context);
+            (0, persisted_document_errors_1.assertValidPersistedDocument)(storedMission, persisted_document_guards_1.validateMission, context);
+            return (0, mission_1.hydrateMission)(storedMission);
         }
         catch (error) {
-            if (isMissingFileError(error)) {
+            if ((0, file_system_read_errors_1.isMissingFileError)(error)) {
                 return null;
             }
             throw error;
@@ -96,7 +113,7 @@ async function readDirectoryEntries(directoryPath) {
         return await (0, promises_1.readdir)(directoryPath, { withFileTypes: true, encoding: "utf8" });
     }
     catch (error) {
-        if (isMissingFileError(error)) {
+        if ((0, file_system_read_errors_1.isMissingFileError)(error)) {
             return [];
         }
         throw error;
@@ -105,10 +122,4 @@ async function readDirectoryEntries(directoryPath) {
 function isSearchableMissionDirectory(entry) {
     return entry.isDirectory()
         && SEARCHABLE_MISSION_DIRECTORY_NAME_PATTERN.test(entry.name);
-}
-function isMissingFileError(error) {
-    return typeof error === "object"
-        && error !== null
-        && "code" in error
-        && error.code === "ENOENT";
 }

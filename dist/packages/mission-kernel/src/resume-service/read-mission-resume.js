@@ -3,13 +3,15 @@ Object.defineProperty(exports, "__esModule", { value: true });
 exports.readMissionResume = readMissionResume;
 const promises_1 = require("node:fs/promises");
 const approval_request_1 = require("../../../contracts/src/approval/approval-request");
-const mission_1 = require("../../../contracts/src/mission/mission");
 const ticket_1 = require("../../../contracts/src/ticket/ticket");
-const file_event_log_1 = require("../../../journal/src/event-log/file-event-log");
+const event_log_errors_1 = require("../../../journal/src/event-log/event-log-errors");
+const mission_reconstruction_1 = require("../../../journal/src/reconstruction/mission-reconstruction");
 const resume_view_projection_1 = require("../../../journal/src/projections/resume-view-projection");
 const file_projection_store_1 = require("../../../storage/src/projection-store/file-projection-store");
 const workspace_layout_1 = require("../../../storage/src/fs-layout/workspace-layout");
+const file_system_read_errors_1 = require("../../../storage/src/fs-layout/file-system-read-errors");
 const file_mission_repository_1 = require("../../../storage/src/repositories/file-mission-repository");
+const persisted_document_errors_1 = require("../../../storage/src/repositories/persisted-document-errors");
 const read_ticket_board_1 = require("../../../ticket-runtime/src/planner/read-ticket-board");
 const read_approval_queue_1 = require("./read-approval-queue");
 const read_mission_artifacts_1 = require("./read-mission-artifacts");
@@ -21,8 +23,24 @@ async function readMissionResume(options) {
     const layout = (0, workspace_layout_1.resolveWorkspaceLayout)(options.rootDir);
     await ensureMissionWorkspaceInitialized(layout, options.commandName);
     const repository = (0, file_mission_repository_1.createFileMissionRepository)(layout);
-    const storedMission = await repository.findById(options.missionId);
-    if (!storedMission) {
+    const storedMission = await readStoredMissionSnapshot(repository, options.missionId);
+    let missionEvents;
+    try {
+        missionEvents = await (0, mission_reconstruction_1.readMissionEvents)(layout.journalPath, options.missionId);
+    }
+    catch (error) {
+        if ((0, event_log_errors_1.isEventLogReadError)(error)) {
+            throw error;
+        }
+        throw new Error(`Journal mission irreconciliable pour ${options.missionId}. Impossible de reconstruire la reprise.`);
+    }
+    const missionFromJournal = missionEvents.length > 0
+        ? (0, mission_reconstruction_1.reconstructMissionFromJournal)(missionEvents, options.missionId, {
+            errorContextNoun: "la reprise",
+        })
+        : null;
+    const baseMission = storedMission ?? missionFromJournal;
+    if (!baseMission) {
         throw new Error(`Mission introuvable: ${options.missionId}.`);
     }
     const ticketBoardResult = await (0, read_ticket_board_1.readTicketBoard)({
@@ -40,21 +58,23 @@ async function readMissionResume(options) {
         missionId: options.missionId,
         commandName: options.commandName,
     });
-    const missionEvents = await readMissionEvents(layout.journalPath, options.missionId);
     const lastMissionEvent = missionEvents.at(-1);
     if (!lastMissionEvent) {
         throw new Error(`Journal mission irreconciliable pour ${options.missionId}. Impossible de reconstruire la reprise.`);
     }
     const projectionPath = (0, file_projection_store_1.resolveProjectionPath)(layout.projectionsDir, "resume-view");
     const rawResumeView = await readStoredResumeView(layout.projectionsDir);
-    const shouldReconstruct = isMissionSnapshotSuspicious(storedMission, lastMissionEvent.eventId)
+    const shouldReconstruct = !storedMission
+        || isMissionSnapshotSuspicious(storedMission, lastMissionEvent.eventId)
         || approvalQueueResult.reconstructed
         || ticketBoardResult.reconstructed
         || artifactIndexResult.reconstructed
         || isResumeViewSuspicious(rawResumeView, options.missionId, lastMissionEvent.eventId);
     const mission = shouldReconstruct
-        ? reconstructMissionFromJournal(missionEvents, options.missionId)
-        : storedMission;
+        ? (0, mission_reconstruction_1.reconstructMissionFromJournal)(missionEvents, options.missionId, {
+            errorContextNoun: "la reprise",
+        })
+        : baseMission;
     const resume = buildMissionResume({
         mission,
         missionEvents,
@@ -90,33 +110,41 @@ async function readMissionResume(options) {
     };
 }
 async function ensureMissionWorkspaceInitialized(layout, commandName) {
-    try {
-        await (0, promises_1.access)(layout.journalPath);
-        await (0, promises_1.access)(layout.projectionsDir);
-        await (0, promises_1.access)(layout.missionsDir);
+    const journalError = await (0, file_system_read_errors_1.readAccessError)(() => (0, promises_1.access)(layout.journalPath));
+    const projectionsError = await (0, file_system_read_errors_1.readAccessError)(() => (0, promises_1.access)(layout.projectionsDir));
+    const missionsError = await (0, file_system_read_errors_1.readAccessError)(() => (0, promises_1.access)(layout.missionsDir));
+    const fileSystemError = [
+        { error: journalError, filePath: layout.journalPath, label: "journal append-only" },
+        { error: projectionsError, filePath: layout.projectionsDir, label: "repertoire projections" },
+        { error: missionsError, filePath: layout.missionsDir, label: "repertoire missions" },
+    ].find((entry) => entry.error && entry.error.code !== "ENOENT" && (0, file_system_read_errors_1.isFileSystemReadError)(entry.error));
+    if (fileSystemError?.error) {
+        if (fileSystemError.filePath === layout.journalPath) {
+            throw event_log_errors_1.EventLogReadError.fileSystem(layout.journalPath, fileSystemError.error);
+        }
+        throw (0, file_system_read_errors_1.createFileSystemReadError)(fileSystemError.error, fileSystemError.filePath, fileSystemError.label);
     }
-    catch {
+    if (journalError?.code === "ENOENT" && !projectionsError && !missionsError) {
+        throw event_log_errors_1.EventLogReadError.missing(layout.journalPath, journalError);
+    }
+    if (journalError || projectionsError || missionsError) {
         throw new Error(`Workspace mission non initialise. Lancez \`corp mission bootstrap --root ${layout.rootDir}\` avant \`corp mission ${commandName}\`.`);
     }
 }
-async function readMissionEvents(journalPath, missionId) {
-    try {
-        return (await (0, file_event_log_1.readEventLog)(journalPath)).filter((event) => event.missionId === missionId);
-    }
-    catch {
-        throw new Error(`Journal mission irreconciliable pour ${missionId}. Impossible de reconstruire la reprise.`);
-    }
-}
 async function readStoredResumeView(projectionsDir) {
+    const projectionPath = (0, file_projection_store_1.resolveProjectionPath)(projectionsDir, "resume-view");
     try {
         return JSON.parse(await (0, file_projection_store_1.readProjectionFile)(projectionsDir, "resume-view"));
     }
     catch (error) {
-        if (isMissingFileError(error)) {
+        if ((0, file_system_read_errors_1.isMissingFileError)(error)) {
             return null;
         }
         if (error instanceof SyntaxError) {
             return null;
+        }
+        if ((0, file_system_read_errors_1.isFileSystemReadError)(error)) {
+            throw (0, file_system_read_errors_1.createFileSystemReadError)(error, projectionPath, "projection resume-view");
         }
         throw error;
     }
@@ -158,18 +186,16 @@ function buildMissionResume(options) {
 function isMissionSnapshotSuspicious(mission, lastEventId) {
     return mission.resumeCursor !== lastEventId;
 }
-function reconstructMissionFromJournal(missionEvents, missionId) {
-    let reconstructedMission = null;
-    for (const event of missionEvents) {
-        const payloadMission = event.payload.mission;
-        if (isMission(payloadMission) && payloadMission.id === missionId) {
-            reconstructedMission = (0, mission_1.hydrateMission)(payloadMission);
+async function readStoredMissionSnapshot(repository, missionId) {
+    try {
+        return await repository.findById(missionId);
+    }
+    catch (error) {
+        if ((0, persisted_document_errors_1.isRecoverablePersistedDocumentError)(error)) {
+            return null;
         }
+        throw error;
     }
-    if (!reconstructedMission) {
-        throw new Error(`Journal mission irreconciliable pour ${missionId}. Impossible de reconstruire la reprise.`);
-    }
-    return reconstructedMission;
 }
 function filterMissionEntities(entities, missionId, isPendingStatus) {
     return entities.filter((entity) => {
@@ -239,27 +265,6 @@ function isMissionResumeBlockage(value) {
             || value.sourceEventId === null
             || typeof value.sourceEventId === "string");
 }
-function isMission(value) {
-    if (typeof value !== "object" || value === null) {
-        return false;
-    }
-    const candidate = value;
-    return typeof candidate.id === "string"
-        && typeof candidate.title === "string"
-        && typeof candidate.objective === "string"
-        && typeof candidate.status === "string"
-        && Array.isArray(candidate.successCriteria)
-        && candidate.successCriteria.every((criterion) => typeof criterion === "string")
-        && typeof candidate.policyProfileId === "string"
-        && (candidate.authorizedExtensions === undefined
-            || isAuthorizedExtensions(candidate.authorizedExtensions))
-        && Array.isArray(candidate.ticketIds)
-        && Array.isArray(candidate.artifactIds)
-        && Array.isArray(candidate.eventIds)
-        && typeof candidate.resumeCursor === "string"
-        && typeof candidate.createdAt === "string"
-        && typeof candidate.updatedAt === "string";
-}
 function isAuthorizedExtensions(value) {
     if (!isRecord(value)) {
         return false;
@@ -274,10 +279,4 @@ function isOptionalString(value) {
 }
 function isRecord(value) {
     return typeof value === "object" && value !== null;
-}
-function isMissingFileError(error) {
-    return typeof error === "object"
-        && error !== null
-        && "code" in error
-        && error.code === "ENOENT";
 }

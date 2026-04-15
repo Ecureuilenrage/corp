@@ -469,3 +469,255 @@ for (const invalidLine of ["\tepic-9: done", "   epic-9: done"]) {
     strict_1.default.equal(commitResult.exitCode, 1);
     strict_1.default.match(commitResult.output, /check-epic-closure|epic pret a clore mais desynchronise/i);
 });
+(0, node_test_1.default)("check-epic-closure lit le Status d'un story file a frontmatter YAML uniquement", async (t) => {
+    const rootDir = await (0, promises_1.mkdtemp)(node_path_1.default.join((0, node_os_1.tmpdir)(), "corp-epic-closure-frontmatter-"));
+    t.after(async () => {
+        await (0, promises_1.rm)(rootDir, { recursive: true, force: true });
+    });
+    await writeImplementationFixture(rootDir, {
+        entries: [
+            ["epic-9", "done"],
+            ["9-1-preparer-la-cloture", "done"],
+            ["epic-9-retrospective", "done"],
+        ],
+        stories: {
+            "9-1-preparer-la-cloture": {
+                contents: [
+                    "---",
+                    "Status: done",
+                    "---",
+                    "# Story 9-1-preparer-la-cloture",
+                    "",
+                    "## Story",
+                    "",
+                    "Fixture de test.",
+                    "",
+                ].join("\n"),
+            },
+        },
+    });
+    const result = await runCheck(rootDir);
+    strict_1.default.equal(result.exitCode, 0);
+    strict_1.default.match(result.output, /Verification cloture epic: ok/);
+});
+(0, node_test_1.default)("check-epic-closure ignore un Status encadre par un frontmatter YAML non ferme", async (t) => {
+    const rootDir = await (0, promises_1.mkdtemp)(node_path_1.default.join((0, node_os_1.tmpdir)(), "corp-epic-closure-unclosed-frontmatter-"));
+    t.after(async () => {
+        await (0, promises_1.rm)(rootDir, { recursive: true, force: true });
+    });
+    await writeImplementationFixture(rootDir, {
+        entries: [
+            ["epic-9", "done"],
+            ["9-1-preparer-la-cloture", "done"],
+            ["epic-9-retrospective", "done"],
+        ],
+        stories: {
+            "9-1-preparer-la-cloture": {
+                contents: [
+                    "---",
+                    "Status: done",
+                    // Volontairement pas de `---` de fermeture : extractStoryHeader doit
+                    // retourner "" et refuser de traiter le `Status: done` interne comme
+                    // autoritaire.
+                    "# Story 9-1-preparer-la-cloture",
+                    "",
+                    "## Story",
+                    "",
+                    "Fixture de test.",
+                    "",
+                ].join("\n"),
+            },
+        },
+    });
+    const result = await runCheck(rootDir);
+    strict_1.default.equal(result.exitCode, 1);
+    strict_1.default.match(result.output, /9-1-preparer-la-cloture/);
+    strict_1.default.match(result.output, /Status: \(absent\)/);
+});
+(0, node_test_1.default)("check-epic-closure ignore Status uniquement present dans une fence Markdown", async (t) => {
+    const rootDir = await (0, promises_1.mkdtemp)(node_path_1.default.join((0, node_os_1.tmpdir)(), "corp-epic-closure-fence-only-"));
+    t.after(async () => {
+        await (0, promises_1.rm)(rootDir, { recursive: true, force: true });
+    });
+    await writeImplementationFixture(rootDir, {
+        entries: [
+            ["epic-9", "done"],
+            ["9-1-preparer-la-cloture", "done"],
+            ["epic-9-retrospective", "done"],
+        ],
+        stories: {
+            "9-1-preparer-la-cloture": {
+                contents: [
+                    "# Story 9-1-preparer-la-cloture",
+                    "",
+                    "```yaml",
+                    "Status: review",
+                    "```",
+                    "",
+                    "## Story",
+                    "",
+                    "Fixture de test.",
+                    "",
+                ].join("\n"),
+            },
+        },
+    });
+    const result = await runCheck(rootDir);
+    strict_1.default.equal(result.exitCode, 1);
+    strict_1.default.match(result.output, /9-1-preparer-la-cloture/);
+    strict_1.default.match(result.output, /Status: \(absent\)/);
+});
+(0, node_test_1.default)("check-epic-closure ignore Status dans une fence Markdown indentee", async (t) => {
+    const rootDir = await (0, promises_1.mkdtemp)(node_path_1.default.join((0, node_os_1.tmpdir)(), "corp-epic-closure-indented-fence-"));
+    t.after(async () => {
+        await (0, promises_1.rm)(rootDir, { recursive: true, force: true });
+    });
+    await writeImplementationFixture(rootDir, {
+        entries: [
+            ["epic-9", "done"],
+            ["9-1-preparer-la-cloture", "done"],
+            ["epic-9-retrospective", "done"],
+        ],
+        stories: {
+            "9-1-preparer-la-cloture": {
+                contents: [
+                    "# Story 9-1-preparer-la-cloture",
+                    "",
+                    "   ```yaml",
+                    "Status: review",
+                    "   ```",
+                    "",
+                    "## Story",
+                    "",
+                    "Fixture de test.",
+                    "",
+                ].join("\n"),
+            },
+        },
+    });
+    const result = await runCheck(rootDir);
+    strict_1.default.equal(result.exitCode, 1);
+    strict_1.default.match(result.output, /9-1-preparer-la-cloture/);
+    strict_1.default.match(result.output, /Status: \(absent\)/);
+});
+(0, node_test_1.default)("check-epic-closure rejette un sprint-status.yaml avec deux sections development_status", async (t) => {
+    const rootDir = await (0, promises_1.mkdtemp)(node_path_1.default.join((0, node_os_1.tmpdir)(), "corp-epic-closure-duplicate-section-"));
+    t.after(async () => {
+        await (0, promises_1.rm)(rootDir, { recursive: true, force: true });
+    });
+    await writeImplementationFixture(rootDir, {
+        sprintStatusContents: [
+            'generated: "2026-04-14T00:00:00+02:00"',
+            'last_updated: "2026-04-14T00:00:00+02:00"',
+            'project: "corp"',
+            'project_key: "NOKEY"',
+            'tracking_system: "file-system"',
+            'story_location: "C:/tmp/_bmad-output/implementation"',
+            "",
+            "development_status:",
+            "  epic-9: done",
+            "  9-1-preparer-la-cloture: done",
+            "  epic-9-retrospective: done",
+            "",
+            "development_status: # duplicate generated block",
+            "  epic-8: done",
+            "",
+        ].join("\n"),
+        stories: {
+            "9-1-preparer-la-cloture": "done",
+        },
+    });
+    const result = await runCheck(rootDir);
+    strict_1.default.equal(result.exitCode, 1);
+    strict_1.default.match(result.output, /development_status: section dupliquee detectee \(lignes \d+ et \d+\)\./);
+});
+(0, node_test_1.default)("check-epic-closure tolere un BOM UTF-8 en tete du sprint-status.yaml", async (t) => {
+    const rootDir = await (0, promises_1.mkdtemp)(node_path_1.default.join((0, node_os_1.tmpdir)(), "corp-epic-closure-bom-"));
+    t.after(async () => {
+        await (0, promises_1.rm)(rootDir, { recursive: true, force: true });
+    });
+    const baseContents = buildSprintStatus([
+        ["epic-9", "done"],
+        ["9-1-preparer-la-cloture", "done"],
+        ["epic-9-retrospective", "done"],
+    ]);
+    await writeImplementationFixture(rootDir, {
+        sprintStatusContents: `\uFEFF${baseContents}`,
+        stories: {
+            "9-1-preparer-la-cloture": "done",
+        },
+    });
+    const result = await runCheck(rootDir);
+    strict_1.default.equal(result.exitCode, 0);
+    strict_1.default.match(result.output, /Verification cloture epic: ok/);
+});
+(0, node_test_1.default)("check-epic-closure refuse une option --root avec un chemin vide", async (t) => {
+    const rootDir = await (0, promises_1.mkdtemp)(node_path_1.default.join((0, node_os_1.tmpdir)(), "corp-epic-closure-empty-root-"));
+    t.after(async () => {
+        await (0, promises_1.rm)(rootDir, { recursive: true, force: true });
+    });
+    await writeImplementationFixture(rootDir, {
+        entries: [
+            ["epic-9", "done"],
+            ["9-1-preparer-la-cloture", "done"],
+            ["epic-9-retrospective", "done"],
+        ],
+        stories: {
+            "9-1-preparer-la-cloture": "done",
+        },
+    });
+    const result = await runCheck(rootDir, ["--root", ""]);
+    strict_1.default.equal(result.exitCode, 1);
+    strict_1.default.match(result.output, /L'option --root requiert un chemin\./);
+});
+(0, node_test_1.default)("check-epic-closure alerte quand un epic in-progress n'a aucune story associee", async (t) => {
+    const rootDir = await (0, promises_1.mkdtemp)(node_path_1.default.join((0, node_os_1.tmpdir)(), "corp-epic-closure-inprogress-no-story-"));
+    t.after(async () => {
+        await (0, promises_1.rm)(rootDir, { recursive: true, force: true });
+    });
+    await writeImplementationFixture(rootDir, {
+        entries: [
+            ["epic-9", "in-progress"],
+            ["epic-9-retrospective", "required"],
+        ],
+        stories: {},
+    });
+    const result = await runCheck(rootDir);
+    strict_1.default.equal(result.exitCode, 0);
+    strict_1.default.match(result.output, /epic-9: aucune story associee dans development_status alors que l'epic est in-progress\./);
+});
+(0, node_test_1.default)("check-epic-closure unwrappe un scalaire double-quote avec backslash echappe suivi de guillemet echappe", async (t) => {
+    const rootDir = await (0, promises_1.mkdtemp)(node_path_1.default.join((0, node_os_1.tmpdir)(), "corp-epic-closure-escaped-quote-"));
+    t.after(async () => {
+        await (0, promises_1.rm)(rootDir, { recursive: true, force: true });
+    });
+    await writeImplementationFixture(rootDir, {
+        sprintStatusContents: [
+            'generated: "2026-04-14T00:00:00+02:00"',
+            'last_updated: "2026-04-14T00:00:00+02:00"',
+            'project: "corp"',
+            'project_key: "NOKEY"',
+            'tracking_system: "file-system"',
+            'story_location: "C:/tmp/_bmad-output/implementation"',
+            "",
+            "development_status:",
+            "  epic-9: done",
+            "  9-1-preparer-la-cloture: \"foo\\\\\\\"\"",
+            "  epic-9-retrospective: done",
+            "",
+        ].join("\n"),
+        stories: {
+            "9-1-preparer-la-cloture": "done",
+        },
+    });
+    const result = await runCheck(rootDir);
+    strict_1.default.equal(result.exitCode, 1);
+    strict_1.default.match(result.output, /9-1-preparer-la-cloture/);
+    strict_1.default.match(result.output, /foo\\"/);
+});
+(0, node_test_1.default)(".gitattributes force LF pour les hooks et scripts shell", async () => {
+    const contents = await (0, promises_1.readFile)(node_path_1.default.join(process.cwd(), ".gitattributes"), "utf8");
+    strict_1.default.doesNotMatch(contents, /^\* text=auto$/m);
+    strict_1.default.match(contents, /^\.githooks\/\*\* text eol=lf$/m);
+    strict_1.default.match(contents, /^scripts\/\*\*\.sh text eol=lf$/m);
+});

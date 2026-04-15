@@ -11,13 +11,17 @@ exports.readPayloadPreview = readPayloadPreview;
 const promises_1 = require("node:fs/promises");
 const node_path_1 = __importDefault(require("node:path"));
 const node_string_decoder_1 = require("node:string_decoder");
+const event_log_errors_1 = require("../../../journal/src/event-log/event-log-errors");
 const file_event_log_1 = require("../../../journal/src/event-log/file-event-log");
+const mission_reconstruction_1 = require("../../../journal/src/reconstruction/mission-reconstruction");
 const artifact_index_projection_1 = require("../../../journal/src/projections/artifact-index-projection");
 const file_projection_store_1 = require("../../../storage/src/projection-store/file-projection-store");
 const workspace_layout_1 = require("../../../storage/src/fs-layout/workspace-layout");
+const file_system_read_errors_1 = require("../../../storage/src/fs-layout/file-system-read-errors");
 const file_artifact_repository_1 = require("../../../storage/src/repositories/file-artifact-repository");
 const file_mission_repository_1 = require("../../../storage/src/repositories/file-mission-repository");
 const file_ticket_repository_1 = require("../../../storage/src/repositories/file-ticket-repository");
+const persisted_document_errors_1 = require("../../../storage/src/repositories/persisted-document-errors");
 const structural_compare_1 = require("../../../ticket-runtime/src/utils/structural-compare");
 exports.MAX_PREVIEW_BYTES = 1024;
 async function readMissionArtifacts(options) {
@@ -27,16 +31,13 @@ async function readMissionArtifacts(options) {
         const missionRepository = (0, file_mission_repository_1.createFileMissionRepository)(layout);
         const ticketRepository = (0, file_ticket_repository_1.createFileTicketRepository)(layout);
         const artifactRepository = (0, file_artifact_repository_1.createFileArtifactRepository)(layout);
-        const mission = await missionRepository.findById(options.missionId);
-        if (!mission) {
-            throw new Error(`Mission introuvable: ${options.missionId}.`);
-        }
-        const tickets = await ticketRepository.listByMissionId(mission.id);
-        const artifacts = await artifactRepository.listByMissionId(mission.id);
+        const missionSnapshot = await readMissionSnapshotForArtifacts(layout, missionRepository, options.missionId);
         const events = (await (0, file_event_log_1.readEventLog)(layout.journalPath))
-            .filter((event) => event.missionId === mission.id);
+            .filter((event) => event.missionId === missionSnapshot.id);
+        const tickets = await readTicketsForArtifacts(ticketRepository, missionSnapshot.id, events);
+        const artifacts = await readStoredArtifactsForArtifacts(artifactRepository, missionSnapshot.id);
         const rebuiltProjection = (0, artifact_index_projection_1.createArtifactIndexProjection)({
-            mission,
+            mission: missionSnapshot,
             tickets,
             artifacts,
             events,
@@ -46,14 +47,14 @@ async function readMissionArtifacts(options) {
         if (!storedProjection || !isArtifactProjectionUpToDate(storedProjection, rebuiltProjection)) {
             await (0, file_projection_store_1.writeProjectionSnapshot)(layout.projectionsDir, "artifact-index", rebuiltProjection);
             return {
-                mission,
+                mission: missionSnapshot,
                 artifacts: rebuiltProjection.artifacts,
                 reconstructed: true,
                 projectionPath,
             };
         }
         return {
-            mission,
+            mission: missionSnapshot,
             artifacts: storedProjection.artifacts,
             reconstructed: false,
             projectionPath,
@@ -62,6 +63,12 @@ async function readMissionArtifacts(options) {
     catch (error) {
         if (error instanceof Error && error.message.startsWith("Mission introuvable:")) {
             throw error;
+        }
+        if (isClassifiedReadError(error)) {
+            throw error;
+        }
+        if ((0, file_system_read_errors_1.isFileSystemReadError)(error)) {
+            throw (0, file_system_read_errors_1.createFileSystemReadError)(error, layout.journalPath, "lecture artefacts mission");
         }
         throw new Error(formatArtifactReadError(options.missionId, options.commandName));
     }
@@ -105,22 +112,38 @@ async function readMissionArtifactDetail(options) {
     };
 }
 async function ensureArtifactWorkspaceInitialized(layout, commandName) {
-    try {
-        await (0, promises_1.access)(layout.journalPath);
-        await (0, promises_1.access)(layout.projectionsDir);
-        await (0, promises_1.access)(layout.missionsDir);
+    const journalError = await (0, file_system_read_errors_1.readAccessError)(() => (0, promises_1.access)(layout.journalPath));
+    const projectionsError = await (0, file_system_read_errors_1.readAccessError)(() => (0, promises_1.access)(layout.projectionsDir));
+    const missionsError = await (0, file_system_read_errors_1.readAccessError)(() => (0, promises_1.access)(layout.missionsDir));
+    const fileSystemError = [
+        { error: journalError, filePath: layout.journalPath, label: "journal append-only" },
+        { error: projectionsError, filePath: layout.projectionsDir, label: "repertoire projections" },
+        { error: missionsError, filePath: layout.missionsDir, label: "repertoire missions" },
+    ].find((entry) => entry.error && entry.error.code !== "ENOENT" && (0, file_system_read_errors_1.isFileSystemReadError)(entry.error));
+    if (fileSystemError?.error) {
+        if (fileSystemError.filePath === layout.journalPath) {
+            throw event_log_errors_1.EventLogReadError.fileSystem(layout.journalPath, fileSystemError.error);
+        }
+        throw (0, file_system_read_errors_1.createFileSystemReadError)(fileSystemError.error, fileSystemError.filePath, fileSystemError.label);
     }
-    catch {
+    if (journalError?.code === "ENOENT" && !projectionsError && !missionsError) {
+        throw event_log_errors_1.EventLogReadError.missing(layout.journalPath, journalError);
+    }
+    if (journalError || projectionsError || missionsError) {
         throw new Error(`Workspace mission non initialise. Lancez \`corp mission bootstrap --root ${layout.rootDir}\` avant \`corp mission ${commandName}\`.`);
     }
 }
 async function readStoredArtifactIndex(projectionsDir) {
+    const projectionPath = (0, file_projection_store_1.resolveProjectionPath)(projectionsDir, "artifact-index");
     try {
         return JSON.parse(await (0, file_projection_store_1.readProjectionFile)(projectionsDir, "artifact-index"));
     }
     catch (error) {
-        if (isMissingFileError(error) || error instanceof SyntaxError) {
+        if ((0, file_system_read_errors_1.isMissingFileError)(error) || error instanceof SyntaxError) {
             return null;
+        }
+        if ((0, file_system_read_errors_1.isFileSystemReadError)(error)) {
+            throw (0, file_system_read_errors_1.createFileSystemReadError)(error, projectionPath, "projection artifact-index");
         }
         throw error;
     }
@@ -133,6 +156,42 @@ function formatArtifactReadError(missionId, commandName) {
         return `Projection artifact-index irreconciliable pour ${missionId}. Impossible d'afficher les artefacts.`;
     }
     return `Projection artifact-index irreconciliable pour ${missionId}. Impossible d'afficher la mission.`;
+}
+async function readMissionSnapshotForArtifacts(layout, missionRepository, missionId) {
+    try {
+        const mission = await missionRepository.findById(missionId);
+        if (mission) {
+            return mission;
+        }
+    }
+    catch (error) {
+        if (!(0, persisted_document_errors_1.isRecoverablePersistedDocumentError)(error)) {
+            throw error;
+        }
+    }
+    return (0, mission_reconstruction_1.readMissionSnapshotFromJournalOrThrow)(layout.journalPath, missionId);
+}
+async function readTicketsForArtifacts(ticketRepository, missionId, events) {
+    try {
+        return await ticketRepository.listByMissionId(missionId);
+    }
+    catch (error) {
+        if (!(0, persisted_document_errors_1.isRecoverablePersistedDocumentError)(error)) {
+            throw error;
+        }
+        return (0, mission_reconstruction_1.reconstructTicketsFromJournal)(events, missionId);
+    }
+}
+async function readStoredArtifactsForArtifacts(artifactRepository, missionId) {
+    try {
+        return await artifactRepository.listByMissionId(missionId);
+    }
+    catch (error) {
+        if (!(0, persisted_document_errors_1.isRecoverablePersistedDocumentError)(error)) {
+            throw error;
+        }
+        return [];
+    }
 }
 async function readPayloadPreview(rootDir, payloadPath, mediaType, dependencies = {}) {
     try {
@@ -167,9 +226,6 @@ async function readUtf8PreviewContents(filePath, dependencies) {
         await fileHandle.close();
     }
 }
-function isMissingFileError(error) {
-    return typeof error === "object"
-        && error !== null
-        && "code" in error
-        && error.code === "ENOENT";
+function isClassifiedReadError(error) {
+    return (0, event_log_errors_1.isEventLogReadError)(error) || (0, persisted_document_errors_1.isPersistedDocumentReadError)(error);
 }

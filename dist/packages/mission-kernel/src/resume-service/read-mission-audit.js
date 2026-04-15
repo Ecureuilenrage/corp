@@ -3,14 +3,18 @@ Object.defineProperty(exports, "__esModule", { value: true });
 exports.readMissionAudit = readMissionAudit;
 exports.readMissionAuditEventDetail = readMissionAuditEventDetail;
 const promises_1 = require("node:fs/promises");
+const event_log_errors_1 = require("../../../journal/src/event-log/event-log-errors");
 const file_event_log_1 = require("../../../journal/src/event-log/file-event-log");
+const mission_reconstruction_1 = require("../../../journal/src/reconstruction/mission-reconstruction");
 const audit_log_projection_1 = require("../../../journal/src/projections/audit-log-projection");
 const artifact_index_projection_1 = require("../../../journal/src/projections/artifact-index-projection");
 const file_projection_store_1 = require("../../../storage/src/projection-store/file-projection-store");
 const workspace_layout_1 = require("../../../storage/src/fs-layout/workspace-layout");
+const file_system_read_errors_1 = require("../../../storage/src/fs-layout/file-system-read-errors");
 const file_artifact_repository_1 = require("../../../storage/src/repositories/file-artifact-repository");
 const file_mission_repository_1 = require("../../../storage/src/repositories/file-mission-repository");
 const file_ticket_repository_1 = require("../../../storage/src/repositories/file-ticket-repository");
+const persisted_document_errors_1 = require("../../../storage/src/repositories/persisted-document-errors");
 const structural_compare_1 = require("../../../ticket-runtime/src/utils/structural-compare");
 async function readMissionAudit(options) {
     const context = await loadMissionAuditContext({
@@ -59,14 +63,11 @@ async function loadMissionAuditContext(options) {
     const missionRepository = (0, file_mission_repository_1.createFileMissionRepository)(layout);
     const ticketRepository = (0, file_ticket_repository_1.createFileTicketRepository)(layout);
     const artifactRepository = (0, file_artifact_repository_1.createFileArtifactRepository)(layout);
-    const mission = await missionRepository.findById(options.missionId);
-    if (!mission) {
-        throw new Error(`Mission introuvable: ${options.missionId}.`);
-    }
-    const tickets = await ticketRepository.listByMissionId(mission.id);
-    const artifacts = await artifactRepository.listByMissionId(mission.id);
+    const mission = await readMissionSnapshotForAudit(layout, missionRepository, options.missionId);
     const events = (await (0, file_event_log_1.readEventLog)(layout.journalPath))
         .filter((event) => event.missionId === mission.id);
+    const tickets = await readTicketsForAudit(ticketRepository, mission.id, events);
+    const artifacts = await readArtifactsForAudit(artifactRepository, mission.id);
     const rebuiltProjection = (0, audit_log_projection_1.createAuditLogProjection)({
         mission,
         tickets,
@@ -94,22 +95,38 @@ async function loadMissionAuditContext(options) {
     };
 }
 async function ensureMissionAuditWorkspaceInitialized(layout, commandName) {
-    try {
-        await (0, promises_1.access)(layout.journalPath);
-        await (0, promises_1.access)(layout.projectionsDir);
-        await (0, promises_1.access)(layout.missionsDir);
+    const journalError = await (0, file_system_read_errors_1.readAccessError)(() => (0, promises_1.access)(layout.journalPath));
+    const projectionsError = await (0, file_system_read_errors_1.readAccessError)(() => (0, promises_1.access)(layout.projectionsDir));
+    const missionsError = await (0, file_system_read_errors_1.readAccessError)(() => (0, promises_1.access)(layout.missionsDir));
+    const fileSystemError = [
+        { error: journalError, filePath: layout.journalPath, label: "journal append-only" },
+        { error: projectionsError, filePath: layout.projectionsDir, label: "repertoire projections" },
+        { error: missionsError, filePath: layout.missionsDir, label: "repertoire missions" },
+    ].find((entry) => entry.error && entry.error.code !== "ENOENT" && (0, file_system_read_errors_1.isFileSystemReadError)(entry.error));
+    if (fileSystemError?.error) {
+        if (fileSystemError.filePath === layout.journalPath) {
+            throw event_log_errors_1.EventLogReadError.fileSystem(layout.journalPath, fileSystemError.error);
+        }
+        throw (0, file_system_read_errors_1.createFileSystemReadError)(fileSystemError.error, fileSystemError.filePath, fileSystemError.label);
     }
-    catch {
+    if (journalError?.code === "ENOENT" && !projectionsError && !missionsError) {
+        throw event_log_errors_1.EventLogReadError.missing(layout.journalPath, journalError);
+    }
+    if (journalError || projectionsError || missionsError) {
         throw new Error(`Workspace mission non initialise. Lancez \`corp mission bootstrap --root ${layout.rootDir}\` avant \`corp mission ${commandName}\`.`);
     }
 }
 async function readStoredAuditLog(projectionsDir) {
+    const projectionPath = (0, file_projection_store_1.resolveProjectionPath)(projectionsDir, "audit-log");
     try {
         return JSON.parse(await (0, file_projection_store_1.readProjectionFile)(projectionsDir, "audit-log"));
     }
     catch (error) {
-        if (isMissingFileError(error) || error instanceof SyntaxError) {
+        if ((0, file_system_read_errors_1.isMissingFileError)(error) || error instanceof SyntaxError) {
             return null;
+        }
+        if ((0, file_system_read_errors_1.isFileSystemReadError)(error)) {
+            throw (0, file_system_read_errors_1.createFileSystemReadError)(error, projectionPath, "projection audit-log");
         }
         throw error;
     }
@@ -335,6 +352,42 @@ function buildMissionAuditDetailFields(event) {
     }
     return fields;
 }
+async function readMissionSnapshotForAudit(layout, missionRepository, missionId) {
+    try {
+        const mission = await missionRepository.findById(missionId);
+        if (mission) {
+            return mission;
+        }
+    }
+    catch (error) {
+        if (!(0, persisted_document_errors_1.isRecoverablePersistedDocumentError)(error)) {
+            throw error;
+        }
+    }
+    return (0, mission_reconstruction_1.readMissionSnapshotFromJournalOrThrow)(layout.journalPath, missionId);
+}
+async function readTicketsForAudit(ticketRepository, missionId, events) {
+    try {
+        return await ticketRepository.listByMissionId(missionId);
+    }
+    catch (error) {
+        if (!(0, persisted_document_errors_1.isRecoverablePersistedDocumentError)(error)) {
+            throw error;
+        }
+        return (0, mission_reconstruction_1.reconstructTicketsFromJournal)(events, missionId);
+    }
+}
+async function readArtifactsForAudit(artifactRepository, missionId) {
+    try {
+        return await artifactRepository.listByMissionId(missionId);
+    }
+    catch (error) {
+        if (!(0, persisted_document_errors_1.isRecoverablePersistedDocumentError)(error)) {
+            throw error;
+        }
+        return [];
+    }
+}
 function readApprovalFromPayload(payload) {
     const candidate = payload.approval ?? payload.approvalRequest;
     return isApprovalRequest(candidate) ? candidate : null;
@@ -527,10 +580,4 @@ function isSkillPackUsageDetails(value) {
         && Array.isArray(candidate.constraints)
         && typeof candidate.owner === "string"
         && Array.isArray(candidate.tags);
-}
-function isMissingFileError(error) {
-    return typeof error === "object"
-        && error !== null
-        && "code" in error
-        && error.code === "ENOENT";
 }

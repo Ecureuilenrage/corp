@@ -10,6 +10,7 @@ exports.readProjectionSnapshot = readProjectionSnapshot;
 exports.writeProjectionSnapshot = writeProjectionSnapshot;
 const promises_1 = require("node:fs/promises");
 const node_path_1 = __importDefault(require("node:path"));
+const atomic_json_1 = require("../fs-layout/atomic-json");
 async function seedProjectionStore(projectionsDir, projections) {
     const createdPaths = [];
     for (const [projectionName, snapshot] of Object.entries(projections)) {
@@ -33,16 +34,18 @@ async function readProjectionSnapshot(projectionsDir, projectionName) {
 }
 async function writeProjectionSnapshot(projectionsDir, projectionName, snapshot) {
     const projectionPath = resolveProjectionPath(projectionsDir, projectionName);
-    await (0, promises_1.writeFile)(projectionPath, `${JSON.stringify(snapshot, null, 2)}\n`, "utf8");
+    await (0, atomic_json_1.writeJsonAtomic)(projectionPath, snapshot);
     return projectionPath;
 }
 async function writeFileIfMissing(filePath, contents) {
     try {
-        await (0, promises_1.access)(filePath);
-        return false;
-    }
-    catch {
-        await (0, promises_1.writeFile)(filePath, contents, "utf8");
+        await (0, promises_1.writeFile)(filePath, contents, { encoding: "utf8", flag: "wx" });
         return true;
+    }
+    catch (error) {
+        if ((0, atomic_json_1.isAlreadyExistsError)(error)) {
+            return false;
+        }
+        throw error;
     }
 }

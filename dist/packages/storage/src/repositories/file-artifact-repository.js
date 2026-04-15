@@ -7,7 +7,11 @@ exports.FileArtifactRepository = void 0;
 exports.createFileArtifactRepository = createFileArtifactRepository;
 const promises_1 = require("node:fs/promises");
 const node_path_1 = __importDefault(require("node:path"));
+const persisted_document_guards_1 = require("../../../contracts/src/guards/persisted-document-guards");
+const atomic_json_1 = require("../fs-layout/atomic-json");
+const file_system_read_errors_1 = require("../fs-layout/file-system-read-errors");
 const workspace_layout_1 = require("../fs-layout/workspace-layout");
+const persisted_document_errors_1 = require("./persisted-document-errors");
 class FileArtifactRepository {
     layout;
     constructor(layout) {
@@ -16,7 +20,7 @@ class FileArtifactRepository {
     async save(artifact) {
         const artifactStoragePaths = (0, workspace_layout_1.resolveArtifactStoragePaths)(this.layout, artifact.missionId, artifact.ticketId, artifact.id);
         await (0, promises_1.mkdir)(artifactStoragePaths.artifactDir, { recursive: true });
-        await (0, promises_1.writeFile)(artifactStoragePaths.artifactPath, `${JSON.stringify(artifact, null, 2)}\n`, "utf8");
+        await (0, atomic_json_1.writeJsonAtomic)(artifactStoragePaths.artifactPath, artifact);
         return artifactStoragePaths;
     }
     async findById(missionId, artifactId) {
@@ -54,12 +58,18 @@ class FileArtifactRepository {
     }
     async readArtifactSnapshot(missionId, ticketId, artifactId) {
         const artifactStoragePaths = (0, workspace_layout_1.resolveArtifactStoragePaths)(this.layout, missionId, ticketId, artifactId);
+        const context = {
+            filePath: artifactStoragePaths.artifactPath,
+            entityLabel: "Artifact",
+            documentId: artifactId,
+        };
         try {
-            const storedArtifact = await (0, promises_1.readFile)(artifactStoragePaths.artifactPath, "utf8");
-            return JSON.parse(storedArtifact);
+            const storedArtifact = await (0, persisted_document_errors_1.readPersistedJsonDocument)(context);
+            (0, persisted_document_errors_1.assertValidPersistedDocument)(storedArtifact, persisted_document_guards_1.validateArtifact, context);
+            return storedArtifact;
         }
         catch (error) {
-            if (isMissingFileError(error)) {
+            if ((0, file_system_read_errors_1.isMissingFileError)(error)) {
                 return null;
             }
             throw error;
@@ -75,15 +85,9 @@ async function readDirectoryEntries(directoryPath) {
         return await (0, promises_1.readdir)(directoryPath, { withFileTypes: true, encoding: "utf8" });
     }
     catch (error) {
-        if (isMissingFileError(error)) {
+        if ((0, file_system_read_errors_1.isMissingFileError)(error)) {
             return [];
         }
         throw error;
     }
-}
-function isMissingFileError(error) {
-    return typeof error === "object"
-        && error !== null
-        && "code" in error
-        && error.code === "ENOENT";
 }
