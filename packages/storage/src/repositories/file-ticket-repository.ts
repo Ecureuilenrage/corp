@@ -2,7 +2,12 @@ import type { Dirent } from "node:fs";
 import { mkdir, readdir } from "node:fs/promises";
 import path from "node:path";
 
-import { validateMission, validateTicket } from "../../../contracts/src/guards/persisted-document-guards";
+import {
+  attachStructuralValidationWarnings,
+  validateMission,
+  validateTicket,
+  type StructuralValidationWarning,
+} from "../../../contracts/src/guards/persisted-document-guards";
 import { hydrateMission, type Mission } from "../../../contracts/src/mission/mission";
 import type { Ticket } from "../../../contracts/src/ticket/ticket";
 import { writeJsonAtomic } from "../fs-layout/atomic-json";
@@ -53,8 +58,13 @@ export class FileTicketRepository {
 
     try {
       const storedTicket = await readPersistedJsonDocument(context);
-      assertValidPersistedDocument<Ticket>(storedTicket, validateTicket, context);
-      return storedTicket;
+      const warnings: StructuralValidationWarning[] = [];
+      assertValidPersistedDocument<Ticket>(
+        storedTicket,
+        (value) => validateTicket(value, { strict: false, warnings }),
+        context,
+      );
+      return attachStructuralValidationWarnings(storedTicket, warnings);
     } catch (error) {
       if (isMissingFileError(error)) {
         return null;
@@ -122,8 +132,13 @@ export class FileTicketRepository {
 
     try {
       const storedMission = await readPersistedJsonDocument(context);
-      assertValidPersistedDocument<Mission>(storedMission, validateMission, context);
-      return hydrateMission(storedMission);
+      const warnings: StructuralValidationWarning[] = [];
+      assertValidPersistedDocument<Mission>(
+        storedMission,
+        (value) => validateMission(value, { strict: false, warnings }),
+        context,
+      );
+      return attachStructuralValidationWarnings(hydrateMission(storedMission), warnings);
     } catch (error) {
       if (isMissingFileError(error)) {
         return null;

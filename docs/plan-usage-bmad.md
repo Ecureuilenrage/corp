@@ -678,3 +678,34 @@ A la fin:
 4. si quelque chose bloque, documente precisement le blocage et n'invente pas un statut de completion
 
 
+---
+
+pour 5-2-1 
+
+
+Recommandation: refaire un create-story check, mais ciblé — pas une ré-écriture        
+  complète.
+                                                                                           Raisons concrètes:
+                                                                                         
+  1. 5.2.1 est dense et couplée — 13 AC interdépendants (canonicalize ↔ findById sous
+  lock ↔ AC5 tolérance status) touchant file-mission-repository,
+  persisted-document-guards, mission-reconstruction. Un SM/PM pass détecte les ordres    
+  d'implémentation invalides et les AC qui se contredisent mutuellement (ex. AC5
+  "tolérance status" vs AC4 "rejet mauvais type").
+  2. Angles morts d'auto-rédaction — je viens de triager ET rédiger ces stories à partir 
+  de mon propre triage. Pas d'indépendance: si j'ai mal classifié un finding en decision,
+   la story hérite du biais. Un autre passage (autre LLM de préférence, ou
+  bmad-check-implementation-readiness) casse cette boucle.
+  3. 5.2.2 est un cleanup plat — 20 AC largement indépendants, effort unitaire faible. Un
+   dev (humain ou LLM) peut l'attaquer directement sans re-spec. Skip le check.
+
+  Décision pragmatique:
+  - 5.2.1 → bmad-check-implementation-readiness avec un autre LLM (GPT-5 Codex
+  idéalement, comme pour le dev de 5.2). Budget: ~15 min. ROI élevé étant donné le       
+  couplage.
+  - 5.2.2 → implémenter directement. Si le dev bute sur un AC ambigu, un correct-course  
+  ciblé suffit.
+
+  Pour l'implémentation: même LLM que 5.2 (GPT-5 Codex) reste cohérent — il a le contexte
+   vivant de la taxonomie d'erreurs. Claude Code (moi) en implémentation introduirait un 
+  deuxième style de code dans la même surface récemment touchée, ce qui n'aide personne. 

@@ -394,6 +394,55 @@ test("mission extension select rejette les built-ins et les refs non enregistree
   );
 });
 
+test("mission extension select et ticket create restent coherents quand les refs varient seulement par la casse", async (t) => {
+  const rootDir = await mkdtemp(path.join(tmpdir(), "corp-mission-extension-casefold-"));
+
+  t.after(async () => {
+    await rm(rootDir, { recursive: true, force: true });
+  });
+
+  await bootstrapWorkspace(rootDir);
+  await registerCapability(rootDir);
+  await registerSkillPack(rootDir);
+
+  const mission = await createMission(rootDir);
+  const selectResult = await selectMissionExtensions(rootDir, mission.id, [
+    "--allow-capability",
+    "Shell.Exec",
+    "--skill-pack",
+    "Pack.Triage.Local",
+  ]);
+
+  assert.equal(selectResult.exitCode, 0);
+
+  const missionAfterSelection = await readMission(rootDir, mission.id);
+  assert.deepEqual(missionAfterSelection.authorizedExtensions, {
+    allowedCapabilities: ["shell.exec"],
+    skillPackRefs: ["pack.triage.local"],
+  });
+
+  const createResult = await createTicket(rootDir, mission.id, [
+    "--allow-capability",
+    "FS.READ",
+    "--allow-capability",
+    "CLI.RUN",
+    "--allow-capability",
+    "Shell.Exec",
+    "--skill-pack",
+    "Pack.Triage.Local",
+  ]);
+
+  assert.equal(createResult.exitCode, 0);
+
+  const ticketId = String(
+    createResult.lines.find((line) => line.startsWith("Ticket cree: "))?.slice("Ticket cree: ".length),
+  );
+  const ticket = await readTicket(rootDir, mission.id, ticketId);
+
+  assert.deepEqual(ticket.allowedCapabilities, ["fs.read", "cli.run", "shell.exec"]);
+  assert.deepEqual(ticket.skillPackRefs, ["pack.triage.local"]);
+});
+
 test("mission extension select rejette les missions terminales de maniere deterministe", async (t) => {
   const rootDir = await mkdtemp(path.join(tmpdir(), "corp-mission-extension-terminal-"));
 
@@ -731,4 +780,3 @@ test("two-concurrent-extension-select-produces-no-intermediate-projection", asyn
     );
   }
 });
-

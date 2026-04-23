@@ -5,6 +5,10 @@ export const FILE_SYSTEM_READ_ERROR_CODES = new Set([
   "EIO",
   "EMFILE",
   "ENOSPC",
+  "EBUSY",
+  "ETIMEDOUT",
+  "EROFS",
+  "EISDIR",
 ]);
 
 export interface ClassifiedFileSystemError extends Error {

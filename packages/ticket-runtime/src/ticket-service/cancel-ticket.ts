@@ -15,8 +15,8 @@ import { resolveWorkspaceLayout } from "../../../storage/src/fs-layout/workspace
 import { createFileMissionRepository } from "../../../storage/src/repositories/file-mission-repository";
 import { createFileTicketRepository } from "../../../storage/src/repositories/file-ticket-repository";
 import { createFileExecutionAttemptRepository } from "../../../storage/src/repositories/file-execution-attempt-repository";
+import { ensureMissionWorkspaceInitialized } from "../../../mission-kernel/src/mission-service/ensure-mission-workspace";
 import {
-  ensureMissionWorkspaceInitialized,
   requireText,
   requireTicketInMission,
   rewriteMissionReadModels,
@@ -42,7 +42,10 @@ export async function cancelTicket(
   options: CancelTicketOptions,
 ): Promise<CancelTicketResult> {
   const layout = resolveWorkspaceLayout(options.rootDir);
-  await ensureMissionWorkspaceInitialized(layout, "ticket cancel");
+  await ensureMissionWorkspaceInitialized(layout, {
+    commandLabel: "ticket cancel",
+    cleanupLocks: true,
+  });
 
   const missionId = requireText(
     options.missionId,

@@ -1,5 +1,3 @@
-import { access } from "node:fs/promises";
-
 import type { Mission } from "../../../contracts/src/mission/mission";
 import {
   TERMINAL_TICKET_STATUSES,
@@ -26,7 +24,6 @@ import { buildResumeViewProjection } from "../../../journal/src/projections/resu
 import {
   readProjectionFile,
   readProjectionSnapshot,
-  resolveProjectionPath,
   writeProjectionSnapshot,
 } from "../../../storage/src/projection-store/file-projection-store";
 import type { WorkspaceLayout } from "../../../storage/src/fs-layout/workspace-layout";
@@ -36,6 +33,9 @@ import { createFileArtifactRepository } from "../../../storage/src/repositories/
 import type { FileTicketRepository } from "../../../storage/src/repositories/file-ticket-repository";
 import { buildTicketBoardProjection } from "../planner/build-ticket-board";
 import { deepStrictEqualForComparison } from "../utils/structural-compare";
+
+export { normalizeOpaqueReferences } from "../../../contracts/src/extension/extension-registration";
+import { normalizeOpaqueReferenceKey } from "../../../contracts/src/extension/extension-registration";
 
 export interface RewriteMissionReadModelsOptions {
   skipArtifactIndex?: boolean;
@@ -49,27 +49,6 @@ export const BUILT_IN_ALLOWED_CAPABILITIES = new Set<string>([
 const CLOSED_OPEN_TICKET_STATUSES = new Set<string>([
   ...TERMINAL_TICKET_STATUSES,
 ]);
-
-export async function ensureMissionWorkspaceInitialized(
-  layout: WorkspaceLayout,
-  commandName: string,
-): Promise<void> {
-  try {
-    await access(layout.journalPath);
-
-    for (const projectionName of Object.keys(DEFAULT_PROJECTIONS)) {
-      if (projectionName === "resume-view") {
-        continue;
-      }
-
-      await access(resolveProjectionPath(layout.projectionsDir, projectionName));
-    }
-  } catch {
-    throw new Error(
-      `Workspace mission non initialise. Lancez \`corp mission bootstrap --root ${layout.rootDir}\` avant \`corp mission ${commandName}\`.`,
-    );
-  }
-}
 
 export function requireText(value: string | undefined, errorMessage: string): string {
   const normalizedValue = value?.trim();
@@ -125,12 +104,10 @@ export function normalizeTrimmedList(
   return normalizedValues;
 }
 
-export function normalizeOpaqueReferences(values: string[]): string[] {
-  return normalizeTrimmedList(values, { dedupe: true });
-}
-
 export function isBuiltInAllowedCapability(capabilityId: string): boolean {
-  return BUILT_IN_ALLOWED_CAPABILITIES.has(capabilityId);
+  return BUILT_IN_ALLOWED_CAPABILITIES.has(
+    normalizeOpaqueReferenceKey(capabilityId),
+  );
 }
 
 export function ensureTicketExtensionsAllowedByMission(options: {
@@ -139,10 +116,10 @@ export function ensureTicketExtensionsAllowedByMission(options: {
   skillPackRefs: string[];
 }): void {
   const allowedCapabilities = new Set(
-    options.mission.authorizedExtensions.allowedCapabilities,
+    options.mission.authorizedExtensions.allowedCapabilities.map(normalizeOpaqueReferenceKey),
   );
   const skillPackRefs = new Set(
-    options.mission.authorizedExtensions.skillPackRefs,
+    options.mission.authorizedExtensions.skillPackRefs.map(normalizeOpaqueReferenceKey),
   );
 
   for (const capabilityId of options.allowedCapabilities) {
@@ -150,17 +127,17 @@ export function ensureTicketExtensionsAllowedByMission(options: {
       continue;
     }
 
-    if (!allowedCapabilities.has(capabilityId)) {
+    if (!allowedCapabilities.has(normalizeOpaqueReferenceKey(capabilityId))) {
       throw new Error(
-        `La capability \`${capabilityId}\` n'est pas autorisee par la mission \`${options.mission.id}\`.`,
+        `La capability \`${normalizeOpaqueReferenceKey(capabilityId)}\` n'est pas autorisee par la mission \`${options.mission.id}\`.`,
       );
     }
   }
 
   for (const packRef of options.skillPackRefs) {
-    if (!skillPackRefs.has(packRef)) {
+    if (!skillPackRefs.has(normalizeOpaqueReferenceKey(packRef))) {
       throw new Error(
-        `Le skill pack \`${packRef}\` n'est pas autorise par la mission \`${options.mission.id}\`.`,
+        `Le skill pack \`${normalizeOpaqueReferenceKey(packRef)}\` n'est pas autorise par la mission \`${options.mission.id}\`.`,
       );
     }
   }

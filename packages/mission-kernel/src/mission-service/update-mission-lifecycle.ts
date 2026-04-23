@@ -12,8 +12,6 @@ import { createFileTicketRepository } from "../../../storage/src/repositories/fi
 import { rewriteMissionReadModels } from "../../../ticket-runtime/src/ticket-service/ticket-service-support";
 import { ensureMissionWorkspaceInitialized } from "./ensure-mission-workspace";
 
-const LIFECYCLE_SKIP_PROJECTIONS = new Set(["resume-view"]);
-
 export type MissionLifecycleAction = "pause" | "relaunch" | "close";
 export type MissionCloseOutcome = "completed" | "cancelled";
 
@@ -82,7 +80,7 @@ export async function updateMissionLifecycle(
   const layout = resolveWorkspaceLayout(options.rootDir);
   await ensureMissionWorkspaceInitialized(layout, {
     commandLabel: options.action,
-    skipProjections: LIFECYCLE_SKIP_PROJECTIONS,
+    cleanupLocks: true,
   });
 
   const repository = createFileMissionRepository(layout);
@@ -175,4 +173,3 @@ function ensureAllowedTransition(
 
   return transition;
 }
-

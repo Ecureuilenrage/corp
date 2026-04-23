@@ -85,6 +85,67 @@ function createArtifact(overrides = {}) {
         ...overrides,
     };
 }
+function createApprovalRequest(overrides = {}) {
+    return {
+        approvalId: "approval_guard",
+        missionId: "mission_guard",
+        ticketId: "ticket_guard",
+        attemptId: "attempt_guard",
+        status: "requested",
+        title: "Validation guard",
+        actionType: "fs.write",
+        actionSummary: "Verifier le guard approval request",
+        guardrails: ["local_only"],
+        relatedEventIds: ["event_guard"],
+        relatedArtifactIds: ["artifact_guard"],
+        createdAt: "2026-04-15T10:00:00.000Z",
+        updatedAt: "2026-04-15T10:00:00.000Z",
+        ...overrides,
+    };
+}
+function createApprovalDecision(overrides = {}) {
+    return {
+        outcome: "approved",
+        reason: "Validation explicite.",
+        missionPolicyChange: {
+            previous: "policy.old",
+            next: "policy.new",
+        },
+        ticketCapabilityChange: {
+            previous: ["cap.old"],
+            next: ["cap.new"],
+        },
+        ticketSkillPackChange: {
+            previous: ["pack.old"],
+            next: ["pack.new"],
+        },
+        budgetObservations: ["RAS"],
+        ...overrides,
+    };
+}
+function createCapabilityInvocationDetails(overrides = {}) {
+    return {
+        capabilityId: "cap.guard",
+        registrationId: "ext.cap.guard",
+        provider: "local",
+        approvalSensitive: false,
+        permissions: ["docs.read"],
+        constraints: ["local_only"],
+        requiredEnvNames: [],
+        ...overrides,
+    };
+}
+function createWorkspaceIsolationMetadata(overrides = {}) {
+    return {
+        workspaceIsolationId: "iso_guard",
+        kind: "workspace_copy",
+        sourceRoot: "C:/tmp/source",
+        workspacePath: "C:/tmp/workspace",
+        createdAt: "2026-04-15T10:00:00.000Z",
+        retained: true,
+        ...overrides,
+    };
+}
 function createRegisteredCapability(overrides = {}) {
     return {
         capabilityId: "cap.guard",
@@ -145,13 +206,70 @@ function createRegisteredSkillPack(overrides = {}) {
     assertInvalid((0, persisted_document_guards_1.validateMission)({ ...createMission(), status: "closed" }), /statut inconnu.*status/i);
     assertInvalid((0, persisted_document_guards_1.validateMission)({ ...createMission(), authorizedExtensions: { allowedCapabilities: "cap", skillPackRefs: [] } }), /type incorrect.*authorizedExtensions\.allowedCapabilities/i);
 });
+(0, node_test_1.default)("validateMission accepte authorizedExtensions null et tolere un statut futur en lecture", () => {
+    const warnings = [];
+    const nullAuthorizedExtensions = (0, persisted_document_guards_1.validateMission)({
+        ...createMission(),
+        authorizedExtensions: null,
+    });
+    const futureMissionStatus = (0, persisted_document_guards_1.validateMission)({
+        ...createMission(),
+        status: "archived_v2",
+    }, { strict: false, warnings });
+    const futureTicketStatus = (0, persisted_document_guards_1.validateTicket)({
+        ...createTicket(),
+        status: "on_hold",
+    }, { strict: false, warnings });
+    const futureArtifactKind = (0, persisted_document_guards_1.validateArtifact)({
+        ...createArtifact(),
+        kind: "binary_blob_v2",
+    }, { strict: false, warnings });
+    strict_1.default.equal(nullAuthorizedExtensions.ok, true);
+    assertInvalid((0, persisted_document_guards_1.validateMission)({ ...createMission(), authorizedExtensions: 42 }), /type incorrect.*authorizedExtensions/i);
+    strict_1.default.equal(futureMissionStatus.ok, true);
+    strict_1.default.equal(futureTicketStatus.ok, true);
+    strict_1.default.equal(futureArtifactKind.ok, true);
+    strict_1.default.equal((0, persisted_document_guards_1.isMission)({ ...createMission(), status: "archived_v2" }), false);
+    strict_1.default.equal((0, persisted_document_guards_1.isTicket)({ ...createTicket(), status: "on_hold" }), false);
+    strict_1.default.equal((0, persisted_document_guards_1.isArtifact)({ ...createArtifact(), kind: "binary_blob_v2" }), false);
+    strict_1.default.deepEqual(warnings.map((warning) => ({ path: warning.path, value: warning.value })), [
+        { path: "status", value: "archived_v2" },
+        { path: "status", value: "on_hold" },
+        { path: "kind", value: "binary_blob_v2" },
+    ]);
+});
 (0, node_test_1.default)("isTicket valide le snapshot ticket et rejette champs, types et discriminants inconnus", () => {
     strict_1.default.equal((0, persisted_document_guards_1.isTicket)(createTicket()), true);
+    strict_1.default.equal((0, persisted_document_guards_1.isTicket)(createTicket({ workspaceIsolationId: "iso_guard" })), true);
     assertInvalid((0, persisted_document_guards_1.validateTicket)({ ...createTicket(), goal: undefined }), /champ manquant.*goal/i);
     assertInvalid((0, persisted_document_guards_1.validateTicket)({ ...createTicket(), dependsOn: ["a", 1] }), /type incorrect.*dependsOn/i);
     assertInvalid((0, persisted_document_guards_1.validateTicket)({ ...createTicket(), kind: "fix" }), /discriminant invalide.*kind/i);
     assertInvalid((0, persisted_document_guards_1.validateTicket)({ ...createTicket(), status: "closed" }), /statut inconnu.*status/i);
     assertInvalid((0, persisted_document_guards_1.validateTicket)({ ...createTicket(), executionHandle: { adapter: "unknown", adapterState: {} } }), /discriminant invalide.*executionHandle\.adapter/i);
+});
+(0, node_test_1.default)("validateTicket rejette les champs herites du prototype et distingue champ manquant vs type incorrect", () => {
+    const inheritedTicket = Object.create({
+        id: "ticket_proto",
+    });
+    Object.assign(inheritedTicket, {
+        missionId: "mission_guard",
+        kind: "implement",
+        goal: "Ticket prototype pollution",
+        status: "todo",
+        owner: "agent_guard",
+        dependsOn: [],
+        successCriteria: [],
+        allowedCapabilities: [],
+        skillPackRefs: [],
+        workspaceIsolationId: null,
+        artifactIds: [],
+        eventIds: ["event_guard"],
+        createdAt: "2026-04-15T10:00:00.000Z",
+        updatedAt: "2026-04-15T10:00:00.000Z",
+    });
+    assertInvalid((0, persisted_document_guards_1.validateTicket)(inheritedTicket), /champ manquant.*id/i);
+    assertInvalid((0, persisted_document_guards_1.validateTicket)({ ...createTicket(), executionHandle: undefined }), /champ manquant.*executionHandle/i);
+    assertInvalid((0, persisted_document_guards_1.validateTicket)({ ...createTicket(), executionHandle: "invalid" }), /type incorrect.*executionHandle/i);
 });
 (0, node_test_1.default)("isExecutionAttempt valide les tentatives et rejette les statuts/adapters inconnus", () => {
     strict_1.default.equal((0, persisted_document_guards_1.isExecutionAttempt)(createExecutionAttempt()), true);
@@ -162,9 +280,36 @@ function createRegisteredSkillPack(overrides = {}) {
 });
 (0, node_test_1.default)("isArtifact valide les artefacts et rejette les kinds ou champs optionnels invalides", () => {
     strict_1.default.equal((0, persisted_document_guards_1.isArtifact)(createArtifact()), true);
+    strict_1.default.equal((0, persisted_document_guards_1.isArtifact)(createArtifact({ workspaceIsolationId: "iso_guard" })), true);
     assertInvalid((0, persisted_document_guards_1.validateArtifact)({ ...createArtifact(), missionId: undefined }), /champ manquant.*missionId/i);
     assertInvalid((0, persisted_document_guards_1.validateArtifact)({ ...createArtifact(), sizeBytes: "12" }), /type incorrect.*sizeBytes/i);
     assertInvalid((0, persisted_document_guards_1.validateArtifact)({ ...createArtifact(), kind: "binary_blob" }), /discriminant invalide.*kind/i);
+});
+(0, node_test_1.default)("isApprovalRequest valide le contrat approval et rejette les tableaux mal typés", () => {
+    strict_1.default.equal((0, persisted_document_guards_1.isApprovalRequest)(createApprovalRequest()), true);
+    strict_1.default.equal((0, persisted_document_guards_1.isApprovalRequest)({ ...createApprovalRequest(), relatedArtifactIds: [] }), true);
+    strict_1.default.equal((0, persisted_document_guards_1.isApprovalRequest)({ ...createApprovalRequest(), title: undefined }), false);
+    strict_1.default.equal((0, persisted_document_guards_1.isApprovalRequest)({ ...createApprovalRequest(), guardrails: ["ok", 42] }), false);
+});
+(0, node_test_1.default)("isApprovalDecision valide les changements optionnels et les outcomes supportés", () => {
+    strict_1.default.equal((0, persisted_document_guards_1.isApprovalDecision)(createApprovalDecision()), true);
+    strict_1.default.equal((0, persisted_document_guards_1.isApprovalDecision)({ outcome: "deferred" }), true);
+    strict_1.default.equal((0, persisted_document_guards_1.isApprovalDecision)({ ...createApprovalDecision(), outcome: "cancelled" }), false);
+    strict_1.default.equal((0, persisted_document_guards_1.isApprovalDecision)({
+        ...createApprovalDecision(),
+        ticketCapabilityChange: { previous: ["cap.old"], next: [42] },
+    }), false);
+});
+(0, node_test_1.default)("isCapabilityInvocationDetails valide provider, booleens et tableaux string[]", () => {
+    strict_1.default.equal((0, persisted_document_guards_1.isCapabilityInvocationDetails)(createCapabilityInvocationDetails()), true);
+    strict_1.default.equal((0, persisted_document_guards_1.isCapabilityInvocationDetails)({ ...createCapabilityInvocationDetails(), provider: "mcp" }), true);
+    strict_1.default.equal((0, persisted_document_guards_1.isCapabilityInvocationDetails)({ ...createCapabilityInvocationDetails(), provider: "remote" }), false);
+    strict_1.default.equal((0, persisted_document_guards_1.isCapabilityInvocationDetails)({ ...createCapabilityInvocationDetails(), permissions: ["docs.read", 42] }), false);
+});
+(0, node_test_1.default)("isWorkspaceIsolationMetadata valide la structure d'isolation de workspace", () => {
+    strict_1.default.equal((0, persisted_document_guards_1.isWorkspaceIsolationMetadata)(createWorkspaceIsolationMetadata()), true);
+    strict_1.default.equal((0, persisted_document_guards_1.isWorkspaceIsolationMetadata)({ ...createWorkspaceIsolationMetadata(), retained: "yes" }), false);
+    strict_1.default.equal((0, persisted_document_guards_1.isWorkspaceIsolationMetadata)({ ...createWorkspaceIsolationMetadata(), workspacePath: undefined }), false);
 });
 (0, node_test_1.default)("isRegisteredCapability valide le registre capability et ses branches provider", () => {
     strict_1.default.equal((0, persisted_document_guards_1.isRegisteredCapability)(createRegisteredCapability()), true);

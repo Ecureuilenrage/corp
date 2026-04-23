@@ -8,11 +8,15 @@ const file_capability_registry_repository_1 = require("../../../storage/src/repo
 const file_skill_pack_registry_repository_1 = require("../../../storage/src/repositories/file-skill-pack-registry-repository");
 const file_mission_repository_1 = require("../../../storage/src/repositories/file-mission-repository");
 const file_ticket_repository_1 = require("../../../storage/src/repositories/file-ticket-repository");
+const ensure_mission_workspace_1 = require("./ensure-mission-workspace");
 const ticket_service_support_1 = require("../../../ticket-runtime/src/ticket-service/ticket-service-support");
 const structural_compare_1 = require("../../../ticket-runtime/src/utils/structural-compare");
 async function selectMissionExtensions(options) {
     const layout = (0, workspace_layout_1.resolveWorkspaceLayout)(options.rootDir);
-    await (0, ticket_service_support_1.ensureMissionWorkspaceInitialized)(layout, "extension select");
+    await (0, ensure_mission_workspace_1.ensureMissionWorkspaceInitialized)(layout, {
+        commandLabel: "extension select",
+        cleanupLocks: true,
+    });
     if (!hasAnyExtensionMutation(options)) {
         throw new Error("Aucune mutation demandee pour `corp mission extension select`.");
     }
@@ -84,12 +88,16 @@ function resolveNextAuthorizedExtensions(mission, options) {
         allowedCapabilities: options.clearAllowedCapabilities
             ? []
             : options.allowedCapabilities.length > 0
-                ? (0, ticket_service_support_1.normalizeOpaqueReferences)(options.allowedCapabilities)
+                ? (0, ticket_service_support_1.normalizeOpaqueReferences)(options.allowedCapabilities, {
+                    caseInsensitive: true,
+                })
                 : [...mission.authorizedExtensions.allowedCapabilities],
         skillPackRefs: options.clearSkillPackRefs
             ? []
             : options.skillPackRefs.length > 0
-                ? (0, ticket_service_support_1.normalizeOpaqueReferences)(options.skillPackRefs)
+                ? (0, ticket_service_support_1.normalizeOpaqueReferences)(options.skillPackRefs, {
+                    caseInsensitive: true,
+                })
                 : [...mission.authorizedExtensions.skillPackRefs],
     };
 }

@@ -3,6 +3,7 @@ Object.defineProperty(exports, "__esModule", { value: true });
 exports.readMissionAudit = readMissionAudit;
 exports.readMissionAuditEventDetail = readMissionAuditEventDetail;
 const promises_1 = require("node:fs/promises");
+const persisted_document_guards_1 = require("../../../contracts/src/guards/persisted-document-guards");
 const event_log_errors_1 = require("../../../journal/src/event-log/event-log-errors");
 const file_event_log_1 = require("../../../journal/src/event-log/file-event-log");
 const mission_reconstruction_1 = require("../../../journal/src/reconstruction/mission-reconstruction");
@@ -390,15 +391,15 @@ async function readArtifactsForAudit(artifactRepository, missionId) {
 }
 function readApprovalFromPayload(payload) {
     const candidate = payload.approval ?? payload.approvalRequest;
-    return isApprovalRequest(candidate) ? candidate : null;
+    return (0, persisted_document_guards_1.isApprovalRequest)(candidate) ? candidate : null;
 }
 function readArtifactFromPayload(payload) {
     const candidate = payload.artifact;
-    return isArtifact(candidate) ? candidate : null;
+    return (0, persisted_document_guards_1.isArtifact)(candidate) ? candidate : null;
 }
 function readTicketFromPayload(payload) {
     const candidate = payload.ticket;
-    return isTicket(candidate) ? candidate : null;
+    return (0, persisted_document_guards_1.isTicket)(candidate) ? candidate : null;
 }
 function readAuthorizedExtensionsFromPayload(payload, key) {
     const candidate = payload[key];
@@ -411,19 +412,74 @@ function readAuthorizedExtensionsFromPayload(payload, key) {
 }
 function readAttemptFromPayload(payload) {
     const candidate = payload.attempt;
-    return isExecutionAttempt(candidate) ? candidate : null;
+    return (0, persisted_document_guards_1.isExecutionAttempt)(candidate) ? candidate : null;
 }
 function readIsolationFromPayload(payload) {
     const candidate = payload.isolation;
-    return isWorkspaceIsolationMetadata(candidate) ? candidate : null;
+    return (0, persisted_document_guards_1.isWorkspaceIsolationMetadata)(candidate) ? candidate : null;
 }
+// Extraction tolerante pour l'audit : on preserve l'outcome et les champs
+// optionnels bien formes, on ignore ceux qui sont malformes sans laisser
+// tomber toute la decision. Le guard canonique `isApprovalDecision`
+// (packages/contracts) reste strict pour les reads repository.
 function readDecisionFromPayload(payload) {
     const candidate = payload.decision;
-    return isApprovalDecision(candidate) ? candidate : null;
+    if (typeof candidate !== "object" || candidate === null) {
+        return null;
+    }
+    const record = candidate;
+    const outcome = record.outcome;
+    if (outcome !== "approved" && outcome !== "rejected" && outcome !== "deferred") {
+        return null;
+    }
+    const decision = { outcome };
+    if (typeof record.reason === "string") {
+        decision.reason = record.reason;
+    }
+    const missionPolicyChange = record.missionPolicyChange;
+    if (isStringChange(missionPolicyChange)) {
+        decision.missionPolicyChange = { ...missionPolicyChange };
+    }
+    const ticketCapabilityChange = record.ticketCapabilityChange;
+    if (isStringArrayChange(ticketCapabilityChange)) {
+        decision.ticketCapabilityChange = {
+            previous: [...ticketCapabilityChange.previous],
+            next: [...ticketCapabilityChange.next],
+        };
+    }
+    const ticketSkillPackChange = record.ticketSkillPackChange;
+    if (isStringArrayChange(ticketSkillPackChange)) {
+        decision.ticketSkillPackChange = {
+            previous: [...ticketSkillPackChange.previous],
+            next: [...ticketSkillPackChange.next],
+        };
+    }
+    const budgetObservations = record.budgetObservations;
+    if (Array.isArray(budgetObservations) && budgetObservations.every((entry) => typeof entry === "string")) {
+        decision.budgetObservations = [...budgetObservations];
+    }
+    return decision;
+}
+function isStringChange(value) {
+    if (typeof value !== "object" || value === null) {
+        return false;
+    }
+    const candidate = value;
+    return typeof candidate.previous === "string" && typeof candidate.next === "string";
+}
+function isStringArrayChange(value) {
+    if (typeof value !== "object" || value === null) {
+        return false;
+    }
+    const candidate = value;
+    return Array.isArray(candidate.previous)
+        && candidate.previous.every((entry) => typeof entry === "string")
+        && Array.isArray(candidate.next)
+        && candidate.next.every((entry) => typeof entry === "string");
 }
 function readCapabilityFromPayload(payload) {
     const candidate = payload.capability;
-    return isCapabilityInvocationDetails(candidate) ? candidate : null;
+    return (0, persisted_document_guards_1.isCapabilityInvocationDetails)(candidate) ? candidate : null;
 }
 function readSkillPackFromPayload(payload) {
     const candidate = payload.skillPack;
@@ -449,114 +505,6 @@ function readOptionalNumber(payload, key) {
 }
 function formatList(values, emptyValue) {
     return values.length > 0 ? values.join(", ") : emptyValue;
-}
-function isApprovalRequest(value) {
-    if (typeof value !== "object" || value === null) {
-        return false;
-    }
-    const candidate = value;
-    return typeof candidate.approvalId === "string"
-        && typeof candidate.missionId === "string"
-        && typeof candidate.ticketId === "string"
-        && typeof candidate.attemptId === "string"
-        && typeof candidate.status === "string"
-        && typeof candidate.title === "string"
-        && typeof candidate.actionType === "string"
-        && typeof candidate.actionSummary === "string"
-        && Array.isArray(candidate.guardrails)
-        && Array.isArray(candidate.relatedEventIds)
-        && Array.isArray(candidate.relatedArtifactIds)
-        && typeof candidate.createdAt === "string"
-        && typeof candidate.updatedAt === "string";
-}
-function isArtifact(value) {
-    if (typeof value !== "object" || value === null) {
-        return false;
-    }
-    const candidate = value;
-    return typeof candidate.id === "string"
-        && typeof candidate.missionId === "string"
-        && typeof candidate.ticketId === "string"
-        && typeof candidate.producingEventId === "string"
-        && (typeof candidate.attemptId === "string" || candidate.attemptId === null)
-        && (typeof candidate.workspaceIsolationId === "string" || candidate.workspaceIsolationId === null)
-        && typeof candidate.kind === "string"
-        && typeof candidate.title === "string"
-        && typeof candidate.createdAt === "string";
-}
-function isTicket(value) {
-    if (typeof value !== "object" || value === null) {
-        return false;
-    }
-    const candidate = value;
-    return typeof candidate.id === "string"
-        && typeof candidate.missionId === "string"
-        && typeof candidate.kind === "string"
-        && typeof candidate.goal === "string"
-        && typeof candidate.status === "string"
-        && typeof candidate.owner === "string"
-        && Array.isArray(candidate.dependsOn)
-        && Array.isArray(candidate.successCriteria)
-        && Array.isArray(candidate.allowedCapabilities)
-        && Array.isArray(candidate.skillPackRefs)
-        && (typeof candidate.workspaceIsolationId === "string" || candidate.workspaceIsolationId === null)
-        && typeof candidate.executionHandle === "object"
-        && candidate.executionHandle !== null
-        && Array.isArray(candidate.artifactIds)
-        && Array.isArray(candidate.eventIds)
-        && typeof candidate.createdAt === "string"
-        && typeof candidate.updatedAt === "string";
-}
-function isExecutionAttempt(value) {
-    if (typeof value !== "object" || value === null) {
-        return false;
-    }
-    const candidate = value;
-    return typeof candidate.id === "string"
-        && typeof candidate.ticketId === "string"
-        && typeof candidate.adapter === "string"
-        && typeof candidate.status === "string"
-        && typeof candidate.workspaceIsolationId === "string"
-        && typeof candidate.backgroundRequested === "boolean"
-        && typeof candidate.adapterState === "object"
-        && candidate.adapterState !== null
-        && typeof candidate.startedAt === "string"
-        && (typeof candidate.endedAt === "string" || candidate.endedAt === null);
-}
-function isWorkspaceIsolationMetadata(value) {
-    if (typeof value !== "object" || value === null) {
-        return false;
-    }
-    const candidate = value;
-    return typeof candidate.workspaceIsolationId === "string"
-        && typeof candidate.kind === "string"
-        && typeof candidate.sourceRoot === "string"
-        && typeof candidate.workspacePath === "string"
-        && typeof candidate.createdAt === "string"
-        && typeof candidate.retained === "boolean";
-}
-function isApprovalDecision(value) {
-    if (typeof value !== "object" || value === null) {
-        return false;
-    }
-    const candidate = value;
-    return typeof candidate.outcome === "string"
-        && (candidate.outcome === "approved"
-            || candidate.outcome === "rejected"
-            || candidate.outcome === "deferred");
-}
-function isCapabilityInvocationDetails(value) {
-    if (typeof value !== "object" || value === null) {
-        return false;
-    }
-    const candidate = value;
-    return typeof candidate.capabilityId === "string"
-        && typeof candidate.registrationId === "string"
-        && (candidate.provider === "local" || candidate.provider === "mcp")
-        && typeof candidate.approvalSensitive === "boolean"
-        && Array.isArray(candidate.permissions)
-        && Array.isArray(candidate.constraints)
-        && Array.isArray(candidate.requiredEnvNames);
 }
 function isAuthorizedExtensions(value) {
     if (typeof value !== "object" || value === null) {

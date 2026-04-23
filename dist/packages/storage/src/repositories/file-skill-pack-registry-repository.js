@@ -4,6 +4,7 @@ exports.FileSkillPackRegistryRepository = void 0;
 exports.createFileSkillPackRegistryRepository = createFileSkillPackRegistryRepository;
 const promises_1 = require("node:fs/promises");
 const persisted_document_guards_1 = require("../../../contracts/src/guards/persisted-document-guards");
+const extension_registration_1 = require("../../../contracts/src/extension/extension-registration");
 const structural_compare_1 = require("../../../ticket-runtime/src/utils/structural-compare");
 const atomic_json_1 = require("../fs-layout/atomic-json");
 const file_system_read_errors_1 = require("../fs-layout/file-system-read-errors");
@@ -18,6 +19,9 @@ class FileSkillPackRegistryRepository {
         const skillPackStoragePaths = (0, workspace_layout_1.resolveSkillPackStoragePaths)(this.layout, registeredSkillPack.packRef);
         const existingSkillPack = await this.findByPackRef(registeredSkillPack.packRef);
         if (existingSkillPack) {
+            if (hasCaseCollision(existingSkillPack.packRef, registeredSkillPack.packRef)) {
+                throw new Error(`Collision de casse detectee pour le skill pack \`${registeredSkillPack.packRef}\`: deja enregistre comme \`${existingSkillPack.packRef}\`.`);
+            }
             if ((0, structural_compare_1.deepStrictEqualForComparison)(toComparableRegisteredSkillPack(existingSkillPack), toComparableRegisteredSkillPack(registeredSkillPack))) {
                 return {
                     status: "unchanged",
@@ -77,19 +81,46 @@ class FileSkillPackRegistryRepository {
             throw error;
         }
     }
-    async list() {
+    async listAll() {
         const skillPackEntries = await readDirectoryEntries(this.layout.skillPacksDir);
-        const skillPacks = [];
+        const valid = [];
+        const invalid = [];
         for (const skillPackEntry of skillPackEntries) {
             if (!skillPackEntry.isDirectory()) {
                 continue;
             }
-            const skillPack = await this.findByPackRef(skillPackEntry.name);
-            if (skillPack) {
-                skillPacks.push(skillPack);
+            try {
+                const skillPack = await this.findByPackRef(skillPackEntry.name);
+                if (skillPack) {
+                    valid.push(skillPack);
+                }
+            }
+            catch (error) {
+                if (!(0, persisted_document_errors_1.isPersistedDocumentReadError)(error)) {
+                    throw error;
+                }
+                invalid.push({
+                    packRef: skillPackEntry.name,
+                    filePath: error.filePath,
+                    code: error.code,
+                    message: error.message,
+                    error,
+                });
             }
         }
-        return skillPacks.sort((left, right) => left.packRef.localeCompare(right.packRef));
+        return {
+            valid: valid.sort((left, right) => left.packRef.localeCompare(right.packRef)),
+            invalid: invalid.sort((left, right) => left.packRef.localeCompare(right.packRef)),
+        };
+    }
+    async list() {
+        // Deprecated: utilisez `listAll()` pour obtenir les diagnostics multi-pack
+        // sans masquer les enregistrements valides.
+        const result = await this.listAll();
+        if (result.invalid.length > 0) {
+            throw result.invalid[0].error;
+        }
+        return result.valid;
     }
 }
 exports.FileSkillPackRegistryRepository = FileSkillPackRegistryRepository;
@@ -99,6 +130,11 @@ function createFileSkillPackRegistryRepository(layout) {
 function toComparableRegisteredSkillPack(registeredSkillPack) {
     const { registeredAt: _registeredAt, ...comparableSkillPack } = registeredSkillPack;
     return comparableSkillPack;
+}
+function hasCaseCollision(existingValue, requestedValue) {
+    return existingValue !== requestedValue
+        && (0, extension_registration_1.normalizeOpaqueReferenceKey)(existingValue)
+            === (0, extension_registration_1.normalizeOpaqueReferenceKey)(requestedValue);
 }
 async function resolveConcurrentSkillPackRegistration(repository, skillPackStoragePaths, registeredSkillPack) {
     const existingSkillPack = await waitForConcurrentSkillPackWrite(repository, registeredSkillPack.packRef);

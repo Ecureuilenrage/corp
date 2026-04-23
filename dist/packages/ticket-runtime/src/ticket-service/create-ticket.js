@@ -8,10 +8,14 @@ const workspace_layout_1 = require("../../../storage/src/fs-layout/workspace-lay
 const file_mission_repository_1 = require("../../../storage/src/repositories/file-mission-repository");
 const file_ticket_repository_1 = require("../../../storage/src/repositories/file-ticket-repository");
 const validate_ticket_dependencies_1 = require("../dependency-graph/validate-ticket-dependencies");
+const ensure_mission_workspace_1 = require("../../../mission-kernel/src/mission-service/ensure-mission-workspace");
 const ticket_service_support_1 = require("./ticket-service-support");
 async function createTicket(options) {
     const layout = (0, workspace_layout_1.resolveWorkspaceLayout)(options.rootDir);
-    await (0, ticket_service_support_1.ensureMissionWorkspaceInitialized)(layout, "ticket create");
+    await (0, ensure_mission_workspace_1.ensureMissionWorkspaceInitialized)(layout, {
+        commandLabel: "ticket create",
+        cleanupLocks: true,
+    });
     const missionId = (0, ticket_service_support_1.requireText)(options.missionId, "L'option --mission-id est obligatoire pour `corp mission ticket create`.");
     const kind = (0, ticket_service_support_1.requireTicketKind)(options.kind);
     const goal = (0, ticket_service_support_1.requireText)(options.goal, "L'option --goal est obligatoire pour `corp mission ticket create`.");
@@ -31,8 +35,12 @@ async function createTicket(options) {
         missionTickets,
         dependsOn: options.dependsOn,
     });
-    const allowedCapabilities = (0, ticket_service_support_1.normalizeOpaqueReferences)(options.allowedCapabilities);
-    const skillPackRefs = (0, ticket_service_support_1.normalizeOpaqueReferences)(options.skillPackRefs);
+    const allowedCapabilities = (0, ticket_service_support_1.normalizeOpaqueReferences)(options.allowedCapabilities, {
+        caseInsensitive: true,
+    });
+    const skillPackRefs = (0, ticket_service_support_1.normalizeOpaqueReferences)(options.skillPackRefs, {
+        caseInsensitive: true,
+    });
     (0, ticket_service_support_1.ensureTicketExtensionsAllowedByMission)({
         mission,
         allowedCapabilities,

@@ -22,6 +22,7 @@ const workspace_isolation_1 = require("../../../workspace-isolation/src/workspac
 const detect_ticket_artifacts_1 = require("../artifact-service/detect-ticket-artifacts");
 const register_artifacts_1 = require("../artifact-service/register-artifacts");
 const build_ticket_board_1 = require("../planner/build-ticket-board");
+const ensure_mission_workspace_1 = require("../../../mission-kernel/src/mission-service/ensure-mission-workspace");
 const ticket_service_support_1 = require("./ticket-service-support");
 const structural_compare_1 = require("../utils/structural-compare");
 let runTicketDependencyOverrides = null;
@@ -30,7 +31,10 @@ function setRunTicketDependenciesForTesting(overrides) {
 }
 async function runTicket(options) {
     const layout = (0, workspace_layout_1.resolveWorkspaceLayout)(options.rootDir);
-    await (0, ticket_service_support_1.ensureMissionWorkspaceInitialized)(layout, "ticket run");
+    await (0, ensure_mission_workspace_1.ensureMissionWorkspaceInitialized)(layout, {
+        commandLabel: "ticket run",
+        cleanupLocks: true,
+    });
     const missionId = (0, ticket_service_support_1.requireText)(options.missionId, "L'option --mission-id est obligatoire pour `corp mission ticket run`.");
     const ticketId = (0, ticket_service_support_1.requireText)(options.ticketId, "L'option --ticket-id est obligatoire pour `corp mission ticket run`.");
     const backgroundRequested = options.background === true;

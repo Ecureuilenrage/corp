@@ -16,9 +16,9 @@ import {
   deepStrictEqualForComparison,
   deepStrictEqualIgnoringArrayOrder,
 } from "../utils/structural-compare";
+import { ensureMissionWorkspaceInitialized } from "../../../mission-kernel/src/mission-service/ensure-mission-workspace";
 import {
   ensureTicketExtensionsAllowedByMission,
-  ensureMissionWorkspaceInitialized,
   normalizeOpaqueReferences,
   normalizeUpdatedSuccessCriteria,
   requireText,
@@ -63,7 +63,10 @@ export async function updateTicket(
   options: UpdateTicketOptions,
 ): Promise<UpdateTicketResult> {
   const layout = resolveWorkspaceLayout(options.rootDir);
-  await ensureMissionWorkspaceInitialized(layout, "ticket update");
+  await ensureMissionWorkspaceInitialized(layout, {
+    commandLabel: "ticket update",
+    cleanupLocks: true,
+  });
 
   const missionId = requireText(
     options.missionId,
@@ -119,12 +122,16 @@ export async function updateTicket(
   const nextAllowedCapabilities = options.clearAllowedCapabilities
     ? []
     : options.allowedCapabilities.length > 0
-      ? normalizeOpaqueReferences(options.allowedCapabilities)
+      ? normalizeOpaqueReferences(options.allowedCapabilities, {
+        caseInsensitive: true,
+      })
       : ticket.allowedCapabilities;
   const nextSkillPackRefs = options.clearSkillPackRefs
     ? []
     : options.skillPackRefs.length > 0
-      ? normalizeOpaqueReferences(options.skillPackRefs)
+      ? normalizeOpaqueReferences(options.skillPackRefs, {
+        caseInsensitive: true,
+      })
       : ticket.skillPackRefs;
   const normalizedTicket: Ticket = {
     ...ticket,

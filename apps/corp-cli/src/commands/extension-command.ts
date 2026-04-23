@@ -9,6 +9,7 @@ import { createFileSkillPackRegistryRepository } from "../../../../packages/stor
 import { readExtensionRegistrationFile } from "../../../../packages/capability-registry/src/validation/read-extension-registration-file";
 import { formatExtensionHelp } from "../formatters/help-formatter";
 import { formatExtensionCapabilityRegistration } from "../formatters/extension-capability-registration-formatter";
+import { formatExtensionSkillPackList } from "../formatters/extension-skill-pack-list-formatter";
 import { formatExtensionSkillPackRegistration } from "../formatters/extension-skill-pack-registration-formatter";
 import { formatExtensionSkillPackShow } from "../formatters/extension-skill-pack-show-formatter";
 import { formatExtensionValidation } from "../formatters/extension-validation-formatter";
@@ -31,6 +32,10 @@ interface RegisterSkillPackCliOptions {
 interface ShowSkillPackCliOptions {
   rootDir: string;
   packRef: string;
+}
+
+interface ListSkillPackCliOptions {
+  rootDir: string;
 }
 
 export async function runExtensionCommand(
@@ -152,6 +157,26 @@ async function runSkillPackExtensionCommand(
     }
 
     return 0;
+  }
+
+  if (subcommand === "list") {
+    const options = parseListSkillPackArgs(rest);
+    const layout = resolveWorkspaceLayout(options.rootDir);
+
+    await ensureExtensionWorkspaceDirectoryInitialized({
+      layout,
+      commandName: "skill-pack list",
+      directoryPath: layout.skillPacksDir,
+      directoryLabel: "skill-packs",
+    });
+
+    const result = await createFileSkillPackRegistryRepository(layout).listAll();
+
+    for (const line of formatExtensionSkillPackList(result)) {
+      output.writeLine(line);
+    }
+
+    return result.invalid.length > 0 ? 1 : 0;
   }
 
   output.writeLine(`Commande extension skill-pack inconnue: ${subcommand ?? "(vide)"}`);
@@ -332,6 +357,37 @@ function parseShowSkillPackArgs(args: string[]): ShowSkillPackCliOptions {
   return {
     rootDir: options.rootDir,
     packRef: options.packRef,
+  };
+}
+
+function parseListSkillPackArgs(args: string[]): ListSkillPackCliOptions {
+  const options: Partial<ListSkillPackCliOptions> = {};
+
+  for (let index = 0; index < args.length; index += 1) {
+    const currentArg = args[index];
+
+    if (currentArg === "--root") {
+      options.rootDir = readOptionValue(args, index + 1, "--root");
+      index += 1;
+      continue;
+    }
+
+    if (currentArg.startsWith("--root=")) {
+      options.rootDir = readInlineOptionValue(currentArg, "--root");
+      continue;
+    }
+
+    throw new Error(`Argument de extension skill-pack list inconnu: ${currentArg}`);
+  }
+
+  if (!options.rootDir?.trim()) {
+    throw new Error(
+      "L'option --root est obligatoire pour `corp extension skill-pack list`.",
+    );
+  }
+
+  return {
+    rootDir: options.rootDir,
   };
 }
 

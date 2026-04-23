@@ -7,13 +7,25 @@ exports.validateTicket = validateTicket;
 exports.isExecutionAttempt = isExecutionAttempt;
 exports.validateExecutionAttempt = validateExecutionAttempt;
 exports.isArtifact = isArtifact;
+exports.isApprovalRequest = isApprovalRequest;
+exports.isWorkspaceIsolationMetadata = isWorkspaceIsolationMetadata;
+exports.isApprovalDecision = isApprovalDecision;
+exports.isCapabilityInvocationDetails = isCapabilityInvocationDetails;
 exports.validateArtifact = validateArtifact;
 exports.isRegisteredCapability = isRegisteredCapability;
 exports.validateRegisteredCapability = validateRegisteredCapability;
 exports.isRegisteredSkillPack = isRegisteredSkillPack;
 exports.validateRegisteredSkillPack = validateRegisteredSkillPack;
+exports.attachStructuralValidationWarnings = attachStructuralValidationWarnings;
+exports.getStructuralValidationWarnings = getStructuralValidationWarnings;
 const extension_registration_1 = require("../extension/extension-registration");
-const valid = { ok: true };
+/**
+ * Les guards runtime partages vivent dans `packages/contracts/src/guards` pour
+ * rester co-localises aux types metier qu'ils valident. Les lecteurs/projections
+ * cross-package importent ces definitions canoniques au lieu de les recopier.
+ */
+const valid = { ok: true, value: undefined };
+const STRUCTURAL_VALIDATION_WARNINGS = Symbol("corp.structural_validation_warnings");
 const MISSION_STATUSES = new Set([
     "draft",
     "ready",
@@ -63,17 +75,17 @@ const ARTIFACT_KINDS = new Set([
 function isMission(value) {
     return validateMission(value).ok;
 }
-function validateMission(value) {
+function validateMission(value, options = {}) {
     const recordResult = validateRecord(value, "Mission");
     if (!recordResult.ok) {
         return recordResult;
     }
     const candidate = value;
-    return firstInvalid([
+    const validation = firstInvalid([
         validateString(candidate, "id"),
         validateString(candidate, "title"),
         validateString(candidate, "objective"),
-        validateStringUnion(candidate, "status", MISSION_STATUSES, "statut inconnu"),
+        validateOpenStringUnion(candidate, "status", MISSION_STATUSES, "statut inconnu", options),
         validateStringArray(candidate, "successCriteria"),
         validateString(candidate, "policyProfileId"),
         validateOptionalAuthorizedExtensions(candidate, "authorizedExtensions"),
@@ -84,22 +96,25 @@ function validateMission(value) {
         validateString(candidate, "createdAt"),
         validateString(candidate, "updatedAt"),
     ]);
+    return validation.ok
+        ? success(candidate)
+        : validation;
 }
 function isTicket(value) {
     return validateTicket(value).ok;
 }
-function validateTicket(value) {
+function validateTicket(value, options = {}) {
     const recordResult = validateRecord(value, "Ticket");
     if (!recordResult.ok) {
         return recordResult;
     }
     const candidate = value;
-    return firstInvalid([
+    const validation = firstInvalid([
         validateString(candidate, "id"),
         validateString(candidate, "missionId"),
         validateStringUnion(candidate, "kind", TICKET_KINDS, "discriminant invalide"),
         validateString(candidate, "goal"),
-        validateStringUnion(candidate, "status", TICKET_STATUSES, "statut inconnu"),
+        validateOpenStringUnion(candidate, "status", TICKET_STATUSES, "statut inconnu", options),
         validateString(candidate, "owner"),
         validateStringArray(candidate, "dependsOn"),
         validateStringArray(candidate, "successCriteria"),
@@ -112,45 +127,107 @@ function validateTicket(value) {
         validateString(candidate, "createdAt"),
         validateString(candidate, "updatedAt"),
     ]);
+    return validation.ok
+        ? success(candidate)
+        : validation;
 }
 function isExecutionAttempt(value) {
     return validateExecutionAttempt(value).ok;
 }
-function validateExecutionAttempt(value) {
+function validateExecutionAttempt(value, options = {}) {
     const recordResult = validateRecord(value, "ExecutionAttempt");
     if (!recordResult.ok) {
         return recordResult;
     }
     const candidate = value;
-    return firstInvalid([
+    const validation = firstInvalid([
         validateString(candidate, "id"),
         validateString(candidate, "ticketId"),
-        validateStringUnion(candidate, "adapter", EXECUTION_ADAPTER_IDS, "discriminant invalide"),
-        validateStringUnion(candidate, "status", EXECUTION_ATTEMPT_STATUSES, "statut inconnu"),
+        validateOpenStringUnion(candidate, "adapter", EXECUTION_ADAPTER_IDS, "discriminant invalide", options),
+        validateOpenStringUnion(candidate, "status", EXECUTION_ATTEMPT_STATUSES, "statut inconnu", options),
         validateString(candidate, "workspaceIsolationId"),
         validateBoolean(candidate, "backgroundRequested"),
         validateRecordField(candidate, "adapterState"),
         validateString(candidate, "startedAt"),
         validateNullableString(candidate, "endedAt"),
     ]);
+    return validation.ok
+        ? success(candidate)
+        : validation;
 }
 function isArtifact(value) {
     return validateArtifact(value).ok;
 }
-function validateArtifact(value) {
+function isApprovalRequest(value) {
+    if (!isRecord(value)) {
+        return false;
+    }
+    const candidate = value;
+    return typeof candidate.approvalId === "string"
+        && typeof candidate.missionId === "string"
+        && typeof candidate.ticketId === "string"
+        && typeof candidate.attemptId === "string"
+        && typeof candidate.status === "string"
+        && typeof candidate.title === "string"
+        && typeof candidate.actionType === "string"
+        && typeof candidate.actionSummary === "string"
+        && isStringArrayValue(candidate.guardrails)
+        && isStringArrayValue(candidate.relatedEventIds)
+        && isStringArrayValue(candidate.relatedArtifactIds)
+        && typeof candidate.createdAt === "string"
+        && typeof candidate.updatedAt === "string";
+}
+function isWorkspaceIsolationMetadata(value) {
+    if (!isRecord(value)) {
+        return false;
+    }
+    const candidate = value;
+    return typeof candidate.workspaceIsolationId === "string"
+        && typeof candidate.kind === "string"
+        && typeof candidate.sourceRoot === "string"
+        && typeof candidate.workspacePath === "string"
+        && typeof candidate.createdAt === "string"
+        && typeof candidate.retained === "boolean";
+}
+function isApprovalDecision(value) {
+    if (!isRecord(value)) {
+        return false;
+    }
+    const candidate = value;
+    return isApprovalDecisionOutcome(candidate.outcome)
+        && isOptionalStringValue(candidate.reason)
+        && isOptionalStringChange(candidate.missionPolicyChange)
+        && isOptionalStringArrayChange(candidate.ticketCapabilityChange)
+        && isOptionalStringArrayChange(candidate.ticketSkillPackChange)
+        && isOptionalStringArrayValue(candidate.budgetObservations);
+}
+function isCapabilityInvocationDetails(value) {
+    if (!isRecord(value)) {
+        return false;
+    }
+    const candidate = value;
+    return typeof candidate.capabilityId === "string"
+        && typeof candidate.registrationId === "string"
+        && (candidate.provider === "local" || candidate.provider === "mcp")
+        && typeof candidate.approvalSensitive === "boolean"
+        && isStringArrayValue(candidate.permissions)
+        && isStringArrayValue(candidate.constraints)
+        && isStringArrayValue(candidate.requiredEnvNames);
+}
+function validateArtifact(value, options = {}) {
     const recordResult = validateRecord(value, "Artifact");
     if (!recordResult.ok) {
         return recordResult;
     }
     const candidate = value;
-    return firstInvalid([
+    const validation = firstInvalid([
         validateString(candidate, "id"),
         validateString(candidate, "missionId"),
         validateString(candidate, "ticketId"),
         validateString(candidate, "producingEventId"),
         validateNullableString(candidate, "attemptId"),
         validateNullableString(candidate, "workspaceIsolationId"),
-        validateStringUnion(candidate, "kind", ARTIFACT_KINDS, "discriminant invalide"),
+        validateOpenStringUnion(candidate, "kind", ARTIFACT_KINDS, "discriminant invalide", options),
         validateString(candidate, "title"),
         validateString(candidate, "createdAt"),
         validateOptionalString(candidate, "label"),
@@ -163,6 +240,9 @@ function validateArtifact(value) {
         validateOptionalString(candidate, "sourceEventType"),
         validateOptionalString(candidate, "sourceEventOccurredAt"),
     ]);
+    return validation.ok
+        ? success(candidate)
+        : validation;
 }
 function isRegisteredCapability(value) {
     return validateRegisteredCapability(value).ok;
@@ -194,13 +274,16 @@ function validateRegisteredCapability(value) {
     }
     if (candidate.provider === "local") {
         return candidate.mcp === null
-            ? valid
+            ? success(candidate)
             : invalid("type incorrect `mcp`: attendu null pour provider local.");
     }
-    if (!("mcp" in candidate) || candidate.mcp === undefined || candidate.mcp === null) {
+    if (!hasOwnField(candidate, "mcp") || candidate.mcp === undefined || candidate.mcp === null) {
         return invalid("champ manquant `mcp`.");
     }
-    return validateMcpBinding(candidate.mcp, "mcp");
+    const validation = validateMcpBinding(candidate.mcp, "mcp");
+    return validation.ok
+        ? success(candidate)
+        : validation;
 }
 function isRegisteredSkillPack(value) {
     return validateRegisteredSkillPack(value).ok;
@@ -211,7 +294,7 @@ function validateRegisteredSkillPack(value) {
         return recordResult;
     }
     const candidate = value;
-    return firstInvalid([
+    const validation = firstInvalid([
         validateString(candidate, "packRef"),
         validateString(candidate, "registrationId"),
         validateLiteral(candidate, "schemaVersion", extension_registration_1.EXTENSION_REGISTRATION_SCHEMA_VERSION, "discriminant invalide"),
@@ -224,8 +307,38 @@ function validateRegisteredSkillPack(value) {
         validateString(candidate, "registeredAt"),
         validateString(candidate, "sourceManifestPath"),
     ]);
+    return validation.ok
+        ? success(candidate)
+        : validation;
+}
+function attachStructuralValidationWarnings(value, warnings) {
+    if (warnings.length === 0 || typeof value !== "object" || value === null) {
+        return value;
+    }
+    if (!Object.isExtensible(value)) {
+        return value;
+    }
+    Object.defineProperty(value, STRUCTURAL_VALIDATION_WARNINGS, {
+        value: warnings.map((warning) => ({ ...warning })),
+        enumerable: false,
+        configurable: true,
+        writable: false,
+    });
+    return value;
+}
+function getStructuralValidationWarnings(value) {
+    if (typeof value !== "object" || value === null) {
+        return [];
+    }
+    const warnings = value[STRUCTURAL_VALIDATION_WARNINGS];
+    return Array.isArray(warnings)
+        ? warnings.filter(isStructuralValidationWarning)
+        : [];
 }
 function validateExecutionHandle(value, fieldPath) {
+    if (value === undefined) {
+        return invalid(`champ manquant \`${fieldPath}\`.`);
+    }
     const recordResult = validateRecord(value, fieldPath);
     if (!recordResult.ok) {
         return recordResult;
@@ -237,7 +350,7 @@ function validateExecutionHandle(value, fieldPath) {
     ]);
 }
 function validateOptionalAuthorizedExtensions(record, fieldName) {
-    if (!(fieldName in record) || record[fieldName] === undefined || record[fieldName] === null) {
+    if (!hasOwnField(record, fieldName) || record[fieldName] === undefined || record[fieldName] === null) {
         return valid;
     }
     const value = record[fieldName];
@@ -304,7 +417,7 @@ function validateRecord(value, label) {
     return valid;
 }
 function validateString(record, fieldPath, fieldName = fieldPath) {
-    if (!(fieldName in record) || record[fieldName] === undefined) {
+    if (!hasOwnField(record, fieldName) || record[fieldName] === undefined) {
         return invalid(`champ manquant \`${fieldPath}\`.`);
     }
     return typeof record[fieldName] === "string"
@@ -312,7 +425,7 @@ function validateString(record, fieldPath, fieldName = fieldPath) {
         : invalid(`type incorrect \`${fieldPath}\`: attendu string.`);
 }
 function validateOptionalString(record, fieldPath, fieldName = fieldPath) {
-    if (!(fieldName in record) || record[fieldName] === undefined) {
+    if (!hasOwnField(record, fieldName) || record[fieldName] === undefined) {
         return valid;
     }
     return typeof record[fieldName] === "string"
@@ -320,7 +433,7 @@ function validateOptionalString(record, fieldPath, fieldName = fieldPath) {
         : invalid(`type incorrect \`${fieldPath}\`: attendu string optionnel.`);
 }
 function validateNullableString(record, fieldPath, fieldName = fieldPath) {
-    if (!(fieldName in record) || record[fieldName] === undefined) {
+    if (!hasOwnField(record, fieldName) || record[fieldName] === undefined) {
         return invalid(`champ manquant \`${fieldPath}\`.`);
     }
     return typeof record[fieldName] === "string" || record[fieldName] === null
@@ -328,7 +441,7 @@ function validateNullableString(record, fieldPath, fieldName = fieldPath) {
         : invalid(`type incorrect \`${fieldPath}\`: attendu string ou null.`);
 }
 function validateBoolean(record, fieldPath, fieldName = fieldPath) {
-    if (!(fieldName in record) || record[fieldName] === undefined) {
+    if (!hasOwnField(record, fieldName) || record[fieldName] === undefined) {
         return invalid(`champ manquant \`${fieldPath}\`.`);
     }
     return typeof record[fieldName] === "boolean"
@@ -336,7 +449,7 @@ function validateBoolean(record, fieldPath, fieldName = fieldPath) {
         : invalid(`type incorrect \`${fieldPath}\`: attendu boolean.`);
 }
 function validateOptionalNumber(record, fieldPath, fieldName = fieldPath) {
-    if (!(fieldName in record) || record[fieldName] === undefined) {
+    if (!hasOwnField(record, fieldName) || record[fieldName] === undefined) {
         return valid;
     }
     return typeof record[fieldName] === "number" && Number.isFinite(record[fieldName])
@@ -344,7 +457,7 @@ function validateOptionalNumber(record, fieldPath, fieldName = fieldPath) {
         : invalid(`type incorrect \`${fieldPath}\`: attendu number optionnel.`);
 }
 function validateStringArray(record, fieldPath, fieldName = fieldPath) {
-    if (!(fieldName in record) || record[fieldName] === undefined) {
+    if (!hasOwnField(record, fieldName) || record[fieldName] === undefined) {
         return invalid(`champ manquant \`${fieldPath}\`.`);
     }
     const value = record[fieldName];
@@ -356,7 +469,7 @@ function validateStringArray(record, fieldPath, fieldName = fieldPath) {
         : invalid(`type incorrect \`${fieldPath}\`: toutes les entrees doivent etre string.`);
 }
 function validateRecordField(record, fieldPath, fieldName = fieldPath) {
-    if (!(fieldName in record) || record[fieldName] === undefined) {
+    if (!hasOwnField(record, fieldName) || record[fieldName] === undefined) {
         return invalid(`champ manquant \`${fieldPath}\`.`);
     }
     return isRecord(record[fieldName])
@@ -373,6 +486,26 @@ function validateStringUnion(record, fieldPath, allowedValues, invalidKind, fiel
         ? valid
         : invalid(`${invalidKind} \`${fieldPath}\`: \`${value}\`.`);
 }
+function validateOpenStringUnion(record, fieldPath, allowedValues, invalidKind, options, fieldName = fieldPath) {
+    const stringResult = validateString(record, fieldPath, fieldName);
+    if (!stringResult.ok) {
+        return stringResult;
+    }
+    const value = record[fieldName];
+    if (allowedValues.has(value)) {
+        return valid;
+    }
+    if (options.strict !== false) {
+        return invalid(`${invalidKind} \`${fieldPath}\`: \`${value}\`.`);
+    }
+    options.warnings?.push({
+        code: "open_discriminant_unknown",
+        path: fieldPath,
+        value,
+        message: `Valeur future toleree pour \`${fieldPath}\`: \`${value}\`.`,
+    });
+    return valid;
+}
 function validateLiteral(record, fieldName, expectedValue, invalidKind) {
     const stringResult = validateString(record, fieldName);
     if (!stringResult.ok) {
@@ -385,9 +518,54 @@ function validateLiteral(record, fieldName, expectedValue, invalidKind) {
 function firstInvalid(results) {
     return results.find((result) => !result.ok) ?? valid;
 }
+function success(value) {
+    return { ok: true, value };
+}
 function invalid(reason) {
     return { ok: false, reason };
 }
+function hasOwnField(record, fieldName) {
+    return Object.prototype.hasOwnProperty.call(record, fieldName);
+}
+function isStringArrayValue(value) {
+    return Array.isArray(value) && value.every((entry) => typeof entry === "string");
+}
+function isOptionalStringValue(value) {
+    return value === undefined || typeof value === "string";
+}
+function isApprovalDecisionOutcome(value) {
+    return value === "approved" || value === "rejected" || value === "deferred";
+}
+function isOptionalStringChange(value) {
+    if (value === undefined) {
+        return true;
+    }
+    if (!isRecord(value)) {
+        return false;
+    }
+    return typeof value.previous === "string" && typeof value.next === "string";
+}
+function isOptionalStringArrayChange(value) {
+    if (value === undefined) {
+        return true;
+    }
+    if (!isRecord(value)) {
+        return false;
+    }
+    return isStringArrayValue(value.previous) && isStringArrayValue(value.next);
+}
+function isOptionalStringArrayValue(value) {
+    return value === undefined || isStringArrayValue(value);
+}
 function isRecord(value) {
     return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+function isStructuralValidationWarning(value) {
+    if (!isRecord(value)) {
+        return false;
+    }
+    return value.code === "open_discriminant_unknown"
+        && typeof value.path === "string"
+        && typeof value.value === "string"
+        && typeof value.message === "string";
 }

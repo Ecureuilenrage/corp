@@ -1,5 +1,6 @@
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
+exports.setReadApprovalQueueDependenciesForTesting = setReadApprovalQueueDependenciesForTesting;
 exports.readApprovalQueue = readApprovalQueue;
 const promises_1 = require("node:fs/promises");
 const event_log_errors_1 = require("../../../journal/src/event-log/event-log-errors");
@@ -12,15 +13,23 @@ const file_system_read_errors_1 = require("../../../storage/src/fs-layout/file-s
 const file_mission_repository_1 = require("../../../storage/src/repositories/file-mission-repository");
 const persisted_document_errors_1 = require("../../../storage/src/repositories/persisted-document-errors");
 const structural_compare_1 = require("../../../ticket-runtime/src/utils/structural-compare");
+const DEFAULT_READ_APPROVAL_QUEUE_DEPENDENCIES = {
+    readEventLog: file_event_log_1.readEventLog,
+    mkdir: promises_1.mkdir,
+};
+let readApprovalQueueDependenciesForTesting = null;
+function setReadApprovalQueueDependenciesForTesting(dependencies) {
+    readApprovalQueueDependenciesForTesting = dependencies;
+}
 async function readApprovalQueue(options) {
     const layout = (0, workspace_layout_1.resolveWorkspaceLayout)(options.rootDir);
     await ensureApprovalQueueWorkspaceInitialized(layout, options.commandName);
-    const missionSnapshotResult = await readMissionSnapshotForApprovalQueue(layout, options.missionId);
+    const missionEvents = (await getReadApprovalQueueDependencies().readEventLog(layout.journalPath))
+        .filter((event) => event.missionId === options.missionId);
+    const missionSnapshotResult = await readMissionSnapshotForApprovalQueue(layout, options.missionId, missionEvents);
     const missionSnapshot = missionSnapshotResult.mission;
     const projectionPath = (0, file_projection_store_1.resolveProjectionPath)(layout.projectionsDir, "approval-queue");
     try {
-        const missionEvents = (await (0, file_event_log_1.readEventLog)(layout.journalPath))
-            .filter((event) => event.missionId === missionSnapshot.id);
         const rebuiltProjection = (0, approval_queue_projection_1.createApprovalQueueProjection)({
             missionId: missionSnapshot.id,
             events: missionEvents,
@@ -70,6 +79,18 @@ async function ensureApprovalQueueWorkspaceInitialized(layout, commandName) {
     if (journalError?.code === "ENOENT" && !projectionsError && !missionsError) {
         throw event_log_errors_1.EventLogReadError.missing(layout.journalPath, journalError);
     }
+    if (projectionsError?.code === "ENOENT" && !journalError && !missionsError) {
+        try {
+            await getReadApprovalQueueDependencies().mkdir(layout.projectionsDir, { recursive: true });
+            return;
+        }
+        catch (error) {
+            if ((0, file_system_read_errors_1.isFileSystemReadError)(error)) {
+                throw (0, file_system_read_errors_1.createFileSystemReadError)(error, layout.projectionsDir, "repertoire projections");
+            }
+            throw error;
+        }
+    }
     if (journalError || projectionsError || missionsError) {
         throw new Error(`Workspace mission non initialise. Lancez \`corp mission bootstrap --root ${layout.rootDir}\` avant \`corp mission ${commandName}\`.`);
     }
@@ -94,7 +115,7 @@ function formatApprovalQueueReadError(missionId, commandName) {
     }
     return `Projection approval-queue irreconciliable pour ${missionId}. Impossible d'afficher la mission.`;
 }
-async function readMissionSnapshotForApprovalQueue(layout, missionId) {
+async function readMissionSnapshotForApprovalQueue(layout, missionId, missionEvents) {
     const missionRepository = (0, file_mission_repository_1.createFileMissionRepository)(layout);
     try {
         const mission = await missionRepository.findById(missionId);
@@ -107,11 +128,20 @@ async function readMissionSnapshotForApprovalQueue(layout, missionId) {
             throw error;
         }
     }
+    if (missionEvents.length === 0) {
+        throw new Error(`Mission introuvable: ${missionId}.`);
+    }
     return {
-        mission: await (0, mission_reconstruction_1.readMissionSnapshotFromJournalOrThrow)(layout.journalPath, missionId),
+        mission: (0, mission_reconstruction_1.reconstructMissionFromJournal)(missionEvents, missionId),
         reconstructed: true,
     };
 }
 function isClassifiedReadError(error) {
     return (0, event_log_errors_1.isEventLogReadError)(error) || (0, persisted_document_errors_1.isPersistedDocumentReadError)(error);
+}
+function getReadApprovalQueueDependencies() {
+    return {
+        ...DEFAULT_READ_APPROVAL_QUEUE_DEPENDENCIES,
+        ...readApprovalQueueDependenciesForTesting,
+    };
 }

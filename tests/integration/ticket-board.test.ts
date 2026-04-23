@@ -751,7 +751,7 @@ test("mission ticket board signale une projection corrompue au lieu de la masque
   assert.match(result.lines.at(-1) ?? "", /ticket-board\.json/);
 });
 
-test("mission ticket board reconstruit depuis le journal quand un snapshot ticket porte un statut inconnu", async (t) => {
+test("mission ticket board lit un snapshot ticket avec statut inconnu sans casser la projection", async (t) => {
   const rootDir = await mkdtemp(path.join(tmpdir(), "corp-ticket-board-unknown-status-"));
 
   t.after(async () => {
@@ -785,11 +785,11 @@ test("mission ticket board reconstruit depuis le journal quand un snapshot ticke
 
   assert.equal(result.exitCode, 0);
   assert.ok(entry);
-  assert.equal(entry.runnable, true);
-  assert.equal(entry.planningState, "runnable");
-  assert.equal(entry.trackingState, "runnable");
-  assert.equal(entry.status, "todo");
-  assert.match(result.lines.join("\n"), new RegExp(`${ticketId} \\| statut=todo \\| owner=agent_unknown`));
-  assert.doesNotMatch(result.lines.join("\n"), /statut=on_hold/);
-  assert.match(result.lines.join("\n"), /motif=pret a lancer/);
+  assert.equal(entry.runnable, false);
+  assert.equal(entry.planningState, "not_runnable_status");
+  assert.equal(entry.trackingState, "blocked");
+  assert.equal(entry.status, "on_hold");
+  assert.equal(entry.statusReasonCode, "ticket_blocked");
+  assert.match(result.lines.join("\n"), new RegExp(`${ticketId} \\| statut=on_hold \\| owner=agent_unknown`));
+  assert.match(result.lines.join("\n"), /motif=ticket bloque/);
 });

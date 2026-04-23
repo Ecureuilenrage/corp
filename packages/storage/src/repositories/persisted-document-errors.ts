@@ -57,8 +57,9 @@ export class InvalidPersistedDocumentError extends Error {
   public constructor(
     context: PersistedDocumentContext,
     reason: string,
+    cause: unknown = new Error(reason),
   ) {
-    super(formatPersistedDocumentMessage("schema_invalide", context, reason));
+    super(formatPersistedDocumentMessage("schema_invalide", context, reason), { cause });
     this.name = "InvalidPersistedDocumentError";
     this.filePath = context.filePath;
     this.entityLabel = context.entityLabel;
@@ -93,7 +94,7 @@ export type PersistedDocumentReadError =
   | InvalidPersistedDocumentError
   | PersistedDocumentFileSystemError;
 
-export type PersistedDocumentValidator<T> = (value: unknown) => ValidationResult;
+export type PersistedDocumentValidator<T> = (value: unknown) => ValidationResult<T>;
 
 export async function readPersistedJsonDocument(
   context: PersistedDocumentContext,
@@ -115,13 +116,13 @@ export async function readPersistedJsonDocument(
   }
 
   try {
-    return JSON.parse(contents) as unknown;
-  } catch (error) {
+    return JSON.parse(stripUtf8Bom(contents)) as unknown;
+  } catch (error: unknown) {
     if (error instanceof SyntaxError) {
       throw new CorruptedPersistedDocumentError(context, error);
     }
 
-    throw error;
+    throw normalizePersistedDocumentReadError(error, context);
   }
 }
 
@@ -135,6 +136,22 @@ export function assertValidPersistedDocument<T>(
   if (!validation.ok) {
     throw new InvalidPersistedDocumentError(context, validation.reason);
   }
+}
+
+export function normalizePersistedDocumentReadError(
+  error: unknown,
+  context: PersistedDocumentContext,
+): Error {
+  if (isPersistedDocumentReadError(error) || isMissingFileError(error)) {
+    return error as Error;
+  }
+
+  if (isFileSystemReadError(error)) {
+    return new PersistedDocumentFileSystemError(context, error);
+  }
+
+  const message = formatUnexpectedPersistedDocumentReadMessage(context);
+  return new Error(message, { cause: error });
 }
 
 export function isPersistedDocumentReadError(
@@ -160,4 +177,18 @@ function formatPersistedDocumentMessage(
   const documentId = context.documentId ? ` \`${context.documentId}\`` : "";
 
   return `${code}: ${context.entityLabel}${documentId} invalide (${context.filePath}): ${reason}.`;
+}
+
+function stripUtf8Bom(contents: string): string {
+  return contents.startsWith("\uFEFF")
+    ? contents.slice(1)
+    : contents;
+}
+
+function formatUnexpectedPersistedDocumentReadMessage(
+  context: PersistedDocumentContext,
+): string {
+  const documentId = context.documentId ? ` \`${context.documentId}\`` : "";
+
+  return `Lecture du document persiste ${context.entityLabel}${documentId} irreconciliable (${context.filePath}).`;
 }

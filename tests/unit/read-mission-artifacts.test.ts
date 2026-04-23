@@ -45,3 +45,34 @@ test("readPayloadPreview lit un payload volumineux de maniere bornee sans casser
   assert.doesNotMatch(preview, /�/);
   assert.match(preview, /^€+/);
 });
+
+test("readPayloadPreview retourne null seulement pour ENOENT", async () => {
+  const preview = await readPayloadPreview("C:/tmp", "payload.txt", "text/plain", {
+    openFile: async () => {
+      const error = new Error("ENOENT: missing payload") as NodeJS.ErrnoException;
+      error.code = "ENOENT";
+      throw error;
+    },
+  });
+
+  assert.equal(preview, null);
+});
+
+test("readPayloadPreview remonte EACCES comme erreur_fichier au lieu d'un null silencieux", async () => {
+  await assert.rejects(
+    () => readPayloadPreview("C:/tmp", "payload.txt", "text/plain", {
+      openFile: async () => {
+        const error = new Error("EACCES: permission denied") as NodeJS.ErrnoException;
+        error.code = "EACCES";
+        throw error;
+      },
+    }),
+    (error: unknown) => {
+      assert.ok(error instanceof Error);
+      assert.equal((error as Error & { code?: string }).code, "erreur_fichier");
+      assert.match(error.message, /EACCES/);
+      assert.match(error.message, /payload\.txt/);
+      return true;
+    },
+  );
+});

@@ -40,11 +40,11 @@ import {
 import { detectTicketArtifacts } from "../artifact-service/detect-ticket-artifacts";
 import { registerArtifacts } from "../artifact-service/register-artifacts";
 import { buildTicketBoardProjection } from "../planner/build-ticket-board";
+import { ensureMissionWorkspaceInitialized } from "../../../mission-kernel/src/mission-service/ensure-mission-workspace";
 import {
   applyExecutionHandleSnapshot,
   buildApprovalGuardrailsSnapshot,
   ensureTicketExtensionsAllowedByMission,
-  ensureMissionWorkspaceInitialized,
   isBuiltInAllowedCapability,
   missionHasOtherActiveAttempts,
   normalizeOpaqueReferences,
@@ -98,7 +98,10 @@ export async function runTicket(
   options: RunTicketOptions,
 ): Promise<RunTicketResult> {
   const layout = resolveWorkspaceLayout(options.rootDir);
-  await ensureMissionWorkspaceInitialized(layout, "ticket run");
+  await ensureMissionWorkspaceInitialized(layout, {
+    commandLabel: "ticket run",
+    cleanupLocks: true,
+  });
 
   const missionId = requireText(
     options.missionId,

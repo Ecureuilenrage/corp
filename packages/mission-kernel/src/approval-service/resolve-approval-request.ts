@@ -3,6 +3,7 @@ import { randomUUID } from "node:crypto";
 import type { ApprovalDecision, ApprovalDecisionOutcome } from "../../../contracts/src/approval/approval-decision";
 import type { ApprovalRequest } from "../../../contracts/src/approval/approval-request";
 import type { ExecutionAttempt } from "../../../contracts/src/execution-attempt/execution-attempt";
+import { isApprovalRequest } from "../../../contracts/src/guards/persisted-document-guards";
 import type { Mission } from "../../../contracts/src/mission/mission";
 import type { MissionResume } from "../../../contracts/src/mission/mission-resume";
 import type { Ticket } from "../../../contracts/src/ticket/ticket";
@@ -306,7 +307,9 @@ function resolveNormalizedReferenceList(
     return [...currentValues];
   }
 
-  const normalizedValues = normalizeOpaqueReferences(nextValues);
+  const normalizedValues = normalizeOpaqueReferences(nextValues, {
+    caseInsensitive: true,
+  });
 
   return deepStrictEqualIgnoringArrayOrder(currentValues, normalizedValues)
     ? [...currentValues]
@@ -388,28 +391,6 @@ function readApprovalFromPayload(payload: Record<string, unknown>): ApprovalRequ
   const candidate = payload.approval ?? payload.approvalRequest;
 
   return isApprovalRequest(candidate) ? candidate : null;
-}
-
-function isApprovalRequest(value: unknown): value is ApprovalRequest {
-  if (typeof value !== "object" || value === null) {
-    return false;
-  }
-
-  const candidate = value as Record<string, unknown>;
-
-  return typeof candidate.approvalId === "string"
-    && typeof candidate.missionId === "string"
-    && typeof candidate.ticketId === "string"
-    && typeof candidate.attemptId === "string"
-    && typeof candidate.status === "string"
-    && typeof candidate.title === "string"
-    && typeof candidate.actionType === "string"
-    && typeof candidate.actionSummary === "string"
-    && Array.isArray(candidate.guardrails)
-    && Array.isArray(candidate.relatedEventIds)
-    && Array.isArray(candidate.relatedArtifactIds)
-    && typeof candidate.createdAt === "string"
-    && typeof candidate.updatedAt === "string";
 }
 
 function resolveCommandName(outcome: ApprovalDecisionOutcome): "approval approve" | "approval reject" | "approval defer" {

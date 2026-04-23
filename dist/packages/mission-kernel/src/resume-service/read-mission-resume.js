@@ -1,7 +1,7 @@
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.readMissionResume = readMissionResume;
-const promises_1 = require("node:fs/promises");
+exports.readStoredResumeView = readStoredResumeView;
 const approval_request_1 = require("../../../contracts/src/approval/approval-request");
 const ticket_1 = require("../../../contracts/src/ticket/ticket");
 const event_log_errors_1 = require("../../../journal/src/event-log/event-log-errors");
@@ -13,6 +13,7 @@ const file_system_read_errors_1 = require("../../../storage/src/fs-layout/file-s
 const file_mission_repository_1 = require("../../../storage/src/repositories/file-mission-repository");
 const persisted_document_errors_1 = require("../../../storage/src/repositories/persisted-document-errors");
 const read_ticket_board_1 = require("../../../ticket-runtime/src/planner/read-ticket-board");
+const ensure_mission_workspace_1 = require("../mission-service/ensure-mission-workspace");
 const read_approval_queue_1 = require("./read-approval-queue");
 const read_mission_artifacts_1 = require("./read-mission-artifacts");
 const CLOSED_OPEN_TICKET_STATUSES = new Set([
@@ -21,9 +22,13 @@ const CLOSED_OPEN_TICKET_STATUSES = new Set([
 const TERMINAL_APPROVAL_STATUS_SET = new Set(approval_request_1.TERMINAL_APPROVAL_REQUEST_STATUSES);
 async function readMissionResume(options) {
     const layout = (0, workspace_layout_1.resolveWorkspaceLayout)(options.rootDir);
-    await ensureMissionWorkspaceInitialized(layout, options.commandName);
+    await (0, ensure_mission_workspace_1.ensureMissionWorkspaceInitialized)(layout, {
+        commandLabel: options.commandName,
+        initializeJournal: false,
+    });
     const repository = (0, file_mission_repository_1.createFileMissionRepository)(layout);
-    const storedMission = await readStoredMissionSnapshot(repository, options.missionId);
+    const storedMissionResult = await readStoredMissionSnapshot(repository, options.missionId);
+    const storedMission = storedMissionResult.mission;
     let missionEvents;
     try {
         missionEvents = await (0, mission_reconstruction_1.readMissionEvents)(layout.journalPath, options.missionId);
@@ -32,7 +37,7 @@ async function readMissionResume(options) {
         if ((0, event_log_errors_1.isEventLogReadError)(error)) {
             throw error;
         }
-        throw new Error(`Journal mission irreconciliable pour ${options.missionId}. Impossible de reconstruire la reprise.`);
+        throw new Error(`Journal mission irreconciliable pour ${options.missionId}. Impossible de reconstruire la reprise.`, { cause: error });
     }
     const missionFromJournal = missionEvents.length > 0
         ? (0, mission_reconstruction_1.reconstructMissionFromJournal)(missionEvents, options.missionId, {
@@ -40,6 +45,9 @@ async function readMissionResume(options) {
         })
         : null;
     const baseMission = storedMission ?? missionFromJournal;
+    if (!baseMission && missionEvents.length === 0 && storedMissionResult.readError) {
+        throw storedMissionResult.readError;
+    }
     if (!baseMission) {
         throw new Error(`Mission introuvable: ${options.missionId}.`);
     }
@@ -63,12 +71,14 @@ async function readMissionResume(options) {
         throw new Error(`Journal mission irreconciliable pour ${options.missionId}. Impossible de reconstruire la reprise.`);
     }
     const projectionPath = (0, file_projection_store_1.resolveProjectionPath)(layout.projectionsDir, "resume-view");
-    const rawResumeView = await readStoredResumeView(layout.projectionsDir);
+    const rawResumeViewResult = await readStoredResumeView(layout.projectionsDir);
+    const rawResumeView = rawResumeViewResult.projection;
     const shouldReconstruct = !storedMission
         || isMissionSnapshotSuspicious(storedMission, lastMissionEvent.eventId)
         || approvalQueueResult.reconstructed
         || ticketBoardResult.reconstructed
         || artifactIndexResult.reconstructed
+        || rawResumeViewResult.readError !== null
         || isResumeViewSuspicious(rawResumeView, options.missionId, lastMissionEvent.eventId);
     const mission = shouldReconstruct
         ? (0, mission_reconstruction_1.reconstructMissionFromJournal)(missionEvents, options.missionId, {
@@ -109,39 +119,30 @@ async function readMissionResume(options) {
         ticketBoardReconstructed: ticketBoardResult.reconstructed,
     };
 }
-async function ensureMissionWorkspaceInitialized(layout, commandName) {
-    const journalError = await (0, file_system_read_errors_1.readAccessError)(() => (0, promises_1.access)(layout.journalPath));
-    const projectionsError = await (0, file_system_read_errors_1.readAccessError)(() => (0, promises_1.access)(layout.projectionsDir));
-    const missionsError = await (0, file_system_read_errors_1.readAccessError)(() => (0, promises_1.access)(layout.missionsDir));
-    const fileSystemError = [
-        { error: journalError, filePath: layout.journalPath, label: "journal append-only" },
-        { error: projectionsError, filePath: layout.projectionsDir, label: "repertoire projections" },
-        { error: missionsError, filePath: layout.missionsDir, label: "repertoire missions" },
-    ].find((entry) => entry.error && entry.error.code !== "ENOENT" && (0, file_system_read_errors_1.isFileSystemReadError)(entry.error));
-    if (fileSystemError?.error) {
-        if (fileSystemError.filePath === layout.journalPath) {
-            throw event_log_errors_1.EventLogReadError.fileSystem(layout.journalPath, fileSystemError.error);
-        }
-        throw (0, file_system_read_errors_1.createFileSystemReadError)(fileSystemError.error, fileSystemError.filePath, fileSystemError.label);
-    }
-    if (journalError?.code === "ENOENT" && !projectionsError && !missionsError) {
-        throw event_log_errors_1.EventLogReadError.missing(layout.journalPath, journalError);
-    }
-    if (journalError || projectionsError || missionsError) {
-        throw new Error(`Workspace mission non initialise. Lancez \`corp mission bootstrap --root ${layout.rootDir}\` avant \`corp mission ${commandName}\`.`);
-    }
-}
 async function readStoredResumeView(projectionsDir) {
     const projectionPath = (0, file_projection_store_1.resolveProjectionPath)(projectionsDir, "resume-view");
     try {
-        return JSON.parse(await (0, file_projection_store_1.readProjectionFile)(projectionsDir, "resume-view"));
+        return {
+            projection: JSON.parse(await (0, file_projection_store_1.readProjectionFile)(projectionsDir, "resume-view")),
+            readError: null,
+        };
     }
     catch (error) {
         if ((0, file_system_read_errors_1.isMissingFileError)(error)) {
-            return null;
+            return {
+                projection: null,
+                readError: null,
+            };
         }
         if (error instanceof SyntaxError) {
-            return null;
+            return {
+                projection: null,
+                readError: new persisted_document_errors_1.CorruptedPersistedDocumentError({
+                    filePath: projectionPath,
+                    entityLabel: "Projection resume-view",
+                    corruptionLabel: "projection resume-view",
+                }, error),
+            };
         }
         if ((0, file_system_read_errors_1.isFileSystemReadError)(error)) {
             throw (0, file_system_read_errors_1.createFileSystemReadError)(error, projectionPath, "projection resume-view");
@@ -188,11 +189,17 @@ function isMissionSnapshotSuspicious(mission, lastEventId) {
 }
 async function readStoredMissionSnapshot(repository, missionId) {
     try {
-        return await repository.findById(missionId);
+        return {
+            mission: await repository.findById(missionId),
+            readError: null,
+        };
     }
     catch (error) {
         if ((0, persisted_document_errors_1.isRecoverablePersistedDocumentError)(error)) {
-            return null;
+            return {
+                mission: null,
+                readError: error,
+            };
         }
         throw error;
     }

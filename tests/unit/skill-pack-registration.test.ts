@@ -261,6 +261,69 @@ test("registerSkillPack detecte une collision ambigue quand le contenu differe p
   assert.equal((await repository.list()).length, 1);
 });
 
+test("registerSkillPack detecte une collision de casse pour un packRef deja present", async (t) => {
+  const tempDir = await mkdtemp(path.join(tmpdir(), "corp-skill-pack-case-collision-"));
+  const workspaceRoot = path.join(tempDir, "workspace");
+
+  t.after(async () => {
+    await rm(tempDir, { recursive: true, force: true });
+  });
+
+  const layout = await ensureWorkspaceLayout(workspaceRoot);
+  const repository = createFileSkillPackRegistryRepository(layout);
+
+  await registerSkillPack({
+    filePath: getFixturePath("valid-skill-pack.json"),
+    repository,
+    registeredAt: "2026-04-20T23:55:00.000Z",
+  });
+
+  const collisionManifestPath = path.join(tempDir, "case-collision-skill-pack.json");
+  await writeFile(
+    collisionManifestPath,
+    `${JSON.stringify({
+      schemaVersion: "corp.extension.v1",
+      seamType: "skill_pack",
+      id: "ext.skill-pack.Pack.Triage.Local.case",
+      displayName: "Pack Triage Local Case Collision",
+      version: "0.1.0",
+      permissions: ["docs.read"],
+      constraints: ["local_only", "workspace_scoped"],
+      metadata: {
+        description: "Variation de casse pour collision deterministe.",
+        owner: "core-platform",
+        tags: ["skill-pack", "case-collision"],
+      },
+      localRefs: {
+        rootDir: "./skill-packs/triage-pack",
+        references: ["./skill-packs/triage-pack/README.md"],
+        metadataFile: "./skill-packs/triage-pack/pack.json",
+        scripts: [],
+      },
+      skillPack: {
+        packRef: "Pack.Triage.Local",
+      },
+    }, null, 2)}\n`,
+    "utf8",
+  );
+
+  await cp(
+    path.join(getFixtureRoot(), "skill-packs"),
+    path.join(tempDir, "skill-packs"),
+    { recursive: true },
+  );
+
+  await assert.rejects(
+    () =>
+      registerSkillPack({
+        filePath: collisionManifestPath,
+        repository,
+        registeredAt: "2026-04-20T23:55:01.000Z",
+      }),
+    /collision de casse detectee.*Pack\.Triage\.Local.*pack\.triage\.local/i,
+  );
+});
+
 test("FileSkillPackRegistryRepository traite un enregistrement concurrent identique comme unchanged", async (t) => {
   const rootDir = await mkdtemp(path.join(tmpdir(), "corp-skill-pack-concurrent-identical-"));
 
@@ -370,6 +433,45 @@ test("FileSkillPackRegistryRepository revendique une dir orpheline via creation 
   assert.equal(persisted.displayName, "Pack orphelin");
 });
 
+test("FileSkillPackRegistryRepository.listAll retourne les packs valides et les diagnostics invalides sans masquer les packs sains", async (t) => {
+  const rootDir = await mkdtemp(path.join(tmpdir(), "corp-skill-pack-list-all-"));
+
+  t.after(async () => {
+    await rm(rootDir, { recursive: true, force: true });
+  });
+
+  const layout = await ensureWorkspaceLayout(rootDir);
+  const repository = createFileSkillPackRegistryRepository(layout);
+
+  await registerSkillPack({
+    filePath: getFixturePath("valid-skill-pack.json"),
+    repository,
+    registeredAt: "2026-04-16T10:00:00.000Z",
+  });
+
+  const corruptPath = path.join(
+    layout.skillPacksDir,
+    "pack.corrupt",
+    "skill-pack.json",
+  );
+  await mkdir(path.dirname(corruptPath), { recursive: true });
+  await writeFile(corruptPath, "{json invalide\n", "utf8");
+
+  const result = await repository.listAll();
+
+  assert.equal(result.valid.length, 1);
+  assert.equal(result.valid[0]?.packRef, "pack.triage.local");
+  assert.equal(result.invalid.length, 1);
+  assert.equal(result.invalid[0]?.packRef, "pack.corrupt");
+  assert.equal(result.invalid[0]?.code, "json_corrompu");
+  assert.equal(result.invalid[0]?.filePath, corruptPath);
+
+  await assert.rejects(
+    () => repository.list(),
+    /json_corrompu: fichier de registre corrompu pour le skill pack `pack\.corrupt` invalide/i,
+  );
+});
+
 test("FileSkillPackRegistryRepository leve un conflit legitime quand un writer concurrent publie un contenu different pendant le polling", async (t) => {
   const rootDir = await mkdtemp(path.join(tmpdir(), "corp-skill-pack-concurrent-legit-"));
 
@@ -432,6 +534,68 @@ test("FileSkillPackRegistryRepository leve un conflit legitime quand un writer c
   await assert.rejects(
     () => repository.save(ourContent),
     /Conflit d'ecriture concurrente legitime.*pack\.legit-conflict/i,
+  );
+});
+
+test("FileSkillPackRegistryRepository preserve une erreur de schema apres EEXIST au lieu de signaler une dir orpheline", async (t) => {
+  const rootDir = await mkdtemp(path.join(tmpdir(), "corp-skill-pack-eexist-invalid-"));
+
+  t.after(async () => {
+    await rm(rootDir, { recursive: true, force: true });
+  });
+
+  const layout = await ensureWorkspaceLayout(rootDir);
+  const repository = createFileSkillPackRegistryRepository(layout);
+  const packRef = "pack.invalid-after-exist";
+  const registeredSkillPack: RegisteredSkillPack = {
+    packRef,
+    registrationId: "ext.skill-pack.invalid-after-exist",
+    schemaVersion: "corp.extension.v1",
+    displayName: "Pack invalid after exist",
+    version: "0.1.0",
+    permissions: ["docs.read"],
+    constraints: ["local_only", "workspace_scoped"],
+    metadata: {
+      description: "Pack qui doit remonter la vraie erreur apres EEXIST.",
+      owner: "core-platform",
+      tags: ["skill-pack", "invalid"],
+    },
+    localRefs: {
+      rootDir,
+      references: [],
+      scripts: [],
+    },
+    registeredAt: "2026-04-16T11:00:00.000Z",
+    sourceManifestPath: path.join(rootDir, "pack.invalid-after-exist.json"),
+  };
+  const originalFindByPackRef = repository.findByPackRef.bind(repository);
+  let readCount = 0;
+  const invalidPath = path.join(layout.skillPacksDir, packRef, "skill-pack.json");
+
+  await mkdir(path.dirname(invalidPath), { recursive: true });
+  await writeFile(
+    invalidPath,
+    `${JSON.stringify({ packRef }, null, 2)}\n`,
+    "utf8",
+  );
+
+  repository.findByPackRef = async (requestedPackRef: string) => {
+    if (requestedPackRef !== packRef) {
+      return await originalFindByPackRef(requestedPackRef);
+    }
+
+    readCount += 1;
+
+    if (readCount <= 8) {
+      return null;
+    }
+
+    return await originalFindByPackRef(requestedPackRef);
+  };
+
+  await assert.rejects(
+    () => repository.save(registeredSkillPack),
+    /schema_invalide: RegisteredSkillPack `pack\.invalid-after-exist` invalide/i,
   );
 });
 

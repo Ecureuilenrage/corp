@@ -1,6 +1,6 @@
 # Story 5.2.2: Cleanup validation, diagnostics et polish (findings review 5-2, severites medium/low)
 
-Status: ready-for-dev
+Status: review
 
 ## Story
 
@@ -114,25 +114,66 @@ Trois regroupements:
 
 ## Tasks / Subtasks
 
-- [ ] AC1: Strip BOM dans `readPersistedJsonDocument` (`packages/storage/src/repositories/persisted-document-errors.ts`). Test unitaire: `\uFEFF{"id":"m-1"}`.
-- [ ] AC2: `readPayloadPreview` classifier ENOENT -> null, autres -> propagation/diagnostic. Test: payload EACCES -> pas de null silencieux.
-- [ ] AC3: Tie-break timestamp dans `mergeTicketsById`/`mergeAttemptsById` (`read-ticket-board.ts`). Test: eventId plus grand mais timestamp anterieur.
-- [ ] AC4: Confirmation flip `on_hold`->`todo`. Etapes: (a) relire le diff de `ticket-board.test.ts` + code metier associe; (b) si intentionnel, ajouter commentaire de justification + reference story; (c) sinon, revert test et aligner code. Documenter dans Dev Agent Record.
-- [ ] AC6: Reecrire `PersistedDocumentValidator<T>` et `assertValidPersistedDocument<T>` avec typage sound. Adapter tous les callers. Tests type-level (`tsc --noEmit` doit rejeter un mismatch).
-- [ ] AC7: Remplacer `in record` par `Object.prototype.hasOwnProperty.call` dans `persisted-document-guards.ts`. Test: `Object.create({id:"x"})` -> invalide.
-- [ ] AC8: `InvalidPersistedDocumentError` porte `cause` (chainage raison ou validation result original). Test.
-- [ ] AC9: Unifier messages `validateExecutionHandle` avec autres validators. Tests unitaires deux messages.
-- [ ] AC10: `catch (error: unknown)` + `instanceof SyntaxError` dans parse JSON. Tests.
-- [ ] AC11: Souscrire a `error` sur le stream readline + transformer en `EventLogReadError`. Test simule EBADF post-iteration.
-- [ ] AC12: `normalizeEventLogReadError` preserve cause/stack pour non-errno non-Error. Test.
-- [ ] AC13: Supprimer/wrapper `isEventLogFileSystemError`. Migrer callers.
-- [ ] AC14: Ajouter `EBUSY`, `ETIMEDOUT` a `FILE_SYSTEM_READ_ERROR_CODES`. Test unitaire.
-- [ ] AC15: `readApprovalQueue` une seule lecture du journal. Test: compter les invocations ou passer events en parametre.
-- [ ] AC16: `ensureApprovalQueueWorkspaceInitialized` distinguer journal-present + projections-ENOENT. Test: mode degrade OK.
-- [ ] AC17: `new Error(msg, { cause })` dans readers mission-centriques. Tests: verifier `.cause` via assertion.
-- [ ] AC18: `readStoredResumeView` ne plus avaler SyntaxError silencieusement. Test.
-- [ ] AC19: Nettoyer commentaire `Story 5.1.1 AC4` dans `file-mission-repository.ts`.
-- [ ] AC20: `npm run build && npm test` vert; baseline post-5.2.1 preservee.
+- [x] AC1: Strip BOM dans `readPersistedJsonDocument` (`packages/storage/src/repositories/persisted-document-errors.ts`). Test unitaire: `\uFEFF{"id":"m-1"}`.
+- [x] AC2: `readPayloadPreview` classifier ENOENT -> null, autres -> propagation/diagnostic. Test: payload EACCES -> pas de null silencieux.
+- [x] AC3: Tie-break timestamp dans `mergeTicketsById`/`mergeAttemptsById` (`read-ticket-board.ts`). Test: eventId plus grand mais timestamp anterieur.
+- [x] AC4: Confirmation flip `on_hold`->`todo`. Etapes: (a) relire le diff de `ticket-board.test.ts` + code metier associe; (b) si intentionnel, ajouter commentaire de justification + reference story; (c) sinon, revert test et aligner code. Documenter dans Dev Agent Record.
+- [x] AC6: Reecrire `PersistedDocumentValidator<T>` et `assertValidPersistedDocument<T>` avec typage sound. Adapter tous les callers. Tests type-level (`tsc --noEmit` doit rejeter un mismatch).
+- [x] AC7: Remplacer `in record` par `Object.prototype.hasOwnProperty.call` dans `persisted-document-guards.ts`. Test: `Object.create({id:"x"})` -> invalide.
+- [x] AC8: `InvalidPersistedDocumentError` porte `cause` (chainage raison ou validation result original). Test.
+- [x] AC9: Unifier messages `validateExecutionHandle` avec autres validators. Tests unitaires deux messages.
+- [x] AC10: `catch (error: unknown)` + `instanceof SyntaxError` dans parse JSON. Tests.
+- [x] AC11: Souscrire a `error` sur le stream readline + transformer en `EventLogReadError`. Test simule EBADF post-iteration.
+- [x] AC12: `normalizeEventLogReadError` preserve cause/stack pour non-errno non-Error. Test.
+- [x] AC13: Supprimer/wrapper `isEventLogFileSystemError`. Migrer callers.
+- [x] AC14: Ajouter `EBUSY`, `ETIMEDOUT` a `FILE_SYSTEM_READ_ERROR_CODES`. Test unitaire.
+- [x] AC15: `readApprovalQueue` une seule lecture du journal. Test: compter les invocations ou passer events en parametre.
+- [x] AC16: `ensureApprovalQueueWorkspaceInitialized` distinguer journal-present + projections-ENOENT. Test: mode degrade OK.
+- [x] AC17: `new Error(msg, { cause })` dans readers mission-centriques. Tests: verifier `.cause` via assertion.
+- [x] AC18: `readStoredResumeView` ne plus avaler SyntaxError silencieusement. Test.
+- [x] AC19: Nettoyer commentaire `Story 5.1.1 AC4` dans `file-mission-repository.ts`.
+- [x] AC20: `npm run build && npm test` vert; baseline post-5.2.1 preservee.
+
+### Review Findings
+
+Revue adversariale parallele (Blind Hunter + Edge Case Hunter + Acceptance Auditor) executee le 2026-04-20. Tous les AC1..AC20 sont attestes `met` par l'Acceptance Auditor. Total: 0 decision, 8 patchs, 15 defer, 5 dismiss.
+
+#### Patches
+
+- [ ] [Review][Patch] `readMissionResume` n'aligne pas le rethrow sur `isPersistedDocumentReadError` comme `readMissionEventsSafely` — toute erreur non-`EventLogReadError` est enveloppee dans un generic `Error`, perdant la classification des `PersistedDocumentReadError` potentiellement remontees par les sous-lectures. Mirror du pattern `read-ticket-board.ts:readMissionEventsSafely`. [packages/mission-kernel/src/resume-service/read-mission-resume.ts:89-98]
+- [ ] [Review][Patch] `validateOpenStringUnion` encode "strict par defaut" via `options.strict !== false` (double negation) — trois valeurs implicites (`undefined`, `true`, `false`) et tout futur `null` accidentel retombe en mode lenient. Utiliser un flag positif explicite (`lenient === true` ou `mode: "strict" | "lenient"`). [packages/contracts/src/guards/persisted-document-guards.ts:405]
+- [ ] [Review][Patch] Test `read-mission-resume.test.ts` monkey-patche `missionReconstructionModule.readMissionEvents` via `require(...)` — fonctionne sous CommonJS, casse sous native ESM (live binding). Bypass le pattern `setXDependenciesForTesting` introduit ailleurs dans le meme diff. Introduire `setReadMissionResumeDependenciesForTesting` et l'utiliser. [tests/unit/read-mission-resume.test.ts:2578-2594]
+- [ ] [Review][Patch] `STRUCTURAL_VALIDATION_WARNINGS` est un `Symbol()` module-local — deux copies du module produisent des Symboles distincts, les warnings "disparaissent" silencieusement entre attach et get (hoisted mocks, dual-bundler). Utiliser `Symbol.for("corp.structural_validation_warnings")`. [packages/contracts/src/guards/persisted-document-guards.ts:29]
+- [ ] [Review][Patch] Test "capture une erreur async du stream" attend un seul `setImmediate` pour verifier `unhandledRejection === false` — un tick de la queue microtask peut ne pas suffire dans node:test. Drainer avec `setTimeout(r, 0)` ou `process.nextTick` + `setImmediate` en cascade pour eviter un faux positif CI. [tests/unit/event-log-defensive-read.test.ts:1889-1936]
+- [ ] [Review][Patch] `normalizePersistedDocumentReadError` retourne `error as Error` pour tout `isMissingFileError` vrai — le predicat `isMissingFileError` ne demande pas `instanceof Error`, donc un objet errno-like exotique est rendu avec un cast mensonger. Ajouter un garde `error instanceof Error` avant retour as-is, sinon wrap. [packages/storage/src/repositories/persisted-document-errors.ts:1378-1380]
+- [ ] [Review][Patch] `readStoredResumeView` ne classe que `SyntaxError` en `CorruptedPersistedDocumentError` — un `TypeError` issu d'un `JSON.parse` monkey-patche (scenario teste ailleurs en AC10) ou toute autre erreur non-FS non-ENOENT remonte brute au `readMissionResume` sans wrap `readError` et sans fallback journal. Classifier tout non-FS non-ENOENT comme corruption (ou englober dans un try/catch cote appelant). [packages/mission-kernel/src/resume-service/read-mission-resume.ts:237-275, site d'appel 140-141]
+- [ ] [Review][Patch] Tests `JSON.parse = () => { throw rootCause; }` dans `event-log-defensive-read.test.ts` et `persisted-document-repositories.test.ts` — remplacent globalement `JSON.parse` avec un restore via `t.after`. Sous `--concurrency > 1` ou apres un unhandled rejection qui court-circuite `t.after`, la corruption fuit vers les autres tests. Encapsuler dans un helper `withStubbedJsonParse(fn)` qui garantit le restore meme sous rejection. [tests/unit/event-log-defensive-read.test.ts, tests/unit/persisted-document-repositories.test.ts]
+
+#### Defer
+
+- [x] [Review][Defer] `readApprovalQueue` appelle `readEventLog` hors du `try { formatApprovalQueueReadError(...) }` — deferred, narrow: les erreurs `EventLogReadError` sont deja classifiees et le catch existant rethrow via `isClassifiedReadError`. Impact residuel limite aux erreurs opaques que AC11/AC12 ont justement normalisees. [packages/mission-kernel/src/resume-service/read-approval-queue.ts:79-86]
+- [x] [Review][Defer] `canonicalize` skip des valeurs `undefined` — change la semantique d'egalite (`{foo: undefined}` vs `{}`) dans `areMissionSnapshotsEqual`. Deferred: guardrail 5-2-2 interdit de retoucher `canonicalize` (scope 5-2-1). [packages/storage/src/repositories/file-mission-repository.ts:1216-1223]
+- [x] [Review][Defer] `canonicalize` throw `TypeError` sur `Map`/`Set` mais accepte `Buffer`/`Uint8Array`/`Symbol`/`WeakMap`/fonctions — hardening partiel. Deferred: scope 5-2-1. [packages/storage/src/repositories/file-mission-repository.ts:195-230]
+- [x] [Review][Defer] TOCTOU entre `readLockStat`/`removeLockFile`/`createLockFile` + resolution `mtime` 2s sur FAT/exFAT/shares Windows — race sur `cleanupStaleMissionLocks`. Deferred, D-64 documente. [packages/storage/src/repositories/file-mission-repository.ts:266-295]
+- [x] [Review][Defer] `releaseMissionLock` rethrow lock-release error sur succes primaire — caller voit `save failed` alors que la mission a ete ecrite; lock orphelin possible. Deferred: scope 5-2-1. [packages/storage/src/repositories/file-mission-repository.ts:1300-1315]
+- [x] [Review][Defer] `stripUtf8Bom` ne gere que le BOM UTF-8 — un fichier UTF-16 LE (default PowerShell `Out-File`) decode en mojibake et remonte en "Lecture irreconciliable" generic. Deferred: AC1 scope explicite UTF-8 seulement. [packages/storage/src/repositories/persisted-document-errors.ts:1398-1402]
+- [x] [Review][Defer] `isClassifiedReadError` duplique dans `read-approval-queue.ts` et `read-ticket-board.ts` — drift risk. Deferred: scope Story 5-3 (factoriser type-guards et helpers partages). [packages/mission-kernel/src/resume-service/read-approval-queue.ts:238, packages/ticket-runtime/src/planner/read-ticket-board.ts]
+- [x] [Review][Defer] `resolveMissionLockStaleTtlMs` + `Number.parseInt(rawValue, 10)` accepte `"1.5s"` -> `1` (ms) et `"5m"` -> `5` silencieusement; aucun floor minimal contre les TTL degenerees. Deferred: scope 5-2-1 (le mecanisme a ete introduit la); necessite un floor et une validation regex. [packages/storage/src/repositories/file-mission-repository.ts:253-264]
+- [x] [Review][Defer] `ensureAppendOnlyEventLog` ne relit plus le journal apres truncation (validation in-memory du prefix) — race possible avec un writer concurrent dont l'append arrive entre `readFile` et `truncate`, silently tronque. Deferred: decision 5-2-1 explicite (`Validation post-truncation remplacee par validation in-memory ... acceptable V1`). [packages/journal/src/event-log/file-event-log.ts:135-146]
+- [x] [Review][Defer] Globales mutables `eventLogDependenciesForTesting` / `readApprovalQueueDependenciesForTesting` / `ticketBoardDependenciesForTesting` — fuite entre tests concurrents possible. Deferred: D-30 pre-existant (meme pattern partage avec les autres modules). [packages/journal/src/event-log/file-event-log.ts, packages/mission-kernel/src/resume-service/read-approval-queue.ts, packages/ticket-runtime/src/planner/read-ticket-board.ts]
+- [x] [Review][Defer] `parseJournalEventLine` ne strip pas le BOM UTF-8 — un journal sauve via un editeur Windows avec BOM fait echouer toutes les lectures des la premiere ligne. Deferred: AC1 scope explicite JSON documents seulement. [packages/journal/src/event-log/file-event-log.ts:198-218]
+- [x] [Review][Defer] `toStoredAttemptCursor` retourne `eventId: ""` synthetique — tie-break systematique en faveur du journal meme quand stored porte une tentative legitime. Deferred: edge design mineure, impact sur scenarios de retry in-place. [packages/ticket-runtime/src/planner/read-ticket-board.ts:533-549]
+- [x] [Review][Defer] `buildTicketCursors`/`buildAttemptCursors` overwrite sur chaque iteration sans garde-fou d'ordering — si le journal contient des events avec timestamps non-monotones (clock skew entre processus), le cursor reflete le dernier ecrit, pas le plus recent occurred. Deferred: scope Story 5-5 (determinisme projections/tris/filtres). [packages/ticket-runtime/src/planner/read-ticket-board.ts:564-602]
+- [x] [Review][Defer] `compareMissionFreshness` utilise `String.prototype.localeCompare` sans collator fixe — locale Turc (`I`/`İ`) peut reordonner differemment les eventIds ASCII entre hotes. Deferred: scope Story 5-5 (determinisme). [packages/ticket-runtime/src/planner/read-ticket-board.ts:551-562]
+- [x] [Review][Defer] `toStoredTicketCursor` pour `ticket.eventIds=[]` retourne `""` — perd systematiquement en tie-break, potentiellement discard un stored snapshot legitime. Deferred: edge design mineure (stored avec eventIds vide est deja un etat corrompu/migration). [packages/ticket-runtime/src/planner/read-ticket-board.ts:508-513]
+
+#### Dismissed (5)
+
+- `getEventLogDependencies`/`getReadApprovalQueueDependencies`/`getTicketBoardDependencies` rebuild d'objet par appel — micro-perf, pas de bug.
+- AC14 over-delivre `EROFS` et `EISDIR` au-dela du `EBUSY`/`ETIMEDOUT` demande — extension additive benigne, coherente avec les autres codes FS deja classes.
+- Diff de revue inclut des hunks 5-2-1 (`canonicalize` etendu, `cleanupStaleMissionLocks`, lock stale TTL) — explique par l'absence de commit intermediaire entre 5-2-1 et 5-2-2, pas de violation de scope reelle.
+- `assertValidPersistedDocument<T>` soundness compile-time via le parametre `PersistedDocumentValidator<T>` (runtime trust sur `value as T`) — conforme au wording AC6 "T est reellement verifie"; le narrowing runtime n'est pas demande.
+- Contrat des predicats publics `isMission`/`isTicket`/`isArtifact` relache (`validate*(value, { strict: false })`) — policy confirmee conforme 5-2-1 AC5: la tolerance des discriminants inconnus est intentionnellement etendue aux predicats publics. Le test `isMission({ ...createMission(), status: "archived_v2" }), true` cimente le contrat. Decision: 2026-04-20 revue 5-2-2.
 
 ## Dev Notes
 
@@ -165,6 +206,75 @@ Decisions: 8 (merge ordre), 9 (flip on_hold), 10 (BOM), 11 (readPayloadPreview).
 - `_bmad-output/implementation/5-2-1-durcir-lecture-defensive-findings-review-5-2-critiques.md` -- prerequis; 5.2.2 suit 5.2.1 dans le sprint.
 - `_bmad-output/implementation/deferred-work.md` -- D-65 a D-72 (items definitivement hors scope).
 
+## Dev Agent Record
+
+### Implementation Plan
+
+- Durcir la couche de validation/persisted-document avant de toucher les readers mission-centriques pour mutualiser `ValidationResult<T>`, les causes et la lecture BOM-safe.
+- Corriger ensuite les readers sensibles (`event-log`, `approval-queue`, `mission-resume`, `ticket-board`, `readPayloadPreview`) avec des tests directs sur les erreurs classees et la fraicheur des snapshots.
+- Verrouiller les regressions avec des tests unitaires/integration supplementaires puis rerun complet `npm test`.
+
+### Debug Log
+
+- 2026-04-20T21:08:08+02:00: Story prise en charge, sprint-status passe a `in-progress`, inspection du diff existant et des hotspots 5.2.2.
+- 2026-04-20T21:12:00+02:00: Reprise de `ValidationResult<T>`, `PersistedDocumentValidator<T>`, guards own-property et causes des erreurs persisted-document.
+- 2026-04-20T21:15:00+02:00: Readers defensive-read corriges (`readPayloadPreview`, `readEventLog`, `readApprovalQueue`, `readMissionResume`, `readTicketBoard`) avec nouvelles injections/tests unitaires.
+- 2026-04-20T21:21:58+02:00: `npm test` vert (364 tests), story prete pour review.
+
+### Completion Notes
+
+- BOM UTF-8, `PersistedDocumentValidator<T>` sound, `InvalidPersistedDocumentError.cause`, `validateExecutionHandle` et les guards `hasOwnProperty` sont maintenant couverts au niveau source + tests.
+- `readPayloadPreview` ne masque plus que `ENOENT`; les autres erreurs disque remontent en `erreur_fichier`, et le finding AC4 de la story 5.2 a ete marque traite.
+- `readEventLog` capture les erreurs async du stream, normalise les `JSON.parse` inattendus sans double wrapping, et preserve la cause pour les erreurs opaques.
+- `readApprovalQueue` lit le journal une seule fois, recree `projections/` si absent alors que le journal est sain, et `readMissionResume` expose explicitement une corruption `resume-view` sans perdre le fallback journal.
+- Decision AC4: le flip `on_hold` -> `todo` n'a pas ete retenu. Le contrat tolerant sur les statuts fantomes est preserve, les tests `ticket-board`/`mission-resume` restent alignes sur un ticket non runnable et lisible.
+- Validation finale executee: `npm test` (364 tests verts).
+
+## File List
+
+- `_bmad-output/implementation/5-2-2-cleanup-lecture-defensive-findings-review-5-2-medium-low.md`
+- `_bmad-output/implementation/5-2-durcir-la-lecture-defensive-et-la-validation-de-schema.md`
+- `_bmad-output/implementation/sprint-status.yaml`
+- `packages/contracts/src/guards/persisted-document-guards.ts`
+- `packages/journal/src/event-log/event-log-errors.ts`
+- `packages/journal/src/event-log/file-event-log.ts`
+- `packages/mission-kernel/src/resume-service/read-approval-queue.ts`
+- `packages/mission-kernel/src/resume-service/read-mission-artifacts.ts`
+- `packages/mission-kernel/src/resume-service/read-mission-resume.ts`
+- `packages/storage/src/fs-layout/file-system-read-errors.ts`
+- `packages/storage/src/repositories/file-mission-repository.ts`
+- `packages/storage/src/repositories/persisted-document-errors.ts`
+- `packages/ticket-runtime/src/planner/read-ticket-board.ts`
+- `tests/typecheck/persisted-document-validator.typecheck.ts`
+- `tests/unit/event-log-defensive-read.test.ts`
+- `tests/unit/file-system-read-errors.test.ts`
+- `tests/unit/persisted-document-guards.test.ts`
+- `tests/unit/persisted-document-repositories.test.ts`
+- `tests/unit/read-approval-queue.test.ts`
+- `tests/unit/read-mission-artifacts.test.ts`
+- `tests/unit/read-mission-resume.test.ts`
+- `tests/unit/read-ticket-board-merge.test.ts`
+- `dist/packages/contracts/src/guards/persisted-document-guards.js`
+- `dist/packages/journal/src/event-log/event-log-errors.js`
+- `dist/packages/journal/src/event-log/file-event-log.js`
+- `dist/packages/mission-kernel/src/resume-service/read-approval-queue.js`
+- `dist/packages/mission-kernel/src/resume-service/read-mission-artifacts.js`
+- `dist/packages/mission-kernel/src/resume-service/read-mission-resume.js`
+- `dist/packages/storage/src/fs-layout/file-system-read-errors.js`
+- `dist/packages/storage/src/repositories/file-mission-repository.js`
+- `dist/packages/storage/src/repositories/persisted-document-errors.js`
+- `dist/packages/ticket-runtime/src/planner/read-ticket-board.js`
+- `dist/tests/typecheck/persisted-document-validator.typecheck.js`
+- `dist/tests/unit/event-log-defensive-read.test.js`
+- `dist/tests/unit/file-system-read-errors.test.js`
+- `dist/tests/unit/persisted-document-guards.test.js`
+- `dist/tests/unit/persisted-document-repositories.test.js`
+- `dist/tests/unit/read-approval-queue.test.js`
+- `dist/tests/unit/read-mission-artifacts.test.js`
+- `dist/tests/unit/read-mission-resume.test.js`
+- `dist/tests/unit/read-ticket-board-merge.test.js`
+
 ## Change Log
 
 - 2026-04-15: Creation story 5.2.2 depuis le code review de 5-2. Couvre les findings `medium` et `low` avec jugement explicite patch full vs minimal.
+- 2026-04-20: Implementation completee. Validation defensive, readers mission-centriques et suite de tests consolides; story passee en `review`.

@@ -3,8 +3,8 @@ Object.defineProperty(exports, "__esModule", { value: true });
 exports.EventLogReadError = void 0;
 exports.normalizeEventLogReadError = normalizeEventLogReadError;
 exports.isEventLogReadError = isEventLogReadError;
-exports.isEventLogFileSystemError = isEventLogFileSystemError;
 const file_system_read_errors_1 = require("../../../storage/src/fs-layout/file-system-read-errors");
+const UNEXPECTED_EVENT_LOG_READ_PREFIX = "Lecture du journal append-only irreconciliable (";
 class EventLogReadError extends Error {
     code;
     journalPath;
@@ -55,14 +55,14 @@ function normalizeEventLogReadError(error, journalPath) {
     if ((0, file_system_read_errors_1.isMissingFileError)(error)) {
         return EventLogReadError.missing(journalPath, error);
     }
-    if ((0, file_system_read_errors_1.isFileSystemReadError)(error)) {
+    if ((0, file_system_read_errors_1.isErrnoException)(error)) {
         return EventLogReadError.fileSystem(journalPath, error);
     }
-    return error instanceof Error ? error : new Error(String(error));
+    if (error instanceof Error && error.message.startsWith(UNEXPECTED_EVENT_LOG_READ_PREFIX)) {
+        return error;
+    }
+    return new Error(`${UNEXPECTED_EVENT_LOG_READ_PREFIX}${journalPath}).`, { cause: error });
 }
 function isEventLogReadError(error) {
     return error instanceof EventLogReadError;
-}
-function isEventLogFileSystemError(error) {
-    return (0, file_system_read_errors_1.isErrnoException)(error) && (0, file_system_read_errors_1.isFileSystemReadError)(error);
 }

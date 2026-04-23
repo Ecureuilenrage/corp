@@ -32,7 +32,10 @@ export async function createMission(
   options: CreateMissionOptions,
 ): Promise<CreateMissionResult> {
   const layout = resolveWorkspaceLayout(options.rootDir);
-  await ensureMissionWorkspaceInitialized(layout, { commandLabel: "create" });
+  await ensureMissionWorkspaceInitialized(layout, {
+    commandLabel: "create",
+    cleanupLocks: true,
+  });
 
   const title = requireText(options.title, "Le titre de mission est obligatoire.");
   const objective = requireText(

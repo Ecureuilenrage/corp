@@ -272,6 +272,43 @@ async function openApproval(rootDir, missionId, ticketId) {
     strict_1.default.equal(emptyMutationResult.exitCode, 1);
     strict_1.default.equal(emptyMutationResult.lines.at(-1), "Aucune mutation demandee pour `corp mission extension select`.");
 });
+(0, node_test_1.default)("mission extension select et ticket create restent coherents quand les refs varient seulement par la casse", async (t) => {
+    const rootDir = await (0, promises_1.mkdtemp)(node_path_1.default.join((0, node_os_1.tmpdir)(), "corp-mission-extension-casefold-"));
+    t.after(async () => {
+        await (0, promises_1.rm)(rootDir, { recursive: true, force: true });
+    });
+    await bootstrapWorkspace(rootDir);
+    await registerCapability(rootDir);
+    await registerSkillPack(rootDir);
+    const mission = await createMission(rootDir);
+    const selectResult = await selectMissionExtensions(rootDir, mission.id, [
+        "--allow-capability",
+        "Shell.Exec",
+        "--skill-pack",
+        "Pack.Triage.Local",
+    ]);
+    strict_1.default.equal(selectResult.exitCode, 0);
+    const missionAfterSelection = await readMission(rootDir, mission.id);
+    strict_1.default.deepEqual(missionAfterSelection.authorizedExtensions, {
+        allowedCapabilities: ["shell.exec"],
+        skillPackRefs: ["pack.triage.local"],
+    });
+    const createResult = await createTicket(rootDir, mission.id, [
+        "--allow-capability",
+        "FS.READ",
+        "--allow-capability",
+        "CLI.RUN",
+        "--allow-capability",
+        "Shell.Exec",
+        "--skill-pack",
+        "Pack.Triage.Local",
+    ]);
+    strict_1.default.equal(createResult.exitCode, 0);
+    const ticketId = String(createResult.lines.find((line) => line.startsWith("Ticket cree: "))?.slice("Ticket cree: ".length));
+    const ticket = await readTicket(rootDir, mission.id, ticketId);
+    strict_1.default.deepEqual(ticket.allowedCapabilities, ["fs.read", "cli.run", "shell.exec"]);
+    strict_1.default.deepEqual(ticket.skillPackRefs, ["pack.triage.local"]);
+});
 (0, node_test_1.default)("mission extension select rejette les missions terminales de maniere deterministe", async (t) => {
     const rootDir = await (0, promises_1.mkdtemp)(node_path_1.default.join((0, node_os_1.tmpdir)(), "corp-mission-extension-terminal-"));
     t.after(async () => {

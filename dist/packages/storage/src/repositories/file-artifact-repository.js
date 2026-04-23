@@ -65,8 +65,9 @@ class FileArtifactRepository {
         };
         try {
             const storedArtifact = await (0, persisted_document_errors_1.readPersistedJsonDocument)(context);
-            (0, persisted_document_errors_1.assertValidPersistedDocument)(storedArtifact, persisted_document_guards_1.validateArtifact, context);
-            return storedArtifact;
+            const warnings = [];
+            (0, persisted_document_errors_1.assertValidPersistedDocument)(storedArtifact, (value) => (0, persisted_document_guards_1.validateArtifact)(value, { strict: false, warnings }), context);
+            return (0, persisted_document_guards_1.attachStructuralValidationWarnings)(storedArtifact, warnings);
         }
         catch (error) {
             if ((0, file_system_read_errors_1.isMissingFileError)(error)) {

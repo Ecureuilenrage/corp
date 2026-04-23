@@ -9,7 +9,6 @@ const file_mission_repository_1 = require("../../../storage/src/repositories/fil
 const file_ticket_repository_1 = require("../../../storage/src/repositories/file-ticket-repository");
 const ticket_service_support_1 = require("../../../ticket-runtime/src/ticket-service/ticket-service-support");
 const ensure_mission_workspace_1 = require("./ensure-mission-workspace");
-const LIFECYCLE_SKIP_PROJECTIONS = new Set(["resume-view"]);
 const CLOSEABLE_STATUSES = [
     "ready",
     "running",
@@ -45,7 +44,7 @@ async function updateMissionLifecycle(options) {
     const layout = (0, workspace_layout_1.resolveWorkspaceLayout)(options.rootDir);
     await (0, ensure_mission_workspace_1.ensureMissionWorkspaceInitialized)(layout, {
         commandLabel: options.action,
-        skipProjections: LIFECYCLE_SKIP_PROJECTIONS,
+        cleanupLocks: true,
     });
     const repository = (0, file_mission_repository_1.createFileMissionRepository)(layout);
     const mission = await repository.findById(options.missionId);

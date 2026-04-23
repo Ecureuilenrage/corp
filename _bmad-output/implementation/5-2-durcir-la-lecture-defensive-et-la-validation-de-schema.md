@@ -134,7 +134,7 @@ Code review 2026-04-15 (Blind Hunter + Edge Case Hunter + Acceptance Auditor). A
 - [ ] [Review][Decision] `mergeTicketsById`/`mergeAttemptsById` écrasent sur eventId sans timestamp — un event plus ancien avec eventId nouveau provoque régression vers état passé. Choix: comparer par timestamp, maintenir eventId, ou allow-list strict des `payload.ticket`. [`read-ticket-board.ts`]
 - [ ] [Review][Decision] Test `ticket-board.test.ts` flip `on_hold`→`todo` / `runnable: true` — changement sémantique non documenté dans la story. À confirmer comme intentionnel, ou revert.
 - [ ] [Review][Decision] BOM UTF-8 en tête de `mission.json`/`ticket.json` cause `SyntaxError` → `json_corrompu` sur un fichier légitime édité sous Windows. Choix: strip BOM dans `readPersistedJsonDocument` ou documenter contrainte.
-- [ ] [Review][Decision] `readPayloadPreview` bare-catch masque EACCES/EIO (AC4) — preview best-effort avale toute erreur silencieusement. Choix: classer `isFileSystemReadError` vs null seulement pour ENOENT, ou documenter l'exception AC4. [`read-mission-artifacts.ts`]
+- [x] [Review][Decision] `readPayloadPreview` bare-catch masque EACCES/EIO (AC4) — traite en 5.2.2: `ENOENT` retourne `null`, les autres erreurs filesystem sont remontees comme `erreur_fichier`. [`read-mission-artifacts.ts`]
 
 #### Patches (22)
 

@@ -1,3 +1,5 @@
+import { normalizeOpaqueReferences } from "../extension/extension-registration";
+
 export type MissionStatus =
   | "draft"
   | "ready"
@@ -63,23 +65,8 @@ function normalizeMissionReferenceList(values: unknown): string[] {
     return [];
   }
 
-  const normalizedValues: string[] = [];
-  const seenValues = new Set<string>();
-
-  for (const value of values) {
-    if (typeof value !== "string") {
-      continue;
-    }
-
-    const normalizedValue = value.trim();
-
-    if (!normalizedValue || seenValues.has(normalizedValue)) {
-      continue;
-    }
-
-    seenValues.add(normalizedValue);
-    normalizedValues.push(normalizedValue);
-  }
-
-  return normalizedValues;
+  return normalizeOpaqueReferences(
+    values.filter((value): value is string => typeof value === "string"),
+    { caseInsensitive: true },
+  );
 }

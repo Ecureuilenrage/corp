@@ -3,6 +3,7 @@ Object.defineProperty(exports, "__esModule", { value: true });
 exports.createArtifactIndexProjection = createArtifactIndexProjection;
 exports.readSourceReferences = readSourceReferences;
 exports.toPublicSource = toPublicSource;
+const persisted_document_guards_1 = require("../../../contracts/src/guards/persisted-document-guards");
 function createArtifactIndexProjection(options) {
     const ticketIds = new Set(options.tickets.map((ticket) => ticket.id));
     const ticketOwnersById = new Map(options.tickets.map((ticket) => [ticket.id, ticket.owner]));
@@ -84,25 +85,10 @@ function resolveRegisteredArtifacts(events, storedArtifactsById) {
 }
 function readArtifactFromPayload(payload) {
     const candidate = payload.artifact;
-    if (!isArtifact(candidate)) {
+    if (!(0, persisted_document_guards_1.isArtifact)(candidate)) {
         return null;
     }
     return candidate;
-}
-function isArtifact(value) {
-    if (typeof value !== "object" || value === null) {
-        return false;
-    }
-    const candidate = value;
-    return typeof candidate.id === "string"
-        && typeof candidate.missionId === "string"
-        && typeof candidate.ticketId === "string"
-        && typeof candidate.producingEventId === "string"
-        && (typeof candidate.attemptId === "string" || candidate.attemptId === null)
-        && (typeof candidate.workspaceIsolationId === "string" || candidate.workspaceIsolationId === null)
-        && typeof candidate.kind === "string"
-        && typeof candidate.title === "string"
-        && typeof candidate.createdAt === "string";
 }
 function readSourceReferences(payload) {
     if (!payload) {

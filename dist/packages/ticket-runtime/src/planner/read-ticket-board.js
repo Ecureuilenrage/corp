@@ -1,6 +1,11 @@
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
+exports.setReadTicketBoardDependenciesForTesting = setReadTicketBoardDependenciesForTesting;
 exports.readTicketBoard = readTicketBoard;
+exports.selectFreshMissionSnapshot = selectFreshMissionSnapshot;
+exports.mergeTicketsById = mergeTicketsById;
+exports.mergeAttemptsById = mergeAttemptsById;
+exports.normalizeTicketBoardReadError = normalizeTicketBoardReadError;
 const promises_1 = require("node:fs/promises");
 const event_log_errors_1 = require("../../../journal/src/event-log/event-log-errors");
 const mission_reconstruction_1 = require("../../../journal/src/reconstruction/mission-reconstruction");
@@ -13,34 +18,44 @@ const file_ticket_repository_1 = require("../../../storage/src/repositories/file
 const persisted_document_errors_1 = require("../../../storage/src/repositories/persisted-document-errors");
 const build_ticket_board_1 = require("./build-ticket-board");
 const structural_compare_1 = require("../utils/structural-compare");
+const DEFAULT_TICKET_BOARD_DEPENDENCIES = {
+    readMissionEvents: mission_reconstruction_1.readMissionEvents,
+};
+let ticketBoardDependenciesForTesting = null;
+function setReadTicketBoardDependenciesForTesting(dependencies) {
+    ticketBoardDependenciesForTesting = dependencies;
+}
 async function readTicketBoard(options) {
     const layout = (0, workspace_layout_1.resolveWorkspaceLayout)(options.rootDir);
     await ensureTicketBoardWorkspaceInitialized(layout, options.commandName);
-    const missionRepository = (0, file_mission_repository_1.createFileMissionRepository)(layout);
-    const ticketRepository = (0, file_ticket_repository_1.createFileTicketRepository)(layout);
-    const attemptRepository = (0, file_execution_attempt_repository_1.createFileExecutionAttemptRepository)(layout);
-    const storedMissionResult = await readStoredMissionSnapshot(missionRepository, options.missionId);
-    const storedMission = storedMissionResult.mission;
-    const missionEvents = await (0, mission_reconstruction_1.readMissionEvents)(layout.journalPath, options.missionId);
-    const missionFromJournal = missionEvents.length > 0
-        ? (0, mission_reconstruction_1.reconstructMissionFromJournal)(missionEvents, options.missionId)
-        : null;
-    if (!storedMission && !missionFromJournal) {
-        throw new Error(`Mission introuvable: ${options.missionId}.`);
-    }
-    const missionSnapshot = selectFreshMissionSnapshot(storedMission, missionFromJournal, missionEvents.at(-1)?.eventId);
     const projectionPath = (0, file_projection_store_1.resolveProjectionPath)(layout.projectionsDir, "ticket-board");
     try {
+        const missionRepository = (0, file_mission_repository_1.createFileMissionRepository)(layout);
+        const ticketRepository = (0, file_ticket_repository_1.createFileTicketRepository)(layout);
+        const attemptRepository = (0, file_execution_attempt_repository_1.createFileExecutionAttemptRepository)(layout);
+        const storedMissionResult = await readStoredMissionSnapshot(missionRepository, options.missionId);
+        const storedMission = storedMissionResult.mission;
+        const missionEvents = await readMissionEventsSafely(layout, options.missionId);
+        const missionFromJournal = missionEvents.length > 0
+            ? (0, mission_reconstruction_1.reconstructMissionFromJournal)(missionEvents, options.missionId)
+            : null;
+        if (!storedMission && !missionFromJournal) {
+            throw new Error(`Mission introuvable: ${options.missionId}.`);
+        }
+        const missionSnapshot = selectFreshMissionSnapshot(storedMission, missionFromJournal, (0, mission_reconstruction_1.getLastAuthoritativeMissionCursor)(missionEvents));
         const storedTickets = await readStoredTicketsForBoard(ticketRepository, missionSnapshot.id);
         const journalTickets = (0, mission_reconstruction_1.reconstructTicketsFromJournal)(missionEvents, missionSnapshot.id);
-        const mergedTickets = mergeTicketsById(storedTickets.tickets, journalTickets);
+        const journalTicketCursors = buildTicketCursors(missionEvents, missionSnapshot.id);
+        const mergedTickets = mergeTicketsById(storedTickets.tickets, journalTickets, journalTicketCursors);
         const missionTickets = mergedTickets.tickets;
         const storedAttempts = await readStoredAttemptsForBoard(missionSnapshot, attemptRepository);
-        const missionAttempts = mergeAttemptsById(storedAttempts.attempts, (0, mission_reconstruction_1.reconstructAttemptsFromJournal)(missionEvents), mergedTickets.usedJournalSnapshot
+        const journalAttempts = (0, mission_reconstruction_1.reconstructAttemptsFromJournal)(missionEvents, missionSnapshot.id);
+        const journalAttemptCursors = buildAttemptCursors(missionEvents, missionSnapshot.id);
+        const missionAttempts = mergeAttemptsById(storedAttempts.attempts, journalAttempts, mergedTickets.usedJournalSnapshot
             || missionSnapshot === missionFromJournal
             || storedMissionResult.recovered
             || storedTickets.recovered
-            || storedAttempts.recovered);
+            || storedAttempts.recovered, journalAttemptCursors);
         const rebuiltBoard = (0, build_ticket_board_1.buildTicketBoardProjection)(missionSnapshot, missionTickets, missionAttempts, missionEvents);
         const storedBoard = await readStoredTicketBoard(layout.projectionsDir, projectionPath, options.commandName === "compare" || options.commandName === "compare relaunch");
         if (!storedBoard || !isProjectionUpToDate(storedBoard, rebuiltBoard)) {
@@ -69,24 +84,26 @@ async function readTicketBoard(options) {
         });
     }
 }
-function selectFreshMissionSnapshot(storedMission, missionFromJournal, lastEventId) {
+function selectFreshMissionSnapshot(storedMission, missionFromJournal, lastAuthoritativeCursor) {
     if (!storedMission) {
         if (!missionFromJournal) {
             throw new Error("Mission introuvable.");
         }
         return missionFromJournal;
     }
-    if (missionFromJournal && lastEventId && storedMission.resumeCursor !== lastEventId) {
-        return missionFromJournal;
+    if (!missionFromJournal || !lastAuthoritativeCursor) {
+        return storedMission;
     }
-    return storedMission;
+    return compareMissionFreshness(toStoredMissionCursor(storedMission), lastAuthoritativeCursor) < 0
+        ? missionFromJournal
+        : storedMission;
 }
-function mergeTicketsById(storedTickets, journalTickets) {
+function mergeTicketsById(storedTickets, journalTickets, journalTicketCursors = new Map()) {
     const ticketsById = new Map(storedTickets.map((ticket) => [ticket.id, ticket]));
     let usedJournalSnapshot = false;
     for (const ticket of journalTickets) {
         const storedTicket = ticketsById.get(ticket.id);
-        if (!storedTicket || isJournalTicketNewer(storedTicket, ticket)) {
+        if (!storedTicket || isJournalTicketNewer(storedTicket, ticket, journalTicketCursors)) {
             ticketsById.set(ticket.id, ticket);
             usedJournalSnapshot = true;
         }
@@ -96,14 +113,21 @@ function mergeTicketsById(storedTickets, journalTickets) {
         usedJournalSnapshot,
     };
 }
-function isJournalTicketNewer(storedTicket, journalTicket) {
+function isJournalTicketNewer(storedTicket, journalTicket, journalTicketCursors) {
     const storedEventIds = new Set(storedTicket.eventIds);
-    return journalTicket.eventIds.some((eventId) => !storedEventIds.has(eventId));
+    const hasUnseenJournalEvent = journalTicket.eventIds.some((eventId) => !storedEventIds.has(eventId));
+    if (!hasUnseenJournalEvent) {
+        return false;
+    }
+    return compareMissionFreshness(toStoredTicketCursor(storedTicket), toJournalTicketCursor(journalTicket, journalTicketCursors)) < 0;
 }
-function mergeAttemptsById(storedAttempts, journalAttempts, preferJournalSnapshots) {
+function mergeAttemptsById(storedAttempts, journalAttempts, preferJournalSnapshots, journalAttemptCursors = new Map()) {
     const attemptsById = new Map(storedAttempts.map((attempt) => [attempt.id, attempt]));
     for (const attempt of journalAttempts) {
-        if (preferJournalSnapshots || !attemptsById.has(attempt.id)) {
+        const storedAttempt = attemptsById.get(attempt.id);
+        if (preferJournalSnapshots
+            || !storedAttempt
+            || isJournalAttemptNewer(storedAttempt, attempt, journalAttemptCursors)) {
             attemptsById.set(attempt.id, attempt);
         }
     }
@@ -219,8 +243,11 @@ function normalizeTicketBoardReadError(error, options) {
     if (isProjectionCorruptionError(error)) {
         return error;
     }
-    if ((0, event_log_errors_1.isEventLogReadError)(error) || (0, persisted_document_errors_1.isPersistedDocumentReadError)(error)) {
+    if (isClassifiedReadError(error)) {
         return error instanceof Error ? error : new Error(String(error));
+    }
+    if (error instanceof Error && error.message.startsWith("Mission introuvable: ")) {
+        return error;
     }
     if ((0, file_system_read_errors_1.isFileSystemReadError)(error)) {
         return (0, file_system_read_errors_1.createFileSystemReadError)(error, options.projectionPath, "projection ticket-board");
@@ -228,7 +255,7 @@ function normalizeTicketBoardReadError(error, options) {
     if (error instanceof SyntaxError) {
         return createProjectionCorruptionError(options.projectionPath, error);
     }
-    return new Error(formatTicketBoardReadError(options.missionId, options.commandName));
+    return new Error(formatTicketBoardReadError(options.missionId, options.commandName), { cause: error });
 }
 function createProjectionCorruptionError(projectionPath, cause) {
     return Object.assign(new Error(`Projection ticket-board corrompue: ${projectionPath}`, { cause }), {
@@ -241,4 +268,90 @@ function isProjectionCorruptionError(error) {
         && error !== null
         && "code" in error
         && error.code === "EPROJCORRUPT";
+}
+function isClassifiedReadError(error) {
+    return (0, event_log_errors_1.isEventLogReadError)(error) || (0, persisted_document_errors_1.isPersistedDocumentReadError)(error);
+}
+function getTicketBoardDependencies() {
+    return {
+        ...DEFAULT_TICKET_BOARD_DEPENDENCIES,
+        ...ticketBoardDependenciesForTesting,
+    };
+}
+async function readMissionEventsSafely(layout, missionId) {
+    try {
+        return await getTicketBoardDependencies().readMissionEvents(layout.journalPath, missionId);
+    }
+    catch (error) {
+        if (isClassifiedReadError(error)) {
+            throw error;
+        }
+        if ((0, file_system_read_errors_1.isFileSystemReadError)(error)) {
+            throw event_log_errors_1.EventLogReadError.fileSystem(layout.journalPath, error);
+        }
+        throw error;
+    }
+}
+function toStoredMissionCursor(mission) {
+    return {
+        occurredAt: mission.updatedAt,
+        eventId: mission.resumeCursor,
+    };
+}
+function toStoredTicketCursor(ticket) {
+    return {
+        occurredAt: ticket.updatedAt,
+        eventId: ticket.eventIds.at(-1) ?? "",
+    };
+}
+function toJournalTicketCursor(ticket, journalTicketCursors) {
+    return journalTicketCursors.get(ticket.id) ?? toStoredTicketCursor(ticket);
+}
+function isJournalAttemptNewer(storedAttempt, journalAttempt, journalAttemptCursors) {
+    return compareMissionFreshness(toStoredAttemptCursor(storedAttempt), toJournalAttemptCursor(journalAttempt, journalAttemptCursors)) < 0;
+}
+function toStoredAttemptCursor(attempt) {
+    return {
+        occurredAt: getAttemptFreshnessTimestamp(attempt),
+        eventId: "",
+    };
+}
+function toJournalAttemptCursor(attempt, journalAttemptCursors) {
+    return journalAttemptCursors.get(attempt.id) ?? toStoredAttemptCursor(attempt);
+}
+function getAttemptFreshnessTimestamp(attempt) {
+    return attempt.endedAt ?? attempt.startedAt;
+}
+function compareMissionFreshness(left, right) {
+    const occurredAtComparison = left.occurredAt.localeCompare(right.occurredAt);
+    if (occurredAtComparison !== 0) {
+        return occurredAtComparison;
+    }
+    return left.eventId.localeCompare(right.eventId);
+}
+function buildTicketCursors(missionEvents, missionId) {
+    const ticketCursors = new Map();
+    for (const event of missionEvents) {
+        if (event.missionId !== missionId || typeof event.ticketId !== "string") {
+            continue;
+        }
+        ticketCursors.set(event.ticketId, {
+            occurredAt: event.occurredAt,
+            eventId: event.eventId,
+        });
+    }
+    return ticketCursors;
+}
+function buildAttemptCursors(missionEvents, missionId) {
+    const attemptCursors = new Map();
+    for (const event of missionEvents) {
+        if (event.missionId !== missionId || typeof event.attemptId !== "string") {
+            continue;
+        }
+        attemptCursors.set(event.attemptId, {
+            occurredAt: event.occurredAt,
+            eventId: event.eventId,
+        });
+    }
+    return attemptCursors;
 }

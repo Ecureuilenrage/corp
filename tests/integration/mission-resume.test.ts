@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { mkdtemp, readFile, rm, unlink, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, rm, unlink, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { tmpdir } from "node:os";
 import test from "node:test";
@@ -149,6 +149,37 @@ test("mission resume expose le diagnostic journal_invalide quand le journal est 
     /journal_invalide: journal append-only invalide a la ligne 1 .*JSON corrompu\./,
   );
   assert.doesNotMatch(result.lines.at(-1) ?? "", /SyntaxError|Journal mission irreconciliable/);
+});
+
+test("mission resume preserve la cause originale quand mission.json est corrompu et que le journal est vide", async (t) => {
+  const rootDir = await mkdtemp(path.join(tmpdir(), "corp-mission-resume-corrupted-empty-journal-"));
+
+  t.after(async () => {
+    await rm(rootDir, { recursive: true, force: true });
+  });
+
+  const bootstrapResult = await runCommand(["mission", "bootstrap", "--root", rootDir]);
+  assert.equal(bootstrapResult.exitCode, 0);
+
+  const missionId = "mission_corrupted_resume";
+  const missionPath = path.join(rootDir, ".corp", "missions", missionId, "mission.json");
+
+  await writeFile(path.join(rootDir, ".corp", "journal", "events.jsonl"), "", "utf8");
+  await mkdir(path.dirname(missionPath), { recursive: true });
+  await writeFile(missionPath, "{json invalide\n", "utf8");
+
+  const result = await runCommand([
+    "mission",
+    "resume",
+    "--root",
+    rootDir,
+    "--mission-id",
+    missionId,
+  ]);
+
+  assert.equal(result.exitCode, 1);
+  assert.match(result.lines.at(-1) ?? "", /json_corrompu: Mission `mission_corrupted_resume` invalide/i);
+  assert.doesNotMatch(result.lines.at(-1) ?? "", /Mission introuvable|Journal mission irreconciliable/);
 });
 
 test("mission status et mission resume restent strictement read-only pour le journal", async (t) => {
@@ -1523,7 +1554,7 @@ test("mission resume expose un blocage ticket_failed tout en preservant le derni
   assert.equal(artifact.path, "README.md");
 });
 
-test("mission resume reconstruit depuis le journal quand un snapshot ticket porte un statut fantome", async (t) => {
+test("mission resume garde un ticket lisible quand un snapshot porte un statut fantome", async (t) => {
   const rootDir = await mkdtemp(path.join(tmpdir(), "corp-mission-resume-ghost-statuses-"));
 
   t.after(async () => {
@@ -1598,9 +1629,13 @@ test("mission resume reconstruit depuis le journal quand un snapshot ticket port
       assert.doesNotMatch(output, /Tickets ouverts: aucun/);
       assert.match(
         output,
-        /Prochain arbitrage utile: Traitez le prochain ticket runnable: Ticket au statut fantome\./,
+        /Prochain arbitrage utile: Aucun ticket n'est runnable pour le moment\. Replanifiez ou debloquez la mission avant de poursuivre\./,
       );
-      assert.doesNotMatch(output, new RegExp(`statut=${ghostStatus}`));
+
+      if (commandName === "status") {
+        assert.match(output, new RegExp(`statut=${ghostStatus}`));
+        assert.match(output, /motif=ticket bloque/);
+      }
     }
 
     const resumeView = await readJson<{ resume: { openTickets: Array<Record<string, unknown>> } | null }>(
@@ -1608,6 +1643,6 @@ test("mission resume reconstruit depuis le journal quand un snapshot ticket port
     );
 
     assert.equal(resumeView.resume?.openTickets[0]?.ticketId, ticketId);
-    assert.equal(resumeView.resume?.openTickets[0]?.status, "todo");
+    assert.equal(resumeView.resume?.openTickets[0]?.status, ghostStatus);
   }
 });

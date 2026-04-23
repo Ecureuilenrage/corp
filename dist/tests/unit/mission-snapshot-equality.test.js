@@ -53,3 +53,44 @@ function buildMission(overrides = {}) {
     const reordered = (0, mission_1.hydrateMission)(buildMission({ eventIds: ["event_2", "event_1"] }));
     strict_1.default.equal((0, file_mission_repository_1.areMissionSnapshotsEqual)(reference, reordered), false);
 });
+(0, node_test_1.default)("areMissionSnapshotsEqual traite une cle undefined comme equivalente a une cle absente", () => {
+    const withUndefined = {
+        ...buildMission(),
+        authorizedExtensions: undefined,
+    };
+    const { authorizedExtensions: _removed, ...withoutKey } = buildMission();
+    strict_1.default.equal((0, file_mission_repository_1.areMissionSnapshotsEqual)(withUndefined, withoutKey), true);
+});
+(0, node_test_1.default)("areMissionSnapshotsEqual canonise Date et BigInt avant comparaison", () => {
+    const left = {
+        ...buildMission(),
+        metadata: {
+            generatedAt: new Date("2026-04-16T10:00:00.000Z"),
+            revision: 7n,
+        },
+    };
+    const right = {
+        ...buildMission(),
+        metadata: {
+            generatedAt: "2026-04-16T10:00:00.000Z",
+            revision: "7",
+        },
+    };
+    strict_1.default.equal((0, file_mission_repository_1.areMissionSnapshotsEqual)(left, right), true);
+});
+(0, node_test_1.default)("areMissionSnapshotsEqual rejette Map et Set inattendus dans les snapshots mission", () => {
+    const withMap = {
+        ...buildMission(),
+        metadata: {
+            extensionMap: new Map([["shell.exec", true]]),
+        },
+    };
+    const withSet = {
+        ...buildMission(),
+        metadata: {
+            extensionSet: new Set(["shell.exec"]),
+        },
+    };
+    strict_1.default.throws(() => (0, file_mission_repository_1.areMissionSnapshotsEqual)(withMap, buildMission()), /Map\/Set non supportes/i);
+    strict_1.default.throws(() => (0, file_mission_repository_1.areMissionSnapshotsEqual)(buildMission(), withSet), /Map\/Set non supportes/i);
+});

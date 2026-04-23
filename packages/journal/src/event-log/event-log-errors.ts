@@ -1,7 +1,6 @@
 import {
   formatFileSystemReadError,
   isErrnoException,
-  isFileSystemReadError,
   isMissingFileError,
 } from "../../../storage/src/fs-layout/file-system-read-errors";
 
@@ -9,6 +8,8 @@ export type EventLogReadErrorCode =
   | "journal_manquant"
   | "journal_invalide"
   | "erreur_fichier";
+
+const UNEXPECTED_EVENT_LOG_READ_PREFIX = "Lecture du journal append-only irreconciliable (";
 
 export class EventLogReadError extends Error {
   public readonly code: EventLogReadErrorCode;
@@ -86,17 +87,20 @@ export function normalizeEventLogReadError(
     return EventLogReadError.missing(journalPath, error);
   }
 
-  if (isFileSystemReadError(error)) {
+  if (isErrnoException(error)) {
     return EventLogReadError.fileSystem(journalPath, error);
   }
 
-  return error instanceof Error ? error : new Error(String(error));
+  if (error instanceof Error && error.message.startsWith(UNEXPECTED_EVENT_LOG_READ_PREFIX)) {
+    return error;
+  }
+
+  return new Error(
+    `${UNEXPECTED_EVENT_LOG_READ_PREFIX}${journalPath}).`,
+    { cause: error },
+  );
 }
 
 export function isEventLogReadError(error: unknown): error is EventLogReadError {
   return error instanceof EventLogReadError;
-}
-
-export function isEventLogFileSystemError(error: unknown): boolean {
-  return isErrnoException(error) && isFileSystemReadError(error);
 }

@@ -1,11 +1,9 @@
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.BUILT_IN_ALLOWED_CAPABILITIES = void 0;
-exports.ensureMissionWorkspaceInitialized = ensureMissionWorkspaceInitialized;
+exports.BUILT_IN_ALLOWED_CAPABILITIES = exports.normalizeOpaqueReferences = void 0;
 exports.requireText = requireText;
 exports.requireTicketKind = requireTicketKind;
 exports.normalizeTrimmedList = normalizeTrimmedList;
-exports.normalizeOpaqueReferences = normalizeOpaqueReferences;
 exports.isBuiltInAllowedCapability = isBuiltInAllowedCapability;
 exports.ensureTicketExtensionsAllowedByMission = ensureTicketExtensionsAllowedByMission;
 exports.buildApprovalGuardrailsSnapshot = buildApprovalGuardrailsSnapshot;
@@ -15,7 +13,6 @@ exports.requireTicketInMission = requireTicketInMission;
 exports.applyExecutionHandleSnapshot = applyExecutionHandleSnapshot;
 exports.rewriteMissionReadModels = rewriteMissionReadModels;
 exports.missionHasOtherActiveAttempts = missionHasOtherActiveAttempts;
-const promises_1 = require("node:fs/promises");
 const ticket_1 = require("../../../contracts/src/ticket/ticket");
 const default_projections_1 = require("../../../journal/src/projections/default-projections");
 const artifact_index_projection_1 = require("../../../journal/src/projections/artifact-index-projection");
@@ -29,6 +26,9 @@ const file_execution_attempt_repository_1 = require("../../../storage/src/reposi
 const file_artifact_repository_1 = require("../../../storage/src/repositories/file-artifact-repository");
 const build_ticket_board_1 = require("../planner/build-ticket-board");
 const structural_compare_1 = require("../utils/structural-compare");
+var extension_registration_1 = require("../../../contracts/src/extension/extension-registration");
+Object.defineProperty(exports, "normalizeOpaqueReferences", { enumerable: true, get: function () { return extension_registration_1.normalizeOpaqueReferences; } });
+const extension_registration_2 = require("../../../contracts/src/extension/extension-registration");
 exports.BUILT_IN_ALLOWED_CAPABILITIES = new Set([
     "fs.read",
     "cli.run",
@@ -36,20 +36,6 @@ exports.BUILT_IN_ALLOWED_CAPABILITIES = new Set([
 const CLOSED_OPEN_TICKET_STATUSES = new Set([
     ...ticket_1.TERMINAL_TICKET_STATUSES,
 ]);
-async function ensureMissionWorkspaceInitialized(layout, commandName) {
-    try {
-        await (0, promises_1.access)(layout.journalPath);
-        for (const projectionName of Object.keys(default_projections_1.DEFAULT_PROJECTIONS)) {
-            if (projectionName === "resume-view") {
-                continue;
-            }
-            await (0, promises_1.access)((0, file_projection_store_1.resolveProjectionPath)(layout.projectionsDir, projectionName));
-        }
-    }
-    catch {
-        throw new Error(`Workspace mission non initialise. Lancez \`corp mission bootstrap --root ${layout.rootDir}\` avant \`corp mission ${commandName}\`.`);
-    }
-}
 function requireText(value, errorMessage) {
     const normalizedValue = value?.trim();
     if (!normalizedValue) {
@@ -85,26 +71,23 @@ function normalizeTrimmedList(values, options = {}) {
     }
     return normalizedValues;
 }
-function normalizeOpaqueReferences(values) {
-    return normalizeTrimmedList(values, { dedupe: true });
-}
 function isBuiltInAllowedCapability(capabilityId) {
-    return exports.BUILT_IN_ALLOWED_CAPABILITIES.has(capabilityId);
+    return exports.BUILT_IN_ALLOWED_CAPABILITIES.has((0, extension_registration_2.normalizeOpaqueReferenceKey)(capabilityId));
 }
 function ensureTicketExtensionsAllowedByMission(options) {
-    const allowedCapabilities = new Set(options.mission.authorizedExtensions.allowedCapabilities);
-    const skillPackRefs = new Set(options.mission.authorizedExtensions.skillPackRefs);
+    const allowedCapabilities = new Set(options.mission.authorizedExtensions.allowedCapabilities.map(extension_registration_2.normalizeOpaqueReferenceKey));
+    const skillPackRefs = new Set(options.mission.authorizedExtensions.skillPackRefs.map(extension_registration_2.normalizeOpaqueReferenceKey));
     for (const capabilityId of options.allowedCapabilities) {
         if (isBuiltInAllowedCapability(capabilityId)) {
             continue;
         }
-        if (!allowedCapabilities.has(capabilityId)) {
-            throw new Error(`La capability \`${capabilityId}\` n'est pas autorisee par la mission \`${options.mission.id}\`.`);
+        if (!allowedCapabilities.has((0, extension_registration_2.normalizeOpaqueReferenceKey)(capabilityId))) {
+            throw new Error(`La capability \`${(0, extension_registration_2.normalizeOpaqueReferenceKey)(capabilityId)}\` n'est pas autorisee par la mission \`${options.mission.id}\`.`);
         }
     }
     for (const packRef of options.skillPackRefs) {
-        if (!skillPackRefs.has(packRef)) {
-            throw new Error(`Le skill pack \`${packRef}\` n'est pas autorise par la mission \`${options.mission.id}\`.`);
+        if (!skillPackRefs.has((0, extension_registration_2.normalizeOpaqueReferenceKey)(packRef))) {
+            throw new Error(`Le skill pack \`${(0, extension_registration_2.normalizeOpaqueReferenceKey)(packRef)}\` n'est pas autorise par la mission \`${options.mission.id}\`.`);
         }
     }
 }

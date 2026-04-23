@@ -1,5 +1,5 @@
 ﻿# generated: 2026-04-08T21:20:40+02:00
-# last_updated: 2026-04-15T20:00:54.9470078+02:00
+# last_updated: 2026-04-16T00:00:00+02:00
 # project: corp
 # project_key: NOKEY
 # tracking_system: file-system
@@ -35,7 +35,7 @@
 # - Dev moves a story to 'review' before it can become 'done'
 
 generated: "2026-04-08T21:20:40+02:00"
-last_updated: "2026-04-15T21:30:00+02:00"
+last_updated: "2026-04-23T00:00:00+02:00"
 project: "corp"
 project_key: "NOKEY"
 tracking_system: "file-system"
@@ -83,10 +83,10 @@ development_status:
   5-1-1-durcir-atomicite-findings-review-5-1-critiques: done
   5-1-2-cleanup-atomicite-findings-review-5-1-medium-low: done
   5-2-durcir-la-lecture-defensive-et-la-validation-de-schema: review
-  5-2-1-durcir-lecture-defensive-findings-review-5-2-critiques: ready-for-dev
-  5-2-2-cleanup-lecture-defensive-findings-review-5-2-medium-low: ready-for-dev
-  5-3-factoriser-type-guards-et-helpers-workspace-partages: ready-for-dev
-  5-4-durcir-la-compatibilite-windows-identifiants-et-chemins: ready-for-dev
+  5-2-1-durcir-lecture-defensive-findings-review-5-2-critiques: done
+  5-2-2-cleanup-lecture-defensive-findings-review-5-2-medium-low: review
+  5-3-factoriser-type-guards-et-helpers-workspace-partages: done
+  5-4-durcir-la-compatibilite-windows-identifiants-et-chemins: done
   5-5-rendre-deterministes-les-projections-tris-et-filtres: ready-for-dev
   5-6-borner-la-confidentialite-et-la-securite-du-brief-adaptateur: ready-for-dev
   5-7-stabiliser-la-gouvernance-des-registres-test-seams-et-restants: ready-for-dev

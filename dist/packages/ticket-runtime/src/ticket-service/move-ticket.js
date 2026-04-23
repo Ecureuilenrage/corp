@@ -7,10 +7,14 @@ const read_mission_resume_1 = require("../../../mission-kernel/src/resume-servic
 const workspace_layout_1 = require("../../../storage/src/fs-layout/workspace-layout");
 const file_mission_repository_1 = require("../../../storage/src/repositories/file-mission-repository");
 const file_ticket_repository_1 = require("../../../storage/src/repositories/file-ticket-repository");
+const ensure_mission_workspace_1 = require("../../../mission-kernel/src/mission-service/ensure-mission-workspace");
 const ticket_service_support_1 = require("./ticket-service-support");
 async function moveTicket(options) {
     const layout = (0, workspace_layout_1.resolveWorkspaceLayout)(options.rootDir);
-    await (0, ticket_service_support_1.ensureMissionWorkspaceInitialized)(layout, "ticket move");
+    await (0, ensure_mission_workspace_1.ensureMissionWorkspaceInitialized)(layout, {
+        commandLabel: "ticket move",
+        cleanupLocks: true,
+    });
     const missionId = (0, ticket_service_support_1.requireText)(options.missionId, "L'option --mission-id est obligatoire pour `corp mission ticket move`.");
     const ticketId = (0, ticket_service_support_1.requireText)(options.ticketId, "L'option --ticket-id est obligatoire pour `corp mission ticket move`.");
     const missionRepository = (0, file_mission_repository_1.createFileMissionRepository)(layout);

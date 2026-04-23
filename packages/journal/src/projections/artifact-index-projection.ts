@@ -1,4 +1,5 @@
 import type { Artifact } from "../../../contracts/src/artifact/artifact";
+import { isArtifact } from "../../../contracts/src/guards/persisted-document-guards";
 import type { Mission } from "../../../contracts/src/mission/mission";
 import type { MissionResumeArtifact } from "../../../contracts/src/mission/mission-resume";
 import type { Ticket } from "../../../contracts/src/ticket/ticket";
@@ -150,23 +151,6 @@ function readArtifactFromPayload(payload: Record<string, unknown>): Artifact | n
   return candidate;
 }
 
-function isArtifact(value: unknown): value is Artifact {
-  if (typeof value !== "object" || value === null) {
-    return false;
-  }
-
-  const candidate = value as Record<string, unknown>;
-
-  return typeof candidate.id === "string"
-    && typeof candidate.missionId === "string"
-    && typeof candidate.ticketId === "string"
-    && typeof candidate.producingEventId === "string"
-    && (typeof candidate.attemptId === "string" || candidate.attemptId === null)
-    && (typeof candidate.workspaceIsolationId === "string" || candidate.workspaceIsolationId === null)
-    && typeof candidate.kind === "string"
-    && typeof candidate.title === "string"
-    && typeof candidate.createdAt === "string";
-}
 
 export function readSourceReferences(
   payload: Record<string, unknown> | undefined,

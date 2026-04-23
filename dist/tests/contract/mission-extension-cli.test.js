@@ -17,6 +17,7 @@ const index_1 = require("../../apps/corp-cli/src/index");
     const output = lines.join("\n");
     strict_1.default.equal(exitCode, 0);
     strict_1.default.match(output, /corp mission extension select --root <workspace> --mission-id <mission_id>/);
+    strict_1.default.match(output, /corp extension skill-pack list --root <workspace>/);
 });
 (0, node_test_1.default)("mission extension select rejette les combinaisons incompatibles avant execution", async (t) => {
     const rootDir = await (0, promises_1.mkdtemp)(node_path_1.default.join((0, node_os_1.tmpdir)(), "corp-mission-extension-cli-"));

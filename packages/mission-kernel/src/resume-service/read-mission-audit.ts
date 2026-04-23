@@ -7,6 +7,14 @@ import type { CapabilityInvocationDetails } from "../../../contracts/src/extensi
 import type { SkillPackUsageDetails } from "../../../contracts/src/extension/registered-skill-pack";
 import type { ExecutionAttempt } from "../../../contracts/src/execution-attempt/execution-attempt";
 import {
+  isApprovalRequest,
+  isArtifact,
+  isCapabilityInvocationDetails,
+  isExecutionAttempt,
+  isTicket,
+  isWorkspaceIsolationMetadata,
+} from "../../../contracts/src/guards/persisted-document-guards";
+import {
   type Mission,
   type MissionAuthorizedExtensions,
 } from "../../../contracts/src/mission/mission";
@@ -622,11 +630,84 @@ function readIsolationFromPayload(
   return isWorkspaceIsolationMetadata(candidate) ? candidate : null;
 }
 
+// Extraction tolerante pour l'audit : on preserve l'outcome et les champs
+// optionnels bien formes, on ignore ceux qui sont malformes sans laisser
+// tomber toute la decision. Le guard canonique `isApprovalDecision`
+// (packages/contracts) reste strict pour les reads repository.
 function readDecisionFromPayload(
   payload: Record<string, unknown>,
 ): ApprovalDecision | null {
   const candidate = payload.decision;
-  return isApprovalDecision(candidate) ? candidate : null;
+
+  if (typeof candidate !== "object" || candidate === null) {
+    return null;
+  }
+
+  const record = candidate as Record<string, unknown>;
+  const outcome = record.outcome;
+
+  if (outcome !== "approved" && outcome !== "rejected" && outcome !== "deferred") {
+    return null;
+  }
+
+  const decision: ApprovalDecision = { outcome };
+
+  if (typeof record.reason === "string") {
+    decision.reason = record.reason;
+  }
+
+  const missionPolicyChange = record.missionPolicyChange;
+  if (isStringChange(missionPolicyChange)) {
+    decision.missionPolicyChange = { ...missionPolicyChange };
+  }
+
+  const ticketCapabilityChange = record.ticketCapabilityChange;
+  if (isStringArrayChange(ticketCapabilityChange)) {
+    decision.ticketCapabilityChange = {
+      previous: [...ticketCapabilityChange.previous],
+      next: [...ticketCapabilityChange.next],
+    };
+  }
+
+  const ticketSkillPackChange = record.ticketSkillPackChange;
+  if (isStringArrayChange(ticketSkillPackChange)) {
+    decision.ticketSkillPackChange = {
+      previous: [...ticketSkillPackChange.previous],
+      next: [...ticketSkillPackChange.next],
+    };
+  }
+
+  const budgetObservations = record.budgetObservations;
+  if (Array.isArray(budgetObservations) && budgetObservations.every((entry) => typeof entry === "string")) {
+    decision.budgetObservations = [...budgetObservations];
+  }
+
+  return decision;
+}
+
+function isStringChange(
+  value: unknown,
+): value is { previous: string; next: string } {
+  if (typeof value !== "object" || value === null) {
+    return false;
+  }
+
+  const candidate = value as Record<string, unknown>;
+  return typeof candidate.previous === "string" && typeof candidate.next === "string";
+}
+
+function isStringArrayChange(
+  value: unknown,
+): value is { previous: string[]; next: string[] } {
+  if (typeof value !== "object" || value === null) {
+    return false;
+  }
+
+  const candidate = value as Record<string, unknown>;
+  return Array.isArray(candidate.previous)
+    && candidate.previous.every((entry) => typeof entry === "string")
+    && Array.isArray(candidate.next)
+    && candidate.next.every((entry) => typeof entry === "string");
 }
 
 function readCapabilityFromPayload(
@@ -675,134 +756,6 @@ function readOptionalNumber(
 
 function formatList(values: string[], emptyValue: string): string {
   return values.length > 0 ? values.join(", ") : emptyValue;
-}
-
-function isApprovalRequest(value: unknown): value is ApprovalRequest {
-  if (typeof value !== "object" || value === null) {
-    return false;
-  }
-
-  const candidate = value as Record<string, unknown>;
-
-  return typeof candidate.approvalId === "string"
-    && typeof candidate.missionId === "string"
-    && typeof candidate.ticketId === "string"
-    && typeof candidate.attemptId === "string"
-    && typeof candidate.status === "string"
-    && typeof candidate.title === "string"
-    && typeof candidate.actionType === "string"
-    && typeof candidate.actionSummary === "string"
-    && Array.isArray(candidate.guardrails)
-    && Array.isArray(candidate.relatedEventIds)
-    && Array.isArray(candidate.relatedArtifactIds)
-    && typeof candidate.createdAt === "string"
-    && typeof candidate.updatedAt === "string";
-}
-
-function isArtifact(value: unknown): value is Artifact {
-  if (typeof value !== "object" || value === null) {
-    return false;
-  }
-
-  const candidate = value as Record<string, unknown>;
-
-  return typeof candidate.id === "string"
-    && typeof candidate.missionId === "string"
-    && typeof candidate.ticketId === "string"
-    && typeof candidate.producingEventId === "string"
-    && (typeof candidate.attemptId === "string" || candidate.attemptId === null)
-    && (typeof candidate.workspaceIsolationId === "string" || candidate.workspaceIsolationId === null)
-    && typeof candidate.kind === "string"
-    && typeof candidate.title === "string"
-    && typeof candidate.createdAt === "string";
-}
-
-function isTicket(value: unknown): value is Ticket {
-  if (typeof value !== "object" || value === null) {
-    return false;
-  }
-
-  const candidate = value as Record<string, unknown>;
-
-  return typeof candidate.id === "string"
-    && typeof candidate.missionId === "string"
-    && typeof candidate.kind === "string"
-    && typeof candidate.goal === "string"
-    && typeof candidate.status === "string"
-    && typeof candidate.owner === "string"
-    && Array.isArray(candidate.dependsOn)
-    && Array.isArray(candidate.successCriteria)
-    && Array.isArray(candidate.allowedCapabilities)
-    && Array.isArray(candidate.skillPackRefs)
-    && (typeof candidate.workspaceIsolationId === "string" || candidate.workspaceIsolationId === null)
-    && typeof candidate.executionHandle === "object"
-    && candidate.executionHandle !== null
-    && Array.isArray(candidate.artifactIds)
-    && Array.isArray(candidate.eventIds)
-    && typeof candidate.createdAt === "string"
-    && typeof candidate.updatedAt === "string";
-}
-
-function isExecutionAttempt(value: unknown): value is ExecutionAttempt {
-  if (typeof value !== "object" || value === null) {
-    return false;
-  }
-
-  const candidate = value as Record<string, unknown>;
-
-  return typeof candidate.id === "string"
-    && typeof candidate.ticketId === "string"
-    && typeof candidate.adapter === "string"
-    && typeof candidate.status === "string"
-    && typeof candidate.workspaceIsolationId === "string"
-    && typeof candidate.backgroundRequested === "boolean"
-    && typeof candidate.adapterState === "object"
-    && candidate.adapterState !== null
-    && typeof candidate.startedAt === "string"
-    && (typeof candidate.endedAt === "string" || candidate.endedAt === null);
-}
-
-function isWorkspaceIsolationMetadata(value: unknown): value is WorkspaceIsolationMetadata {
-  if (typeof value !== "object" || value === null) {
-    return false;
-  }
-
-  const candidate = value as Record<string, unknown>;
-
-  return typeof candidate.workspaceIsolationId === "string"
-    && typeof candidate.kind === "string"
-    && typeof candidate.sourceRoot === "string"
-    && typeof candidate.workspacePath === "string"
-    && typeof candidate.createdAt === "string"
-    && typeof candidate.retained === "boolean";
-}
-
-function isApprovalDecision(value: unknown): value is ApprovalDecision {
-  if (typeof value !== "object" || value === null) {
-    return false;
-  }
-
-  const candidate = value as Record<string, unknown>;
-  return typeof candidate.outcome === "string"
-    && (candidate.outcome === "approved"
-      || candidate.outcome === "rejected"
-      || candidate.outcome === "deferred");
-}
-
-function isCapabilityInvocationDetails(value: unknown): value is CapabilityInvocationDetails {
-  if (typeof value !== "object" || value === null) {
-    return false;
-  }
-
-  const candidate = value as Record<string, unknown>;
-
-  return typeof candidate.capabilityId === "string"
-    && typeof candidate.registrationId === "string"
-    && (candidate.provider === "local" || candidate.provider === "mcp")
-    && typeof candidate.approvalSensitive === "boolean"
-    && Array.isArray(candidate.permissions)
-    && Array.isArray(candidate.constraints)
-    && Array.isArray(candidate.requiredEnvNames);
 }
 
 function isAuthorizedExtensions(value: unknown): value is MissionAuthorizedExtensions {

@@ -2,6 +2,7 @@
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.createApprovalQueueProjection = createApprovalQueueProjection;
 const approval_request_1 = require("../../../contracts/src/approval/approval-request");
+const persisted_document_guards_1 = require("../../../contracts/src/guards/persisted-document-guards");
 const TERMINAL_APPROVAL_STATUSES = new Set(approval_request_1.TERMINAL_APPROVAL_REQUEST_STATUSES);
 const APPROVAL_EVENT_PREFIX = "approval.";
 const APPROVAL_EVENT_STATUS_BY_TYPE = {
@@ -38,7 +39,7 @@ function compareApprovals(left, right) {
 }
 function readApprovalFromPayload(payload, eventType) {
     const candidate = payload.approval ?? payload.approvalRequest;
-    if (!isApprovalRequest(candidate)) {
+    if (!(0, persisted_document_guards_1.isApprovalRequest)(candidate)) {
         return null;
     }
     return {
@@ -48,26 +49,4 @@ function readApprovalFromPayload(payload, eventType) {
         relatedEventIds: [...candidate.relatedEventIds],
         relatedArtifactIds: [...candidate.relatedArtifactIds],
     };
-}
-function isApprovalRequest(value) {
-    if (typeof value !== "object" || value === null) {
-        return false;
-    }
-    const candidate = value;
-    return typeof candidate.approvalId === "string"
-        && typeof candidate.missionId === "string"
-        && typeof candidate.ticketId === "string"
-        && typeof candidate.attemptId === "string"
-        && typeof candidate.status === "string"
-        && typeof candidate.title === "string"
-        && typeof candidate.actionType === "string"
-        && typeof candidate.actionSummary === "string"
-        && isStringArray(candidate.guardrails)
-        && isStringArray(candidate.relatedEventIds)
-        && isStringArray(candidate.relatedArtifactIds)
-        && typeof candidate.createdAt === "string"
-        && typeof candidate.updatedAt === "string";
-}
-function isStringArray(value) {
-    return Array.isArray(value) && value.every((entry) => typeof entry === "string");
 }

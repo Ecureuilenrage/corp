@@ -1,8 +1,17 @@
 import type { ApprovalRequest } from "../../../contracts/src/approval/approval-request";
 import type { Artifact } from "../../../contracts/src/artifact/artifact";
+import { normalizeOpaqueReferences } from "../../../contracts/src/extension/extension-registration";
 import type { CapabilityInvocationDetails } from "../../../contracts/src/extension/registered-capability";
 import type { SkillPackUsageDetails } from "../../../contracts/src/extension/registered-skill-pack";
 import type { ExecutionAttempt } from "../../../contracts/src/execution-attempt/execution-attempt";
+import {
+  isApprovalRequest,
+  isArtifact,
+  isCapabilityInvocationDetails,
+  isExecutionAttempt,
+  isTicket,
+  isWorkspaceIsolationMetadata,
+} from "../../../contracts/src/guards/persisted-document-guards";
 import {
   hydrateMission,
   type Mission,
@@ -533,7 +542,7 @@ function readMissionFromPayload(
   payload: Record<string, unknown>,
 ): Mission | null {
   const candidate = payload.mission;
-  return isMission(candidate) ? hydrateMission(candidate) : null;
+  return isAuditMissionShape(candidate) ? hydrateMission(candidate) : null;
 }
 
 function readTicketFromPayload(
@@ -646,24 +655,6 @@ function readTicketOwnerFromPayload(payload: Record<string, unknown>): string | 
   return ticket?.owner?.trim().length ? ticket.owner : undefined;
 }
 
-function normalizeOpaqueReferences(values: string[]): string[] {
-  const normalizedValues: string[] = [];
-  const seenValues = new Set<string>();
-
-  for (const value of values) {
-    const normalizedValue = value.trim();
-
-    if (!normalizedValue || seenValues.has(normalizedValue)) {
-      continue;
-    }
-
-    seenValues.add(normalizedValue);
-    normalizedValues.push(normalizedValue);
-  }
-
-  return normalizedValues;
-}
-
 function readStringArray(
   payload: Record<string, unknown>,
   key: string,
@@ -706,47 +697,13 @@ function readOptionalBoolean(
   return typeof candidate === "boolean" ? candidate : undefined;
 }
 
-function isApprovalRequest(value: unknown): value is ApprovalRequest {
-  if (typeof value !== "object" || value === null) {
-    return false;
-  }
-
-  const candidate = value as Record<string, unknown>;
-
-  return typeof candidate.approvalId === "string"
-    && typeof candidate.missionId === "string"
-    && typeof candidate.ticketId === "string"
-    && typeof candidate.attemptId === "string"
-    && typeof candidate.status === "string"
-    && typeof candidate.title === "string"
-    && typeof candidate.actionType === "string"
-    && typeof candidate.actionSummary === "string"
-    && Array.isArray(candidate.guardrails)
-    && Array.isArray(candidate.relatedEventIds)
-    && Array.isArray(candidate.relatedArtifactIds)
-    && typeof candidate.createdAt === "string"
-    && typeof candidate.updatedAt === "string";
-}
-
-function isArtifact(value: unknown): value is Artifact {
-  if (typeof value !== "object" || value === null) {
-    return false;
-  }
-
-  const candidate = value as Record<string, unknown>;
-
-  return typeof candidate.id === "string"
-    && typeof candidate.missionId === "string"
-    && typeof candidate.ticketId === "string"
-    && typeof candidate.producingEventId === "string"
-    && (typeof candidate.attemptId === "string" || candidate.attemptId === null)
-    && (typeof candidate.workspaceIsolationId === "string" || candidate.workspaceIsolationId === null)
-    && typeof candidate.kind === "string"
-    && typeof candidate.title === "string"
-    && typeof candidate.createdAt === "string";
-}
-
-function isMission(value: unknown): value is Mission {
+// Fork delibere du guard `isMission` canonique : l'audit doit pouvoir surfacer
+// des snapshots mission historiques meme si leurs tableaux (successCriteria,
+// ticketIds, artifactIds, eventIds) contiennent des entrees non-string residuelles
+// ou si le statut est hors union courante. Le guard canonique
+// `isMission` dans packages/contracts impose une validation stricte pour les
+// reads repository ; ici, l'audit privilegie la fidelite journalistique.
+function isAuditMissionShape(value: unknown): value is Mission {
   if (typeof value !== "object" || value === null) {
     return false;
   }
@@ -769,82 +726,6 @@ function isMission(value: unknown): value is Mission {
     && typeof candidate.resumeCursor === "string"
     && typeof candidate.createdAt === "string"
     && typeof candidate.updatedAt === "string";
-}
-
-function isTicket(value: unknown): value is Ticket {
-  if (typeof value !== "object" || value === null) {
-    return false;
-  }
-
-  const candidate = value as Record<string, unknown>;
-
-  return typeof candidate.id === "string"
-    && typeof candidate.missionId === "string"
-    && typeof candidate.kind === "string"
-    && typeof candidate.goal === "string"
-    && typeof candidate.status === "string"
-    && typeof candidate.owner === "string"
-    && Array.isArray(candidate.dependsOn)
-    && Array.isArray(candidate.successCriteria)
-    && Array.isArray(candidate.allowedCapabilities)
-    && Array.isArray(candidate.skillPackRefs)
-    && (typeof candidate.workspaceIsolationId === "string" || candidate.workspaceIsolationId === null)
-    && typeof candidate.executionHandle === "object"
-    && candidate.executionHandle !== null
-    && Array.isArray(candidate.artifactIds)
-    && Array.isArray(candidate.eventIds)
-    && typeof candidate.createdAt === "string"
-    && typeof candidate.updatedAt === "string";
-}
-
-function isExecutionAttempt(value: unknown): value is ExecutionAttempt {
-  if (typeof value !== "object" || value === null) {
-    return false;
-  }
-
-  const candidate = value as Record<string, unknown>;
-
-  return typeof candidate.id === "string"
-    && typeof candidate.ticketId === "string"
-    && typeof candidate.adapter === "string"
-    && typeof candidate.status === "string"
-    && typeof candidate.workspaceIsolationId === "string"
-    && typeof candidate.backgroundRequested === "boolean"
-    && typeof candidate.adapterState === "object"
-    && candidate.adapterState !== null
-    && typeof candidate.startedAt === "string"
-    && (typeof candidate.endedAt === "string" || candidate.endedAt === null);
-}
-
-function isWorkspaceIsolationMetadata(value: unknown): value is WorkspaceIsolationMetadata {
-  if (typeof value !== "object" || value === null) {
-    return false;
-  }
-
-  const candidate = value as Record<string, unknown>;
-
-  return typeof candidate.workspaceIsolationId === "string"
-    && typeof candidate.kind === "string"
-    && typeof candidate.sourceRoot === "string"
-    && typeof candidate.workspacePath === "string"
-    && typeof candidate.createdAt === "string"
-    && typeof candidate.retained === "boolean";
-}
-
-function isCapabilityInvocationDetails(value: unknown): value is CapabilityInvocationDetails {
-  if (typeof value !== "object" || value === null) {
-    return false;
-  }
-
-  const candidate = value as Record<string, unknown>;
-
-  return typeof candidate.capabilityId === "string"
-    && typeof candidate.registrationId === "string"
-    && (candidate.provider === "local" || candidate.provider === "mcp")
-    && typeof candidate.approvalSensitive === "boolean"
-    && Array.isArray(candidate.permissions)
-    && Array.isArray(candidate.constraints)
-    && Array.isArray(candidate.requiredEnvNames);
 }
 
 function isAuthorizedExtensions(value: unknown): value is MissionAuthorizedExtensions {

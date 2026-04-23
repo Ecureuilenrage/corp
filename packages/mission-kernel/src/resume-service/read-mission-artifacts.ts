@@ -338,11 +338,11 @@ export async function readPayloadPreview(
   mediaType: string | undefined,
   dependencies: ReadPayloadPreviewDependencies = {},
 ): Promise<string | null> {
-  try {
-    const resolvedPayloadPath = path.isAbsolute(payloadPath)
-      ? payloadPath
-      : path.join(rootDir, payloadPath);
+  const resolvedPayloadPath = path.isAbsolute(payloadPath)
+    ? payloadPath
+    : path.join(rootDir, payloadPath);
 
+  try {
     if (mediaType?.includes("json") || !mediaType || mediaType.startsWith("text/")) {
       return truncatePreview(
         await readUtf8PreviewContents(resolvedPayloadPath, dependencies),
@@ -350,8 +350,16 @@ export async function readPayloadPreview(
     }
 
     return null;
-  } catch {
-    return null;
+  } catch (error) {
+    if (isMissingFileError(error)) {
+      return null;
+    }
+
+    if (isFileSystemReadError(error)) {
+      throw createFileSystemReadError(error, resolvedPayloadPath, "payload artefact");
+    }
+
+    throw error;
   }
 }
 

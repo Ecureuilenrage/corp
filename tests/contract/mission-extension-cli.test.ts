@@ -18,6 +18,10 @@ test("la CLI expose la commande mission extension select dans l'aide globale", a
     output,
     /corp mission extension select --root <workspace> --mission-id <mission_id>/,
   );
+  assert.match(
+    output,
+    /corp extension skill-pack list --root <workspace>/,
+  );
 });
 
 test("mission extension select rejette les combinaisons incompatibles avant execution", async (t) => {

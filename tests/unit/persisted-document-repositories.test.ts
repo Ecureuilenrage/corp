@@ -10,6 +10,7 @@ import type { RegisteredSkillPack } from "../../packages/contracts/src/extension
 import type { ExecutionAttempt } from "../../packages/contracts/src/execution-attempt/execution-attempt";
 import type { Mission } from "../../packages/contracts/src/mission/mission";
 import type { Ticket } from "../../packages/contracts/src/ticket/ticket";
+import { getStructuralValidationWarnings } from "../../packages/contracts/src/guards/persisted-document-guards";
 import { ensureWorkspaceLayout, type WorkspaceLayout } from "../../packages/storage/src/fs-layout/workspace-layout";
 import {
   CorruptedPersistedDocumentError,
@@ -44,7 +45,7 @@ function createCases(): RepositoryCase[] {
       documentId: missionId,
       filePath: (layout) => path.join(layout.missionsDir, missionId, "mission.json"),
       read: (layout) => createFileMissionRepository(layout).findById(missionId),
-      invalidDocument: { ...createMission(), status: "closed" },
+      invalidDocument: { ...createMission(), ticketIds: [42] },
     },
     {
       entityLabel: "Ticket",
@@ -65,7 +66,7 @@ function createCases(): RepositoryCase[] {
       documentId: artifactId,
       filePath: (layout) => path.join(layout.missionsDir, missionId, "tickets", ticketId, "artifacts", artifactId, "artifact.json"),
       read: (layout) => createFileArtifactRepository(layout).findById(missionId, artifactId),
-      invalidDocument: { ...createArtifact(), kind: "binary_blob" },
+      invalidDocument: { ...createArtifact(), sizeBytes: "12" },
     },
     {
       entityLabel: "RegisteredCapability",
@@ -118,6 +119,28 @@ test("les repositories classent le JSON corrompu sans laisser fuir SyntaxError",
   }
 });
 
+test("les repositories acceptent un document UTF-8 avec BOM sans le classer json_corrompu", async (t) => {
+  const rootDir = await mkdtemp(path.join(tmpdir(), "corp-defensive-json-bom-"));
+  t.after(async () => {
+    await rm(rootDir, { recursive: true, force: true });
+  });
+
+  const layout = await ensureWorkspaceLayout(rootDir);
+  const missionPath = path.join(layout.missionsDir, missionId, "mission.json");
+
+  await mkdir(path.dirname(missionPath), { recursive: true });
+  await writeFile(
+    missionPath,
+    `\uFEFF${JSON.stringify(createMission(), null, 2)}\n`,
+    "utf8",
+  );
+
+  const mission = await createFileMissionRepository(layout).findById(missionId);
+
+  assert.ok(mission);
+  assert.equal(mission.id, missionId);
+});
+
 test("les repositories rejettent les schemas valides JSON mais invalides runtime", async (t) => {
   const rootDir = await mkdtemp(path.join(tmpdir(), "corp-defensive-schema-"));
   t.after(async () => {
@@ -139,11 +162,69 @@ test("les repositories rejettent les schemas valides JSON mais invalides runtime
         assert.equal(error.filePath, snapshotPath);
         assert.equal(error.documentId, repositoryCase.documentId);
         assert.match(error.message, new RegExp(repositoryCase.entityLabel));
-        assert.match(error.message, /statut inconnu|discriminant invalide/i);
+        assert.match(error.message, /statut inconnu|discriminant invalide|type incorrect/i);
         return true;
       },
     );
   }
+});
+
+test("InvalidPersistedDocumentError preserve une cause exploitable", async (t) => {
+  const rootDir = await mkdtemp(path.join(tmpdir(), "corp-defensive-schema-cause-"));
+  t.after(async () => {
+    await rm(rootDir, { recursive: true, force: true });
+  });
+
+  const layout = await ensureWorkspaceLayout(rootDir);
+  const missionPath = path.join(layout.missionsDir, missionId, "mission.json");
+
+  await mkdir(path.dirname(missionPath), { recursive: true });
+  await writeFile(
+    missionPath,
+    `${JSON.stringify({ ...createMission(), title: undefined }, null, 2)}\n`,
+    "utf8",
+  );
+
+  await assert.rejects(
+    () => createFileMissionRepository(layout).findById(missionId),
+    (error: unknown) => {
+      assert.ok(error instanceof InvalidPersistedDocumentError);
+      assert.ok(error.cause instanceof Error);
+      assert.match(error.cause.message, /champ manquant.*title/i);
+      return true;
+    },
+  );
+});
+
+test("les repositories normalisent une erreur inattendue de JSON.parse avec sa cause", async (t) => {
+  const rootDir = await mkdtemp(path.join(tmpdir(), "corp-defensive-json-unknown-"));
+  const rootCause = new TypeError("synthetic persisted parse failure");
+  const originalJsonParse = JSON.parse;
+
+  t.after(async () => {
+    JSON.parse = originalJsonParse;
+    await rm(rootDir, { recursive: true, force: true });
+  });
+
+  const layout = await ensureWorkspaceLayout(rootDir);
+  const missionPath = path.join(layout.missionsDir, missionId, "mission.json");
+
+  await mkdir(path.dirname(missionPath), { recursive: true });
+  await writeFile(missionPath, `${JSON.stringify(createMission(), null, 2)}\n`, "utf8");
+
+  JSON.parse = (() => {
+    throw rootCause;
+  }) as typeof JSON.parse;
+
+  await assert.rejects(
+    () => createFileMissionRepository(layout).findById(missionId),
+    (error: unknown) => {
+      assert.ok(error instanceof Error);
+      assert.match(error.message, /Lecture du document persiste Mission/);
+      assert.equal(error.cause, rootCause);
+      return true;
+    },
+  );
 });
 
 test("FileSkillPackRegistryRepository.list expose une entree corrompue au lieu de retourner une liste partielle", async (t) => {
@@ -172,6 +253,69 @@ test("FileSkillPackRegistryRepository.list expose une entree corrompue au lieu d
       assert.match(error.message, /pack\.corrupt/);
       return true;
     },
+  );
+});
+
+test("les repositories lisent les discriminants ouverts inconnus en attachant des warnings structurels", async (t) => {
+  const rootDir = await mkdtemp(path.join(tmpdir(), "corp-defensive-open-discriminants-"));
+  t.after(async () => {
+    await rm(rootDir, { recursive: true, force: true });
+  });
+
+  const layout = await ensureWorkspaceLayout(rootDir);
+  const missionPath = path.join(layout.missionsDir, missionId, "mission.json");
+  const ticketPath = path.join(layout.missionsDir, missionId, "tickets", ticketId, "ticket.json");
+  const artifactPath = path.join(
+    layout.missionsDir,
+    missionId,
+    "tickets",
+    ticketId,
+    "artifacts",
+    artifactId,
+    "artifact.json",
+  );
+
+  await mkdir(path.dirname(missionPath), { recursive: true });
+  await mkdir(path.dirname(ticketPath), { recursive: true });
+  await mkdir(path.dirname(artifactPath), { recursive: true });
+
+  await writeFile(
+    missionPath,
+    `${JSON.stringify({ ...createMission(), status: "archived_v2" }, null, 2)}\n`,
+    "utf8",
+  );
+  await writeFile(
+    ticketPath,
+    `${JSON.stringify({ ...createTicket(), status: "on_hold" }, null, 2)}\n`,
+    "utf8",
+  );
+  await writeFile(
+    artifactPath,
+    `${JSON.stringify({ ...createArtifact(), kind: "binary_blob_v2" }, null, 2)}\n`,
+    "utf8",
+  );
+
+  const mission = await createFileMissionRepository(layout).findById(missionId);
+  const ticket = await createFileTicketRepository(layout).findById(missionId, ticketId);
+  const artifact = await createFileArtifactRepository(layout).findById(missionId, artifactId);
+
+  assert.ok(mission);
+  assert.ok(ticket);
+  assert.ok(artifact);
+  assert.equal((mission as unknown as Record<string, unknown>).status, "archived_v2");
+  assert.equal((ticket as unknown as Record<string, unknown>).status, "on_hold");
+  assert.equal((artifact as unknown as Record<string, unknown>).kind, "binary_blob_v2");
+  assert.deepEqual(
+    getStructuralValidationWarnings(mission).map((warning) => warning.path),
+    ["status"],
+  );
+  assert.deepEqual(
+    getStructuralValidationWarnings(ticket).map((warning) => warning.path),
+    ["status"],
+  );
+  assert.deepEqual(
+    getStructuralValidationWarnings(artifact).map((warning) => warning.path),
+    ["kind"],
   );
 });
 

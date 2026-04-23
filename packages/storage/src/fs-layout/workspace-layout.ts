@@ -1,6 +1,8 @@
 import { mkdir } from "node:fs/promises";
 import path from "node:path";
 
+import { normalizeOpaqueReferenceKey } from "../../../contracts/src/extension/extension-registration";
+
 export interface WorkspaceLayout {
   rootDir: string;
   corpDir: string;
@@ -83,7 +85,10 @@ export async function ensureWorkspaceLayout(rootDir: string): Promise<WorkspaceL
 }
 
 const MAX_STORAGE_ID_LENGTH = 255;
-const UNSAFE_STORAGE_ID_PATTERN = /[/\\]|\.\.|^\.?$|\x00/;
+const UNSAFE_STORAGE_ID_PATTERN = /[/\\]|^\.{1,2}$|\x00/;
+const WINDOWS_FORBIDDEN_STORAGE_CHARACTERS = new Set([":", "<", ">", "|", "?", "*", "\""]);
+const WINDOWS_CONTROL_CHARACTER_PATTERN = /[\x01-\x1F]/;
+const WINDOWS_RESERVED_STORAGE_NAMES = /^(?:con|prn|nul|aux|com[1-9]|lpt[1-9])(?:\..*)?$/i;
 
 export function resolveMissionStoragePaths(
   layout: WorkspaceLayout,
@@ -164,7 +169,10 @@ export function resolveCapabilityStoragePaths(
 ): CapabilityStoragePaths {
   assertSafeStorageIdentifier(capabilityId, "capability");
 
-  const capabilityDir = path.join(layout.capabilitiesDir, capabilityId);
+  const capabilityDir = path.join(
+    layout.capabilitiesDir,
+    normalizeCaseInsensitiveStorageSegment(capabilityId),
+  );
 
   return {
     capabilityDir,
@@ -178,7 +186,10 @@ export function resolveSkillPackStoragePaths(
 ): SkillPackStoragePaths {
   assertSafeStorageIdentifier(packRef, "skill pack");
 
-  const skillPackDir = path.join(layout.skillPacksDir, packRef);
+  const skillPackDir = path.join(
+    layout.skillPacksDir,
+    normalizeCaseInsensitiveStorageSegment(packRef),
+  );
 
   return {
     skillPackDir,
@@ -190,12 +201,61 @@ function assertSafeStorageIdentifier(
   value: string,
   label: "mission" | "ticket" | "attempt" | "artifact" | "capability" | "skill pack",
 ): void {
-  if (
-    !value
-    || !value.trim()
-    || value.length > MAX_STORAGE_ID_LENGTH
-    || UNSAFE_STORAGE_ID_PATTERN.test(value)
-  ) {
-    throw new Error(`Identifiant de ${label} invalide: ${value}.`);
+  if (!value || !value.trim()) {
+    throw new Error(`Identifiant de ${label} invalide: valeur vide ou blanche.`);
   }
+
+  if (value.length > MAX_STORAGE_ID_LENGTH) {
+    throw new Error(
+      `Identifiant de ${label} invalide: longueur superieure a ${MAX_STORAGE_ID_LENGTH} caracteres.`,
+    );
+  }
+
+  const forbiddenCharacter = [...value].find((character) =>
+    character === "\0" || WINDOWS_FORBIDDEN_STORAGE_CHARACTERS.has(character)
+  );
+
+  if (forbiddenCharacter) {
+    const printableCharacter = forbiddenCharacter === "\0"
+      ? "\\0"
+      : forbiddenCharacter;
+
+    throw new Error(
+      `Identifiant de ${label} invalide: caractere interdit Windows \`${printableCharacter}\` dans \`${value}\`.`,
+    );
+  }
+
+  const controlCharacterMatch = value.match(WINDOWS_CONTROL_CHARACTER_PATTERN);
+
+  if (controlCharacterMatch) {
+    const codePoint = controlCharacterMatch[0].charCodeAt(0)
+      .toString(16)
+      .padStart(2, "0")
+      .toUpperCase();
+    throw new Error(
+      `Identifiant de ${label} invalide: caractere de controle interdit \`\\x${codePoint}\` dans \`${value}\`.`,
+    );
+  }
+
+  if (UNSAFE_STORAGE_ID_PATTERN.test(value)) {
+    throw new Error(
+      `Identifiant de ${label} invalide: segment relatif ou separateur interdit dans \`${value}\`.`,
+    );
+  }
+
+  if (value.endsWith(" ") || value.endsWith(".")) {
+    throw new Error(
+      `Identifiant de ${label} invalide: espace ou point terminal interdit dans \`${value}\`.`,
+    );
+  }
+
+  if (WINDOWS_RESERVED_STORAGE_NAMES.test(value)) {
+    throw new Error(
+      `Identifiant de ${label} invalide: nom reserve Windows \`${value}\`.`,
+    );
+  }
+}
+
+function normalizeCaseInsensitiveStorageSegment(value: string): string {
+  return normalizeOpaqueReferenceKey(value);
 }

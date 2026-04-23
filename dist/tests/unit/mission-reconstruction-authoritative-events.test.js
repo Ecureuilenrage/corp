@@ -27,6 +27,44 @@ function createAuthoritativeMission(overrides = {}) {
         ...overrides,
     };
 }
+function createTicket(overrides = {}) {
+    return {
+        id: "ticket_reconstruct",
+        missionId: "mission_reconstruct",
+        kind: "implement",
+        goal: "Valider les events ticket autoritaires",
+        status: "todo",
+        owner: "agent_ticket",
+        dependsOn: [],
+        successCriteria: ["Le ticket reste coherent"],
+        allowedCapabilities: [],
+        skillPackRefs: [],
+        workspaceIsolationId: null,
+        executionHandle: {
+            adapter: "codex_responses",
+            adapterState: {},
+        },
+        artifactIds: [],
+        eventIds: ["event_ticket_created"],
+        createdAt: "2026-04-15T12:00:05.000Z",
+        updatedAt: "2026-04-15T12:00:05.000Z",
+        ...overrides,
+    };
+}
+function createAttempt(overrides = {}) {
+    return {
+        id: "attempt_reconstruct",
+        ticketId: "ticket_reconstruct",
+        adapter: "codex_responses",
+        status: "running",
+        workspaceIsolationId: "iso_reconstruct",
+        backgroundRequested: false,
+        adapterState: {},
+        startedAt: "2026-04-15T12:00:10.000Z",
+        endedAt: null,
+        ...overrides,
+    };
+}
 (0, node_test_1.default)("reconstructMissionFromJournal ignore les events non autoritaires qui embarquent un champ mission", () => {
     const authoritative = createAuthoritativeMission({
         title: "Titre autoritaire",
@@ -133,4 +171,104 @@ function createAuthoritativeMission(overrides = {}) {
     strict_1.default.throws(() => (0, mission_reconstruction_1.reconstructMissionFromJournal)(events, polluted.id, {
         errorContextNoun: "la reprise",
     }), /Impossible de reconstruire la reprise\./);
+});
+(0, node_test_1.default)("reconstructTicketsFromJournal ignore les payloads ticket presents sur des events hors allow-list", () => {
+    const createdTicket = createTicket({
+        goal: "Ticket autoritaire",
+        updatedAt: "2026-04-15T12:00:05.000Z",
+    });
+    const pollutedTicket = createTicket({
+        goal: "Ticket pollue",
+        updatedAt: "2026-04-15T13:00:00.000Z",
+    });
+    const events = [
+        {
+            eventId: "event_ticket_created",
+            type: "ticket.created",
+            missionId: createdTicket.missionId,
+            occurredAt: createdTicket.updatedAt,
+            actor: "operator",
+            source: "corp-cli",
+            payload: { ticket: createdTicket },
+        },
+        {
+            eventId: "event_ticket_polluted",
+            type: "custom.diagnostic",
+            missionId: createdTicket.missionId,
+            occurredAt: pollutedTicket.updatedAt,
+            actor: "system",
+            source: "diagnostic-service",
+            payload: { ticket: pollutedTicket },
+        },
+    ];
+    const tickets = (0, mission_reconstruction_1.reconstructTicketsFromJournal)(events, createdTicket.missionId);
+    strict_1.default.equal(tickets.length, 1);
+    strict_1.default.equal(tickets[0]?.goal, "Ticket autoritaire");
+});
+(0, node_test_1.default)("reconstructTicketsFromJournal ignore un previousTicket accidentel sur ticket.reprioritized sans payload.ticket", () => {
+    const createdTicket = createTicket({
+        goal: "Ticket courant",
+    });
+    const previousTicket = createTicket({
+        goal: "Ancien ticket a ignorer",
+        updatedAt: "2026-04-15T12:10:00.000Z",
+    });
+    const events = [
+        {
+            eventId: "event_ticket_created",
+            type: "ticket.created",
+            missionId: createdTicket.missionId,
+            occurredAt: createdTicket.updatedAt,
+            actor: "operator",
+            source: "corp-cli",
+            payload: { ticket: createdTicket },
+        },
+        {
+            eventId: "event_ticket_reprioritized",
+            type: "ticket.reprioritized",
+            missionId: createdTicket.missionId,
+            occurredAt: previousTicket.updatedAt,
+            actor: "operator",
+            source: "corp-cli",
+            payload: { previousTicket },
+        },
+    ];
+    const tickets = (0, mission_reconstruction_1.reconstructTicketsFromJournal)(events, createdTicket.missionId);
+    strict_1.default.equal(tickets.length, 1);
+    strict_1.default.equal(tickets[0]?.goal, "Ticket courant");
+});
+(0, node_test_1.default)("reconstructAttemptsFromJournal filtre les tentatives d'autres missions", () => {
+    const keptAttempt = createAttempt({
+        id: "attempt_kept",
+        ticketId: "ticket_kept",
+    });
+    const foreignAttempt = createAttempt({
+        id: "attempt_foreign",
+        ticketId: "ticket_foreign",
+    });
+    const events = [
+        {
+            eventId: "event_attempt_kept",
+            type: "execution.requested",
+            missionId: "mission_reconstruct",
+            ticketId: keptAttempt.ticketId,
+            occurredAt: keptAttempt.startedAt,
+            actor: "operator",
+            source: "corp-cli",
+            payload: { attempt: keptAttempt },
+        },
+        {
+            eventId: "event_attempt_foreign",
+            type: "execution.requested",
+            missionId: "mission_other",
+            ticketId: foreignAttempt.ticketId,
+            occurredAt: foreignAttempt.startedAt,
+            actor: "operator",
+            source: "corp-cli",
+            payload: { attempt: foreignAttempt },
+        },
+    ];
+    const attempts = (0, mission_reconstruction_1.reconstructAttemptsFromJournal)(events, "mission_reconstruct");
+    strict_1.default.equal(attempts.length, 1);
+    strict_1.default.equal(attempts[0]?.id, "attempt_kept");
 });

@@ -1,5 +1,6 @@
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
+exports.setEventLogDependenciesForTesting = setEventLogDependenciesForTesting;
 exports.ensureAppendOnlyEventLog = ensureAppendOnlyEventLog;
 exports.readEventLog = readEventLog;
 exports.isJournalEventRecord = isJournalEventRecord;
@@ -7,12 +8,26 @@ exports.validateJournalEventRecord = validateJournalEventRecord;
 const node_fs_1 = require("node:fs");
 const promises_1 = require("node:fs/promises");
 const node_readline_1 = require("node:readline");
+const promises_2 = require("node:stream/promises");
 const atomic_json_1 = require("../../../storage/src/fs-layout/atomic-json");
 const file_system_read_errors_1 = require("../../../storage/src/fs-layout/file-system-read-errors");
 const event_log_errors_1 = require("./event-log-errors");
+const DEFAULT_EVENT_LOG_DEPENDENCIES = {
+    createReadStream: node_fs_1.createReadStream,
+    readFile: promises_1.readFile,
+    truncate: promises_1.truncate,
+    writeFile: promises_1.writeFile,
+};
+let eventLogDependenciesForTesting = null;
+function setEventLogDependenciesForTesting(dependencies) {
+    eventLogDependenciesForTesting = dependencies;
+}
 async function ensureAppendOnlyEventLog(journalPath) {
     try {
-        await (0, promises_1.writeFile)(journalPath, "", { encoding: "utf8", flag: "wx" });
+        await getEventLogDependencies().writeFile(journalPath, "", {
+            encoding: "utf8",
+            flag: "wx",
+        });
         return true;
     }
     catch (error) {
@@ -28,7 +43,7 @@ async function ensureAppendOnlyEventLog(journalPath) {
 }
 async function readEventLog(journalPath) {
     const events = [];
-    const stream = (0, node_fs_1.createReadStream)(journalPath, { encoding: "utf8" });
+    const stream = getEventLogDependencies().createReadStream(journalPath, { encoding: "utf8" });
     const lines = (0, node_readline_1.createInterface)({
         input: stream,
         crlfDelay: Infinity,
@@ -43,13 +58,16 @@ async function readEventLog(journalPath) {
             }
             events.push(parseJournalEventLine(line, journalPath, lineNumber));
         }
+        await (0, promises_2.finished)(stream, { cleanup: true });
     }
     catch (error) {
         throw (0, event_log_errors_1.normalizeEventLogReadError)(error, journalPath);
     }
     finally {
         lines.close();
-        stream.destroy();
+        if (!stream.destroyed) {
+            stream.destroy();
+        }
     }
     return events;
 }
@@ -77,7 +95,7 @@ function validateJournalEventRecord(value) {
 async function validateExistingAppendOnlyEventLog(journalPath) {
     let contents;
     try {
-        contents = await (0, promises_1.readFile)(journalPath, "utf8");
+        contents = await getEventLogDependencies().readFile(journalPath, "utf8");
     }
     catch (error) {
         throw (0, event_log_errors_1.normalizeEventLogReadError)(error, journalPath);
@@ -90,12 +108,13 @@ async function validateExistingAppendOnlyEventLog(journalPath) {
         return;
     }
     const lastLineStart = contents.lastIndexOf("\n") + 1;
+    const validatedPrefix = contents.slice(0, lastLineStart);
     const lastLine = contents.slice(lastLineStart);
     const lineNumber = countLineNumberAtOffset(contents, lastLineStart);
     const trimmedLastLine = lastLine.trim();
+    validateBufferedEventLog(validatedPrefix, journalPath);
     if (trimmedLastLine.length === 0) {
         await truncateJournal(journalPath, lastLineStart);
-        await readEventLog(journalPath);
         return;
     }
     let parsedLastLine;
@@ -105,10 +124,9 @@ async function validateExistingAppendOnlyEventLog(journalPath) {
     catch (error) {
         if (error instanceof SyntaxError) {
             await truncateJournal(journalPath, lastLineStart);
-            await readEventLog(journalPath);
             return;
         }
-        throw error;
+        throw (0, event_log_errors_1.normalizeEventLogReadError)(error, journalPath);
     }
     const validation = validateJournalEventRecord(parsedLastLine);
     if (!validation.ok) {
@@ -118,18 +136,27 @@ async function validateExistingAppendOnlyEventLog(journalPath) {
             reason: validation.reason,
         });
     }
-    throw event_log_errors_1.EventLogReadError.invalid({
-        journalPath,
-        lineNumber,
-        reason: "derniere ligne complete sans newline finale",
-    });
 }
 async function truncateJournal(journalPath, length) {
     try {
-        await (0, promises_1.truncate)(journalPath, length);
+        await getEventLogDependencies().truncate(journalPath, length);
     }
     catch (error) {
         throw (0, event_log_errors_1.normalizeEventLogReadError)(error, journalPath);
+    }
+}
+function validateBufferedEventLog(contents, journalPath) {
+    if (!contents) {
+        return;
+    }
+    const lines = contents.split("\n");
+    for (let index = 0; index < lines.length; index += 1) {
+        const rawLine = lines[index] ?? "";
+        const line = rawLine.trim();
+        if (line.length === 0) {
+            continue;
+        }
+        parseJournalEventLine(line, journalPath, index + 1);
     }
 }
 function parseJournalEventLine(line, journalPath, lineNumber) {
@@ -138,12 +165,15 @@ function parseJournalEventLine(line, journalPath, lineNumber) {
         parsedEvent = JSON.parse(line);
     }
     catch (error) {
-        throw event_log_errors_1.EventLogReadError.invalid({
-            journalPath,
-            lineNumber,
-            reason: "JSON corrompu",
-            cause: error,
-        });
+        if (error instanceof SyntaxError) {
+            throw event_log_errors_1.EventLogReadError.invalid({
+                journalPath,
+                lineNumber,
+                reason: "JSON corrompu",
+                cause: error,
+            });
+        }
+        throw (0, event_log_errors_1.normalizeEventLogReadError)(error, journalPath);
     }
     const validation = validateJournalEventRecord(parsedEvent);
     if (!validation.ok) {
@@ -187,4 +217,10 @@ function validatePayload(record) {
 }
 function isRecord(value) {
     return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+function getEventLogDependencies() {
+    return {
+        ...DEFAULT_EVENT_LOG_DEPENDENCIES,
+        ...eventLogDependenciesForTesting,
+    };
 }

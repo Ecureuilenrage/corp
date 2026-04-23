@@ -35,8 +35,9 @@ class FileTicketRepository {
         };
         try {
             const storedTicket = await (0, persisted_document_errors_1.readPersistedJsonDocument)(context);
-            (0, persisted_document_errors_1.assertValidPersistedDocument)(storedTicket, persisted_document_guards_1.validateTicket, context);
-            return storedTicket;
+            const warnings = [];
+            (0, persisted_document_errors_1.assertValidPersistedDocument)(storedTicket, (value) => (0, persisted_document_guards_1.validateTicket)(value, { strict: false, warnings }), context);
+            return (0, persisted_document_guards_1.attachStructuralValidationWarnings)(storedTicket, warnings);
         }
         catch (error) {
             if ((0, file_system_read_errors_1.isMissingFileError)(error)) {
@@ -90,8 +91,9 @@ class FileTicketRepository {
         };
         try {
             const storedMission = await (0, persisted_document_errors_1.readPersistedJsonDocument)(context);
-            (0, persisted_document_errors_1.assertValidPersistedDocument)(storedMission, persisted_document_guards_1.validateMission, context);
-            return (0, mission_1.hydrateMission)(storedMission);
+            const warnings = [];
+            (0, persisted_document_errors_1.assertValidPersistedDocument)(storedMission, (value) => (0, persisted_document_guards_1.validateMission)(value, { strict: false, warnings }), context);
+            return (0, persisted_document_guards_1.attachStructuralValidationWarnings)((0, mission_1.hydrateMission)(storedMission), warnings);
         }
         catch (error) {
             if ((0, file_system_read_errors_1.isMissingFileError)(error)) {

@@ -3,6 +3,7 @@ var __importDefault = (this && this.__importDefault) || function (mod) {
     return (mod && mod.__esModule) ? mod : { "default": mod };
 };
 Object.defineProperty(exports, "__esModule", { value: true });
+exports.UNC_UNREACHABLE_ERROR_CODES = void 0;
 exports.validateExtensionRegistration = validateExtensionRegistration;
 const node_fs_1 = require("node:fs");
 const node_path_1 = __importDefault(require("node:path"));
@@ -80,6 +81,8 @@ const FORBIDDEN_LOCAL_REF_PATTERNS = [
 ];
 const ENV_NAME_PATTERN = /^[A-Z][A-Z0-9_]*$/;
 const SEMVER_PATTERN = /^\d+\.\d+\.\d+(?:[-+][0-9A-Za-z.-]+)?$/;
+const WINDOWS_DRIVE_ABSOLUTE_REFERENCE_PATTERN = /^[A-Za-z]:[\\/]/;
+const WINDOWS_UNC_ABSOLUTE_REFERENCE_PATTERN = /^[\\/]{2}[^\\/]+[\\/][^\\/]+/;
 function validateExtensionRegistration(value, options = {}) {
     const diagnostics = [];
     const baseDir = resolveBaseDir(options);
@@ -578,12 +581,31 @@ function readLocalRefList(value, key, diagnostics, options) {
     }
     return results;
 }
+exports.UNC_UNREACHABLE_ERROR_CODES = new Set([
+    "ENOTFOUND",
+    "EHOSTUNREACH",
+    "ENETUNREACH",
+    "ETIMEDOUT",
+    "ECONNREFUSED",
+    "EHOSTDOWN",
+]);
+function isUncUnreachableError(error) {
+    if (typeof error !== "object" || error === null || !("code" in error)) {
+        return false;
+    }
+    const { code } = error;
+    return typeof code === "string" && exports.UNC_UNREACHABLE_ERROR_CODES.has(code);
+}
 function validateResolvedLocalRef(resolvedPath, fieldPath, expectedType, diagnostics) {
     let stats;
     try {
         stats = (0, node_fs_1.statSync)(resolvedPath);
     }
-    catch {
+    catch (error) {
+        if (looksLikeUncReference(resolvedPath) && isUncUnreachableError(error)) {
+            pushDiagnostic(diagnostics, "unc_unreachable", fieldPath, `Le chemin UNC resolu n'est pas joignable: ${resolvedPath}`);
+            return;
+        }
         pushDiagnostic(diagnostics, "missing_local_ref", fieldPath, `La ref locale resolue n'existe pas: ${resolvedPath}`);
         return;
     }
@@ -599,7 +621,12 @@ function isRemoteReference(value) {
         || value.startsWith("git@");
 }
 function isAbsoluteReference(value) {
-    return node_path_1.default.isAbsolute(value) || /^[A-Za-z]:[\\/]/.test(value);
+    return node_path_1.default.isAbsolute(value)
+        || WINDOWS_DRIVE_ABSOLUTE_REFERENCE_PATTERN.test(value)
+        || looksLikeUncReference(value);
+}
+function looksLikeUncReference(value) {
+    return WINDOWS_UNC_ABSOLUTE_REFERENCE_PATTERN.test(value);
 }
 function containsForbiddenLocalRef(value) {
     const normalizedPath = value.replace(/\\/g, "/").toLowerCase();

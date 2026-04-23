@@ -8,6 +8,7 @@ const promises_1 = require("node:fs/promises");
 const node_path_1 = __importDefault(require("node:path"));
 const node_os_1 = require("node:os");
 const node_test_1 = __importDefault(require("node:test"));
+const persisted_document_guards_1 = require("../../packages/contracts/src/guards/persisted-document-guards");
 const workspace_layout_1 = require("../../packages/storage/src/fs-layout/workspace-layout");
 const persisted_document_errors_1 = require("../../packages/storage/src/repositories/persisted-document-errors");
 const file_artifact_repository_1 = require("../../packages/storage/src/repositories/file-artifact-repository");
@@ -29,7 +30,7 @@ function createCases() {
             documentId: missionId,
             filePath: (layout) => node_path_1.default.join(layout.missionsDir, missionId, "mission.json"),
             read: (layout) => (0, file_mission_repository_1.createFileMissionRepository)(layout).findById(missionId),
-            invalidDocument: { ...createMission(), status: "closed" },
+            invalidDocument: { ...createMission(), ticketIds: [42] },
         },
         {
             entityLabel: "Ticket",
@@ -50,7 +51,7 @@ function createCases() {
             documentId: artifactId,
             filePath: (layout) => node_path_1.default.join(layout.missionsDir, missionId, "tickets", ticketId, "artifacts", artifactId, "artifact.json"),
             read: (layout) => (0, file_artifact_repository_1.createFileArtifactRepository)(layout).findById(missionId, artifactId),
-            invalidDocument: { ...createArtifact(), kind: "binary_blob" },
+            invalidDocument: { ...createArtifact(), sizeBytes: "12" },
         },
         {
             entityLabel: "RegisteredCapability",
@@ -92,6 +93,19 @@ function createCases() {
         });
     }
 });
+(0, node_test_1.default)("les repositories acceptent un document UTF-8 avec BOM sans le classer json_corrompu", async (t) => {
+    const rootDir = await (0, promises_1.mkdtemp)(node_path_1.default.join((0, node_os_1.tmpdir)(), "corp-defensive-json-bom-"));
+    t.after(async () => {
+        await (0, promises_1.rm)(rootDir, { recursive: true, force: true });
+    });
+    const layout = await (0, workspace_layout_1.ensureWorkspaceLayout)(rootDir);
+    const missionPath = node_path_1.default.join(layout.missionsDir, missionId, "mission.json");
+    await (0, promises_1.mkdir)(node_path_1.default.dirname(missionPath), { recursive: true });
+    await (0, promises_1.writeFile)(missionPath, `\uFEFF${JSON.stringify(createMission(), null, 2)}\n`, "utf8");
+    const mission = await (0, file_mission_repository_1.createFileMissionRepository)(layout).findById(missionId);
+    strict_1.default.ok(mission);
+    strict_1.default.equal(mission.id, missionId);
+});
 (0, node_test_1.default)("les repositories rejettent les schemas valides JSON mais invalides runtime", async (t) => {
     const rootDir = await (0, promises_1.mkdtemp)(node_path_1.default.join((0, node_os_1.tmpdir)(), "corp-defensive-schema-"));
     t.after(async () => {
@@ -108,10 +122,48 @@ function createCases() {
             strict_1.default.equal(error.filePath, snapshotPath);
             strict_1.default.equal(error.documentId, repositoryCase.documentId);
             strict_1.default.match(error.message, new RegExp(repositoryCase.entityLabel));
-            strict_1.default.match(error.message, /statut inconnu|discriminant invalide/i);
+            strict_1.default.match(error.message, /statut inconnu|discriminant invalide|type incorrect/i);
             return true;
         });
     }
+});
+(0, node_test_1.default)("InvalidPersistedDocumentError preserve une cause exploitable", async (t) => {
+    const rootDir = await (0, promises_1.mkdtemp)(node_path_1.default.join((0, node_os_1.tmpdir)(), "corp-defensive-schema-cause-"));
+    t.after(async () => {
+        await (0, promises_1.rm)(rootDir, { recursive: true, force: true });
+    });
+    const layout = await (0, workspace_layout_1.ensureWorkspaceLayout)(rootDir);
+    const missionPath = node_path_1.default.join(layout.missionsDir, missionId, "mission.json");
+    await (0, promises_1.mkdir)(node_path_1.default.dirname(missionPath), { recursive: true });
+    await (0, promises_1.writeFile)(missionPath, `${JSON.stringify({ ...createMission(), title: undefined }, null, 2)}\n`, "utf8");
+    await strict_1.default.rejects(() => (0, file_mission_repository_1.createFileMissionRepository)(layout).findById(missionId), (error) => {
+        strict_1.default.ok(error instanceof persisted_document_errors_1.InvalidPersistedDocumentError);
+        strict_1.default.ok(error.cause instanceof Error);
+        strict_1.default.match(error.cause.message, /champ manquant.*title/i);
+        return true;
+    });
+});
+(0, node_test_1.default)("les repositories normalisent une erreur inattendue de JSON.parse avec sa cause", async (t) => {
+    const rootDir = await (0, promises_1.mkdtemp)(node_path_1.default.join((0, node_os_1.tmpdir)(), "corp-defensive-json-unknown-"));
+    const rootCause = new TypeError("synthetic persisted parse failure");
+    const originalJsonParse = JSON.parse;
+    t.after(async () => {
+        JSON.parse = originalJsonParse;
+        await (0, promises_1.rm)(rootDir, { recursive: true, force: true });
+    });
+    const layout = await (0, workspace_layout_1.ensureWorkspaceLayout)(rootDir);
+    const missionPath = node_path_1.default.join(layout.missionsDir, missionId, "mission.json");
+    await (0, promises_1.mkdir)(node_path_1.default.dirname(missionPath), { recursive: true });
+    await (0, promises_1.writeFile)(missionPath, `${JSON.stringify(createMission(), null, 2)}\n`, "utf8");
+    JSON.parse = (() => {
+        throw rootCause;
+    });
+    await strict_1.default.rejects(() => (0, file_mission_repository_1.createFileMissionRepository)(layout).findById(missionId), (error) => {
+        strict_1.default.ok(error instanceof Error);
+        strict_1.default.match(error.message, /Lecture du document persiste Mission/);
+        strict_1.default.equal(error.cause, rootCause);
+        return true;
+    });
 });
 (0, node_test_1.default)("FileSkillPackRegistryRepository.list expose une entree corrompue au lieu de retourner une liste partielle", async (t) => {
     const rootDir = await (0, promises_1.mkdtemp)(node_path_1.default.join((0, node_os_1.tmpdir)(), "corp-defensive-skill-pack-list-"));
@@ -134,6 +186,34 @@ function createCases() {
         strict_1.default.match(error.message, /pack\.corrupt/);
         return true;
     });
+});
+(0, node_test_1.default)("les repositories lisent les discriminants ouverts inconnus en attachant des warnings structurels", async (t) => {
+    const rootDir = await (0, promises_1.mkdtemp)(node_path_1.default.join((0, node_os_1.tmpdir)(), "corp-defensive-open-discriminants-"));
+    t.after(async () => {
+        await (0, promises_1.rm)(rootDir, { recursive: true, force: true });
+    });
+    const layout = await (0, workspace_layout_1.ensureWorkspaceLayout)(rootDir);
+    const missionPath = node_path_1.default.join(layout.missionsDir, missionId, "mission.json");
+    const ticketPath = node_path_1.default.join(layout.missionsDir, missionId, "tickets", ticketId, "ticket.json");
+    const artifactPath = node_path_1.default.join(layout.missionsDir, missionId, "tickets", ticketId, "artifacts", artifactId, "artifact.json");
+    await (0, promises_1.mkdir)(node_path_1.default.dirname(missionPath), { recursive: true });
+    await (0, promises_1.mkdir)(node_path_1.default.dirname(ticketPath), { recursive: true });
+    await (0, promises_1.mkdir)(node_path_1.default.dirname(artifactPath), { recursive: true });
+    await (0, promises_1.writeFile)(missionPath, `${JSON.stringify({ ...createMission(), status: "archived_v2" }, null, 2)}\n`, "utf8");
+    await (0, promises_1.writeFile)(ticketPath, `${JSON.stringify({ ...createTicket(), status: "on_hold" }, null, 2)}\n`, "utf8");
+    await (0, promises_1.writeFile)(artifactPath, `${JSON.stringify({ ...createArtifact(), kind: "binary_blob_v2" }, null, 2)}\n`, "utf8");
+    const mission = await (0, file_mission_repository_1.createFileMissionRepository)(layout).findById(missionId);
+    const ticket = await (0, file_ticket_repository_1.createFileTicketRepository)(layout).findById(missionId, ticketId);
+    const artifact = await (0, file_artifact_repository_1.createFileArtifactRepository)(layout).findById(missionId, artifactId);
+    strict_1.default.ok(mission);
+    strict_1.default.ok(ticket);
+    strict_1.default.ok(artifact);
+    strict_1.default.equal(mission.status, "archived_v2");
+    strict_1.default.equal(ticket.status, "on_hold");
+    strict_1.default.equal(artifact.kind, "binary_blob_v2");
+    strict_1.default.deepEqual((0, persisted_document_guards_1.getStructuralValidationWarnings)(mission).map((warning) => warning.path), ["status"]);
+    strict_1.default.deepEqual((0, persisted_document_guards_1.getStructuralValidationWarnings)(ticket).map((warning) => warning.path), ["status"]);
+    strict_1.default.deepEqual((0, persisted_document_guards_1.getStructuralValidationWarnings)(artifact).map((warning) => warning.path), ["kind"]);
 });
 function createMission(overrides = {}) {
     return {

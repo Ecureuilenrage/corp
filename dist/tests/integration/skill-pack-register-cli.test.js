@@ -128,6 +128,17 @@ async function bootstrapWorkspace(rootDir) {
     ]);
     strict_1.default.equal(secondRegisterResult.exitCode, 0);
     strict_1.default.match(secondRegisterResult.lines.join("\n"), /Statut: unchanged/);
+    const listResult = await runCommand([
+        "extension",
+        "skill-pack",
+        "list",
+        "--root",
+        rootDir,
+    ]);
+    strict_1.default.equal(listResult.exitCode, 0);
+    strict_1.default.match(listResult.lines.join("\n"), /Skill packs valides: 1/);
+    strict_1.default.match(listResult.lines.join("\n"), /pack\.triage\.local \| displayName=Pack de triage local/);
+    strict_1.default.match(listResult.lines.join("\n"), /Diagnostics invalides: aucun/);
 });
 (0, node_test_1.default)("corp extension skill-pack register rejette un seam hors scope et show echoue sur un pack inconnu", async (t) => {
     const rootDir = await (0, promises_1.mkdtemp)(node_path_1.default.join((0, node_os_1.tmpdir)(), "corp-skill-pack-cli-errors-"));
@@ -202,4 +213,38 @@ async function bootstrapWorkspace(rootDir) {
     ]);
     strict_1.default.equal(registerResult.exitCode, 1);
     strict_1.default.match(registerResult.lines.join("\n"), /frontiere locale/i);
+});
+(0, node_test_1.default)("corp extension skill-pack list expose les packs sains et les diagnostics corrompus ensemble", async (t) => {
+    const rootDir = await (0, promises_1.mkdtemp)(node_path_1.default.join((0, node_os_1.tmpdir)(), "corp-skill-pack-cli-list-"));
+    t.after(async () => {
+        await (0, promises_1.rm)(rootDir, { recursive: true, force: true });
+    });
+    await bootstrapWorkspace(rootDir);
+    const registerResult = await runCommand([
+        "extension",
+        "skill-pack",
+        "register",
+        "--root",
+        rootDir,
+        "--file",
+        getFixturePath("valid-skill-pack.json"),
+    ]);
+    strict_1.default.equal(registerResult.exitCode, 0);
+    const corruptPath = node_path_1.default.join(rootDir, ".corp", "skill-packs", "pack.corrupt", "skill-pack.json");
+    await (0, promises_1.mkdir)(node_path_1.default.dirname(corruptPath), { recursive: true });
+    await (0, promises_1.writeFile)(corruptPath, "{json invalide\n", "utf8");
+    const listResult = await runCommand([
+        "extension",
+        "skill-pack",
+        "list",
+        "--root",
+        rootDir,
+    ]);
+    const output = listResult.lines.join("\n");
+    strict_1.default.equal(listResult.exitCode, 1);
+    strict_1.default.match(output, /Skill packs valides: 1/);
+    strict_1.default.match(output, /pack\.triage\.local \| displayName=Pack de triage local/);
+    strict_1.default.match(output, /Diagnostics invalides: 1/);
+    strict_1.default.match(output, /pack\.corrupt \| code=json_corrompu/);
+    strict_1.default.match(output, /message=json_corrompu: fichier de registre corrompu pour le skill pack `pack\.corrupt` invalide/i);
 });

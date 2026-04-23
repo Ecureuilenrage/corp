@@ -5,10 +5,12 @@ import type { ExecutionAttempt } from "../../../contracts/src/execution-attempt/
 import type { Ticket } from "../../../contracts/src/ticket/ticket";
 import { EventLogReadError, isEventLogReadError } from "../../../journal/src/event-log/event-log-errors";
 import {
+  getLastAuthoritativeMissionCursor,
   readMissionEvents,
   reconstructAttemptsFromJournal,
   reconstructMissionFromJournal,
   reconstructTicketsFromJournal,
+  type MissionAuthoritativeCursor,
 } from "../../../journal/src/reconstruction/mission-reconstruction";
 import type { TicketBoardProjection } from "../../../journal/src/projections/ticket-board-projection";
 import {
@@ -49,60 +51,80 @@ export interface ReadTicketBoardResult {
   projectionPath: string;
 }
 
+interface TicketBoardDependencies {
+  readMissionEvents: typeof readMissionEvents;
+}
+
+const DEFAULT_TICKET_BOARD_DEPENDENCIES: TicketBoardDependencies = {
+  readMissionEvents,
+};
+
+let ticketBoardDependenciesForTesting: Partial<TicketBoardDependencies> | null = null;
+
+export function setReadTicketBoardDependenciesForTesting(
+  dependencies: Partial<TicketBoardDependencies> | null,
+): void {
+  ticketBoardDependenciesForTesting = dependencies;
+}
+
 export async function readTicketBoard(
   options: ReadTicketBoardOptions,
 ): Promise<ReadTicketBoardResult> {
   const layout = resolveWorkspaceLayout(options.rootDir);
   await ensureTicketBoardWorkspaceInitialized(layout, options.commandName);
 
-  const missionRepository = createFileMissionRepository(layout);
-  const ticketRepository = createFileTicketRepository(layout);
-  const attemptRepository = createFileExecutionAttemptRepository(layout);
-  const storedMissionResult = await readStoredMissionSnapshot(
-    missionRepository,
-    options.missionId,
-  );
-  const storedMission = storedMissionResult.mission;
-  const missionEvents = await readMissionEvents(layout.journalPath, options.missionId);
-  const missionFromJournal = missionEvents.length > 0
-    ? reconstructMissionFromJournal(missionEvents, options.missionId)
-    : null;
-
-  if (!storedMission && !missionFromJournal) {
-    throw new Error(`Mission introuvable: ${options.missionId}.`);
-  }
-
-  const missionSnapshot = selectFreshMissionSnapshot(
-    storedMission,
-    missionFromJournal,
-    missionEvents.at(-1)?.eventId,
-  );
-
   const projectionPath = resolveProjectionPath(layout.projectionsDir, "ticket-board");
 
   try {
+    const missionRepository = createFileMissionRepository(layout);
+    const ticketRepository = createFileTicketRepository(layout);
+    const attemptRepository = createFileExecutionAttemptRepository(layout);
+    const storedMissionResult = await readStoredMissionSnapshot(
+      missionRepository,
+      options.missionId,
+    );
+    const storedMission = storedMissionResult.mission;
+    const missionEvents = await readMissionEventsSafely(layout, options.missionId);
+    const missionFromJournal = missionEvents.length > 0
+      ? reconstructMissionFromJournal(missionEvents, options.missionId)
+      : null;
+
+    if (!storedMission && !missionFromJournal) {
+      throw new Error(`Mission introuvable: ${options.missionId}.`);
+    }
+
+    const missionSnapshot = selectFreshMissionSnapshot(
+      storedMission,
+      missionFromJournal,
+      getLastAuthoritativeMissionCursor(missionEvents),
+    );
     const storedTickets = await readStoredTicketsForBoard(
       ticketRepository,
       missionSnapshot.id,
     );
     const journalTickets = reconstructTicketsFromJournal(missionEvents, missionSnapshot.id);
+    const journalTicketCursors = buildTicketCursors(missionEvents, missionSnapshot.id);
     const mergedTickets = mergeTicketsById(
       storedTickets.tickets,
       journalTickets,
+      journalTicketCursors,
     );
     const missionTickets = mergedTickets.tickets;
     const storedAttempts = await readStoredAttemptsForBoard(
       missionSnapshot,
       attemptRepository,
     );
+    const journalAttempts = reconstructAttemptsFromJournal(missionEvents, missionSnapshot.id);
+    const journalAttemptCursors = buildAttemptCursors(missionEvents, missionSnapshot.id);
     const missionAttempts = mergeAttemptsById(
       storedAttempts.attempts,
-      reconstructAttemptsFromJournal(missionEvents),
+      journalAttempts,
       mergedTickets.usedJournalSnapshot
         || missionSnapshot === missionFromJournal
         || storedMissionResult.recovered
         || storedTickets.recovered
         || storedAttempts.recovered,
+      journalAttemptCursors,
     );
     const rebuiltBoard = buildTicketBoardProjection(
       missionSnapshot,
@@ -144,10 +166,10 @@ export async function readTicketBoard(
   }
 }
 
-function selectFreshMissionSnapshot(
+export function selectFreshMissionSnapshot(
   storedMission: Mission | null,
   missionFromJournal: Mission | null,
-  lastEventId: string | undefined,
+  lastAuthoritativeCursor: MissionAuthoritativeCursor | null,
 ): Mission {
   if (!storedMission) {
     if (!missionFromJournal) {
@@ -157,16 +179,22 @@ function selectFreshMissionSnapshot(
     return missionFromJournal;
   }
 
-  if (missionFromJournal && lastEventId && storedMission.resumeCursor !== lastEventId) {
-    return missionFromJournal;
+  if (!missionFromJournal || !lastAuthoritativeCursor) {
+    return storedMission;
   }
 
-  return storedMission;
+  return compareMissionFreshness(
+    toStoredMissionCursor(storedMission),
+    lastAuthoritativeCursor,
+  ) < 0
+    ? missionFromJournal
+    : storedMission;
 }
 
-function mergeTicketsById(
+export function mergeTicketsById(
   storedTickets: Ticket[],
   journalTickets: Ticket[],
+  journalTicketCursors: ReadonlyMap<string, MissionAuthoritativeCursor> = new Map(),
 ): { tickets: Ticket[]; usedJournalSnapshot: boolean } {
   const ticketsById = new Map(storedTickets.map((ticket) => [ticket.id, ticket] as const));
   let usedJournalSnapshot = false;
@@ -174,7 +202,7 @@ function mergeTicketsById(
   for (const ticket of journalTickets) {
     const storedTicket = ticketsById.get(ticket.id);
 
-    if (!storedTicket || isJournalTicketNewer(storedTicket, ticket)) {
+    if (!storedTicket || isJournalTicketNewer(storedTicket, ticket, journalTicketCursors)) {
       ticketsById.set(ticket.id, ticket);
       usedJournalSnapshot = true;
     }
@@ -186,21 +214,40 @@ function mergeTicketsById(
   };
 }
 
-function isJournalTicketNewer(storedTicket: Ticket, journalTicket: Ticket): boolean {
+function isJournalTicketNewer(
+  storedTicket: Ticket,
+  journalTicket: Ticket,
+  journalTicketCursors: ReadonlyMap<string, MissionAuthoritativeCursor>,
+): boolean {
   const storedEventIds = new Set(storedTicket.eventIds);
+  const hasUnseenJournalEvent = journalTicket.eventIds.some((eventId) => !storedEventIds.has(eventId));
 
-  return journalTicket.eventIds.some((eventId) => !storedEventIds.has(eventId));
+  if (!hasUnseenJournalEvent) {
+    return false;
+  }
+
+  return compareMissionFreshness(
+    toStoredTicketCursor(storedTicket),
+    toJournalTicketCursor(journalTicket, journalTicketCursors),
+  ) < 0;
 }
 
-function mergeAttemptsById(
+export function mergeAttemptsById(
   storedAttempts: ExecutionAttempt[],
   journalAttempts: ExecutionAttempt[],
   preferJournalSnapshots: boolean,
+  journalAttemptCursors: ReadonlyMap<string, MissionAuthoritativeCursor> = new Map(),
 ): ExecutionAttempt[] {
   const attemptsById = new Map(storedAttempts.map((attempt) => [attempt.id, attempt] as const));
 
   for (const attempt of journalAttempts) {
-    if (preferJournalSnapshots || !attemptsById.has(attempt.id)) {
+    const storedAttempt = attemptsById.get(attempt.id);
+
+    if (
+      preferJournalSnapshots
+      || !storedAttempt
+      || isJournalAttemptNewer(storedAttempt, attempt, journalAttemptCursors)
+    ) {
       attemptsById.set(attempt.id, attempt);
     }
   }
@@ -365,7 +412,7 @@ function formatTicketBoardReadError(
   return `Projection ticket-board irreconciliable pour ${missionId}. Impossible d'afficher la mission.`;
 }
 
-function normalizeTicketBoardReadError(
+export function normalizeTicketBoardReadError(
   error: unknown,
   options: {
     missionId: string;
@@ -377,8 +424,12 @@ function normalizeTicketBoardReadError(
     return error;
   }
 
-  if (isEventLogReadError(error) || isPersistedDocumentReadError(error)) {
+  if (isClassifiedReadError(error)) {
     return error instanceof Error ? error : new Error(String(error));
+  }
+
+  if (error instanceof Error && error.message.startsWith("Mission introuvable: ")) {
+    return error;
   }
 
   if (isFileSystemReadError(error)) {
@@ -391,6 +442,7 @@ function normalizeTicketBoardReadError(
 
   return new Error(
     formatTicketBoardReadError(options.missionId, options.commandName),
+    { cause: error },
   );
 }
 
@@ -414,4 +466,137 @@ function isProjectionCorruptionError(
     && error !== null
     && "code" in error
     && error.code === "EPROJCORRUPT";
+}
+
+function isClassifiedReadError(error: unknown): boolean {
+  return isEventLogReadError(error) || isPersistedDocumentReadError(error);
+}
+
+function getTicketBoardDependencies(): TicketBoardDependencies {
+  return {
+    ...DEFAULT_TICKET_BOARD_DEPENDENCIES,
+    ...ticketBoardDependenciesForTesting,
+  };
+}
+
+async function readMissionEventsSafely(
+  layout: WorkspaceLayout,
+  missionId: string,
+): Promise<Awaited<ReturnType<typeof readMissionEvents>>> {
+  try {
+    return await getTicketBoardDependencies().readMissionEvents(layout.journalPath, missionId);
+  } catch (error) {
+    if (isClassifiedReadError(error)) {
+      throw error;
+    }
+
+    if (isFileSystemReadError(error)) {
+      throw EventLogReadError.fileSystem(layout.journalPath, error);
+    }
+
+    throw error;
+  }
+}
+
+function toStoredMissionCursor(mission: Mission): MissionAuthoritativeCursor {
+  return {
+    occurredAt: mission.updatedAt,
+    eventId: mission.resumeCursor,
+  };
+}
+
+function toStoredTicketCursor(ticket: Ticket): MissionAuthoritativeCursor {
+  return {
+    occurredAt: ticket.updatedAt,
+    eventId: ticket.eventIds.at(-1) ?? "",
+  };
+}
+
+function toJournalTicketCursor(
+  ticket: Ticket,
+  journalTicketCursors: ReadonlyMap<string, MissionAuthoritativeCursor>,
+): MissionAuthoritativeCursor {
+  return journalTicketCursors.get(ticket.id) ?? toStoredTicketCursor(ticket);
+}
+
+function isJournalAttemptNewer(
+  storedAttempt: ExecutionAttempt,
+  journalAttempt: ExecutionAttempt,
+  journalAttemptCursors: ReadonlyMap<string, MissionAuthoritativeCursor>,
+): boolean {
+  return compareMissionFreshness(
+    toStoredAttemptCursor(storedAttempt),
+    toJournalAttemptCursor(journalAttempt, journalAttemptCursors),
+  ) < 0;
+}
+
+function toStoredAttemptCursor(attempt: ExecutionAttempt): MissionAuthoritativeCursor {
+  return {
+    occurredAt: getAttemptFreshnessTimestamp(attempt),
+    eventId: "",
+  };
+}
+
+function toJournalAttemptCursor(
+  attempt: ExecutionAttempt,
+  journalAttemptCursors: ReadonlyMap<string, MissionAuthoritativeCursor>,
+): MissionAuthoritativeCursor {
+  return journalAttemptCursors.get(attempt.id) ?? toStoredAttemptCursor(attempt);
+}
+
+function getAttemptFreshnessTimestamp(attempt: ExecutionAttempt): string {
+  return attempt.endedAt ?? attempt.startedAt;
+}
+
+function compareMissionFreshness(
+  left: MissionAuthoritativeCursor,
+  right: MissionAuthoritativeCursor,
+): number {
+  const occurredAtComparison = left.occurredAt.localeCompare(right.occurredAt);
+
+  if (occurredAtComparison !== 0) {
+    return occurredAtComparison;
+  }
+
+  return left.eventId.localeCompare(right.eventId);
+}
+
+function buildTicketCursors(
+  missionEvents: Awaited<ReturnType<typeof readMissionEvents>>,
+  missionId: string,
+): Map<string, MissionAuthoritativeCursor> {
+  const ticketCursors = new Map<string, MissionAuthoritativeCursor>();
+
+  for (const event of missionEvents) {
+    if (event.missionId !== missionId || typeof event.ticketId !== "string") {
+      continue;
+    }
+
+    ticketCursors.set(event.ticketId, {
+      occurredAt: event.occurredAt,
+      eventId: event.eventId,
+    });
+  }
+
+  return ticketCursors;
+}
+
+function buildAttemptCursors(
+  missionEvents: Awaited<ReturnType<typeof readMissionEvents>>,
+  missionId: string,
+): Map<string, MissionAuthoritativeCursor> {
+  const attemptCursors = new Map<string, MissionAuthoritativeCursor>();
+
+  for (const event of missionEvents) {
+    if (event.missionId !== missionId || typeof event.attemptId !== "string") {
+      continue;
+    }
+
+    attemptCursors.set(event.attemptId, {
+      occurredAt: event.occurredAt,
+      eventId: event.eventId,
+    });
+  }
+
+  return attemptCursors;
 }

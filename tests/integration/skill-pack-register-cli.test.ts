@@ -159,6 +159,19 @@ test("corp extension skill-pack register puis show restent metadata-first", asyn
 
   assert.equal(secondRegisterResult.exitCode, 0);
   assert.match(secondRegisterResult.lines.join("\n"), /Statut: unchanged/);
+
+  const listResult = await runCommand([
+    "extension",
+    "skill-pack",
+    "list",
+    "--root",
+    rootDir,
+  ]);
+
+  assert.equal(listResult.exitCode, 0);
+  assert.match(listResult.lines.join("\n"), /Skill packs valides: 1/);
+  assert.match(listResult.lines.join("\n"), /pack\.triage\.local \| displayName=Pack de triage local/);
+  assert.match(listResult.lines.join("\n"), /Diagnostics invalides: aucun/);
 });
 
 test("corp extension skill-pack register rejette un seam hors scope et show echoue sur un pack inconnu", async (t) => {
@@ -258,4 +271,52 @@ test("corp extension skill-pack register rejette une ref locale hors du rootDir 
 
   assert.equal(registerResult.exitCode, 1);
   assert.match(registerResult.lines.join("\n"), /frontiere locale/i);
+});
+
+test("corp extension skill-pack list expose les packs sains et les diagnostics corrompus ensemble", async (t) => {
+  const rootDir = await mkdtemp(path.join(tmpdir(), "corp-skill-pack-cli-list-"));
+
+  t.after(async () => {
+    await rm(rootDir, { recursive: true, force: true });
+  });
+
+  await bootstrapWorkspace(rootDir);
+
+  const registerResult = await runCommand([
+    "extension",
+    "skill-pack",
+    "register",
+    "--root",
+    rootDir,
+    "--file",
+    getFixturePath("valid-skill-pack.json"),
+  ]);
+
+  assert.equal(registerResult.exitCode, 0);
+
+  const corruptPath = path.join(
+    rootDir,
+    ".corp",
+    "skill-packs",
+    "pack.corrupt",
+    "skill-pack.json",
+  );
+  await mkdir(path.dirname(corruptPath), { recursive: true });
+  await writeFile(corruptPath, "{json invalide\n", "utf8");
+
+  const listResult = await runCommand([
+    "extension",
+    "skill-pack",
+    "list",
+    "--root",
+    rootDir,
+  ]);
+  const output = listResult.lines.join("\n");
+
+  assert.equal(listResult.exitCode, 1);
+  assert.match(output, /Skill packs valides: 1/);
+  assert.match(output, /pack\.triage\.local \| displayName=Pack de triage local/);
+  assert.match(output, /Diagnostics invalides: 1/);
+  assert.match(output, /pack\.corrupt \| code=json_corrompu/);
+  assert.match(output, /message=json_corrompu: fichier de registre corrompu pour le skill pack `pack\.corrupt` invalide/i);
 });

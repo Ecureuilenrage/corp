@@ -9,9 +9,9 @@ import { resolveWorkspaceLayout } from "../../../storage/src/fs-layout/workspace
 import { createFileMissionRepository } from "../../../storage/src/repositories/file-mission-repository";
 import { createFileTicketRepository } from "../../../storage/src/repositories/file-ticket-repository";
 import { validateAndNormalizeTicketDependencies } from "../dependency-graph/validate-ticket-dependencies";
+import { ensureMissionWorkspaceInitialized } from "../../../mission-kernel/src/mission-service/ensure-mission-workspace";
 import {
   ensureTicketExtensionsAllowedByMission,
-  ensureMissionWorkspaceInitialized,
   normalizeOpaqueReferences,
   requireCreateSuccessCriteria,
   requireText,
@@ -46,7 +46,10 @@ export async function createTicket(
   options: CreateTicketOptions,
 ): Promise<CreateTicketResult> {
   const layout = resolveWorkspaceLayout(options.rootDir);
-  await ensureMissionWorkspaceInitialized(layout, "ticket create");
+  await ensureMissionWorkspaceInitialized(layout, {
+    commandLabel: "ticket create",
+    cleanupLocks: true,
+  });
 
   const missionId = requireText(
     options.missionId,
@@ -80,8 +83,12 @@ export async function createTicket(
     missionTickets,
     dependsOn: options.dependsOn,
   });
-  const allowedCapabilities = normalizeOpaqueReferences(options.allowedCapabilities);
-  const skillPackRefs = normalizeOpaqueReferences(options.skillPackRefs);
+  const allowedCapabilities = normalizeOpaqueReferences(options.allowedCapabilities, {
+    caseInsensitive: true,
+  });
+  const skillPackRefs = normalizeOpaqueReferences(options.skillPackRefs, {
+    caseInsensitive: true,
+  });
 
   ensureTicketExtensionsAllowedByMission({
     mission,

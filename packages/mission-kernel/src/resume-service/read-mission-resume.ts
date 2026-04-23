@@ -1,5 +1,3 @@
-import { access } from "node:fs/promises";
-
 import { TERMINAL_APPROVAL_REQUEST_STATUSES } from "../../../contracts/src/approval/approval-request";
 import type { Mission } from "../../../contracts/src/mission/mission";
 import type {
@@ -9,7 +7,7 @@ import type {
 } from "../../../contracts/src/mission/mission-resume";
 import { TERMINAL_TICKET_STATUSES } from "../../../contracts/src/ticket/ticket";
 import type { JournalEventRecord } from "../../../journal/src/event-log/append-event";
-import { EventLogReadError, isEventLogReadError } from "../../../journal/src/event-log/event-log-errors";
+import { isEventLogReadError } from "../../../journal/src/event-log/event-log-errors";
 import {
   readMissionEvents,
   reconstructMissionFromJournal,
@@ -25,19 +23,20 @@ import {
   resolveProjectionPath,
   writeProjectionSnapshot,
 } from "../../../storage/src/projection-store/file-projection-store";
-import {
-  resolveWorkspaceLayout,
-  type WorkspaceLayout,
-} from "../../../storage/src/fs-layout/workspace-layout";
+import { resolveWorkspaceLayout } from "../../../storage/src/fs-layout/workspace-layout";
 import {
   createFileSystemReadError,
   isFileSystemReadError,
   isMissingFileError,
-  readAccessError,
 } from "../../../storage/src/fs-layout/file-system-read-errors";
 import { createFileMissionRepository } from "../../../storage/src/repositories/file-mission-repository";
-import { isRecoverablePersistedDocumentError } from "../../../storage/src/repositories/persisted-document-errors";
+import {
+  CorruptedPersistedDocumentError,
+  type InvalidPersistedDocumentError,
+  isRecoverablePersistedDocumentError,
+} from "../../../storage/src/repositories/persisted-document-errors";
 import { readTicketBoard } from "../../../ticket-runtime/src/planner/read-ticket-board";
+import { ensureMissionWorkspaceInitialized } from "../mission-service/ensure-mission-workspace";
 import { readApprovalQueue } from "./read-approval-queue";
 import { readMissionArtifacts } from "./read-mission-artifacts";
 
@@ -55,6 +54,11 @@ export interface ReadMissionResumeResult {
   ticketBoardReconstructed: boolean;
 }
 
+export interface ReadStoredResumeViewResult {
+  projection: ResumeViewProjection | null;
+  readError: CorruptedPersistedDocumentError | null;
+}
+
 const CLOSED_OPEN_TICKET_STATUSES = new Set<string>([
   ...TERMINAL_TICKET_STATUSES,
 ]);
@@ -67,10 +71,14 @@ export async function readMissionResume(
   options: ReadMissionResumeOptions,
 ): Promise<ReadMissionResumeResult> {
   const layout = resolveWorkspaceLayout(options.rootDir);
-  await ensureMissionWorkspaceInitialized(layout, options.commandName);
+  await ensureMissionWorkspaceInitialized(layout, {
+    commandLabel: options.commandName,
+    initializeJournal: false,
+  });
 
   const repository = createFileMissionRepository(layout);
-  const storedMission = await readStoredMissionSnapshot(repository, options.missionId);
+  const storedMissionResult = await readStoredMissionSnapshot(repository, options.missionId);
+  const storedMission = storedMissionResult.mission;
 
   let missionEvents: JournalEventRecord[];
 
@@ -83,6 +91,7 @@ export async function readMissionResume(
 
     throw new Error(
       `Journal mission irreconciliable pour ${options.missionId}. Impossible de reconstruire la reprise.`,
+      { cause: error },
     );
   }
 
@@ -93,6 +102,10 @@ export async function readMissionResume(
     : null;
 
   const baseMission = storedMission ?? missionFromJournal;
+
+  if (!baseMission && missionEvents.length === 0 && storedMissionResult.readError) {
+    throw storedMissionResult.readError;
+  }
 
   if (!baseMission) {
     throw new Error(`Mission introuvable: ${options.missionId}.`);
@@ -122,12 +135,14 @@ export async function readMissionResume(
   }
 
   const projectionPath = resolveProjectionPath(layout.projectionsDir, "resume-view");
-  const rawResumeView = await readStoredResumeView(layout.projectionsDir);
+  const rawResumeViewResult = await readStoredResumeView(layout.projectionsDir);
+  const rawResumeView = rawResumeViewResult.projection;
   const shouldReconstruct = !storedMission
     || isMissionSnapshotSuspicious(storedMission, lastMissionEvent.eventId)
     || approvalQueueResult.reconstructed
     || ticketBoardResult.reconstructed
     || artifactIndexResult.reconstructed
+    || rawResumeViewResult.readError !== null
     || isResumeViewSuspicious(
       rawResumeView,
       options.missionId,
@@ -180,57 +195,36 @@ export async function readMissionResume(
   };
 }
 
-async function ensureMissionWorkspaceInitialized(
-  layout: WorkspaceLayout,
-  commandName: "status" | "resume" | "compare" | "compare relaunch",
-): Promise<void> {
-  const journalError = await readAccessError(() => access(layout.journalPath));
-  const projectionsError = await readAccessError(() => access(layout.projectionsDir));
-  const missionsError = await readAccessError(() => access(layout.missionsDir));
-
-  const fileSystemError = [
-    { error: journalError, filePath: layout.journalPath, label: "journal append-only" },
-    { error: projectionsError, filePath: layout.projectionsDir, label: "repertoire projections" },
-    { error: missionsError, filePath: layout.missionsDir, label: "repertoire missions" },
-  ].find((entry) => entry.error && entry.error.code !== "ENOENT" && isFileSystemReadError(entry.error));
-
-  if (fileSystemError?.error) {
-    if (fileSystemError.filePath === layout.journalPath) {
-      throw EventLogReadError.fileSystem(layout.journalPath, fileSystemError.error);
-    }
-
-    throw createFileSystemReadError(
-      fileSystemError.error,
-      fileSystemError.filePath,
-      fileSystemError.label,
-    );
-  }
-
-  if (journalError?.code === "ENOENT" && !projectionsError && !missionsError) {
-    throw EventLogReadError.missing(layout.journalPath, journalError);
-  }
-
-  if (journalError || projectionsError || missionsError) {
-    throw new Error(
-      `Workspace mission non initialise. Lancez \`corp mission bootstrap --root ${layout.rootDir}\` avant \`corp mission ${commandName}\`.`,
-    );
-  }
-}
-
-async function readStoredResumeView(
+export async function readStoredResumeView(
   projectionsDir: string,
-): Promise<ResumeViewProjection | null> {
+): Promise<ReadStoredResumeViewResult> {
   const projectionPath = resolveProjectionPath(projectionsDir, "resume-view");
 
   try {
-    return JSON.parse(await readProjectionFile(projectionsDir, "resume-view")) as ResumeViewProjection;
+    return {
+      projection: JSON.parse(await readProjectionFile(projectionsDir, "resume-view")) as ResumeViewProjection,
+      readError: null,
+    };
   } catch (error) {
     if (isMissingFileError(error)) {
-      return null;
+      return {
+        projection: null,
+        readError: null,
+      };
     }
 
     if (error instanceof SyntaxError) {
-      return null;
+      return {
+        projection: null,
+        readError: new CorruptedPersistedDocumentError(
+          {
+            filePath: projectionPath,
+            entityLabel: "Projection resume-view",
+            corruptionLabel: "projection resume-view",
+          },
+          error,
+        ),
+      };
     }
 
     if (isFileSystemReadError(error)) {
@@ -312,12 +306,21 @@ function isMissionSnapshotSuspicious(mission: Mission, lastEventId: string): boo
 async function readStoredMissionSnapshot(
   repository: ReturnType<typeof createFileMissionRepository>,
   missionId: string,
-): Promise<Mission | null> {
+): Promise<{
+  mission: Mission | null;
+  readError: CorruptedPersistedDocumentError | InvalidPersistedDocumentError | null;
+}> {
   try {
-    return await repository.findById(missionId);
+    return {
+      mission: await repository.findById(missionId),
+      readError: null,
+    };
   } catch (error) {
     if (isRecoverablePersistedDocumentError(error)) {
-      return null;
+      return {
+        mission: null,
+        readError: error,
+      };
     }
 
     throw error;

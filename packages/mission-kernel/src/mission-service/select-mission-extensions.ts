@@ -10,8 +10,8 @@ import { createFileCapabilityRegistryRepository } from "../../../storage/src/rep
 import { createFileSkillPackRegistryRepository } from "../../../storage/src/repositories/file-skill-pack-registry-repository";
 import { createFileMissionRepository } from "../../../storage/src/repositories/file-mission-repository";
 import { createFileTicketRepository } from "../../../storage/src/repositories/file-ticket-repository";
+import { ensureMissionWorkspaceInitialized } from "./ensure-mission-workspace";
 import {
-  ensureMissionWorkspaceInitialized,
   isBuiltInAllowedCapability,
   normalizeOpaqueReferences,
   requireText,
@@ -37,7 +37,10 @@ export async function selectMissionExtensions(
   options: SelectMissionExtensionsOptions,
 ): Promise<SelectMissionExtensionsResult> {
   const layout = resolveWorkspaceLayout(options.rootDir);
-  await ensureMissionWorkspaceInitialized(layout, "extension select");
+  await ensureMissionWorkspaceInitialized(layout, {
+    commandLabel: "extension select",
+    cleanupLocks: true,
+  });
 
   if (!hasAnyExtensionMutation(options)) {
     throw new Error("Aucune mutation demandee pour `corp mission extension select`.");
@@ -147,12 +150,16 @@ function resolveNextAuthorizedExtensions(
     allowedCapabilities: options.clearAllowedCapabilities
       ? []
       : options.allowedCapabilities.length > 0
-        ? normalizeOpaqueReferences(options.allowedCapabilities)
+        ? normalizeOpaqueReferences(options.allowedCapabilities, {
+          caseInsensitive: true,
+        })
         : [...mission.authorizedExtensions.allowedCapabilities],
     skillPackRefs: options.clearSkillPackRefs
       ? []
       : options.skillPackRefs.length > 0
-        ? normalizeOpaqueReferences(options.skillPackRefs)
+        ? normalizeOpaqueReferences(options.skillPackRefs, {
+          caseInsensitive: true,
+        })
         : [...mission.authorizedExtensions.skillPackRefs],
   };
 }

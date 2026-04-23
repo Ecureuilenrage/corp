@@ -5,6 +5,7 @@ import { tmpdir } from "node:os";
 import test from "node:test";
 
 import { runCli } from "../../apps/corp-cli/src/index";
+import { setReadTicketBoardDependenciesForTesting } from "../../packages/ticket-runtime/src/planner/read-ticket-board";
 
 interface CommandResult {
   exitCode: number;
@@ -139,4 +140,38 @@ test("mission ticket board annonce explicitement un board vide", async (t) => {
 
   assert.equal(result.exitCode, 0);
   assert.match(result.lines.join("\n"), /Aucun ticket n'existe encore\./);
+});
+
+test("mission ticket board classe une erreur OS issue de readMissionEvents sans fuite EACCES brute", async (t) => {
+  const rootDir = await mkdtemp(path.join(tmpdir(), "corp-cli-ticket-board-journal-eacces-"));
+
+  t.after(async () => {
+    setReadTicketBoardDependenciesForTesting(null);
+    await rm(rootDir, { recursive: true, force: true });
+  });
+
+  await bootstrapWorkspace(rootDir);
+  const missionId = await createMission(rootDir);
+
+  setReadTicketBoardDependenciesForTesting({
+    readMissionEvents: async () => {
+      const error = new Error("EACCES: permission denied, open events.jsonl") as NodeJS.ErrnoException;
+      error.code = "EACCES";
+      throw error;
+    },
+  });
+
+  const result = await runCommand([
+    "mission",
+    "ticket",
+    "board",
+    "--root",
+    rootDir,
+    "--mission-id",
+    missionId,
+  ]);
+
+  assert.equal(result.exitCode, 1);
+  assert.match(result.lines.at(-1) ?? "", /erreur_fichier: erreur de lecture journal append-only \(EACCES\)/i);
+  assert.doesNotMatch(result.lines.at(-1) ?? "", /^EACCES:/);
 });

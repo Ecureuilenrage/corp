@@ -10,6 +10,7 @@ const file_mission_repository_1 = require("../../../storage/src/repositories/fil
 const file_ticket_repository_1 = require("../../../storage/src/repositories/file-ticket-repository");
 const validate_ticket_dependencies_1 = require("../dependency-graph/validate-ticket-dependencies");
 const structural_compare_1 = require("../utils/structural-compare");
+const ensure_mission_workspace_1 = require("../../../mission-kernel/src/mission-service/ensure-mission-workspace");
 const ticket_service_support_1 = require("./ticket-service-support");
 const NON_UPDATABLE_TICKET_STATUS_SET = new Set(ticket_1.NON_UPDATABLE_TICKET_STATUSES);
 const UPDATABLE_TICKET_FIELDS = [
@@ -22,7 +23,10 @@ const UPDATABLE_TICKET_FIELDS = [
 ];
 async function updateTicket(options) {
     const layout = (0, workspace_layout_1.resolveWorkspaceLayout)(options.rootDir);
-    await (0, ticket_service_support_1.ensureMissionWorkspaceInitialized)(layout, "ticket update");
+    await (0, ensure_mission_workspace_1.ensureMissionWorkspaceInitialized)(layout, {
+        commandLabel: "ticket update",
+        cleanupLocks: true,
+    });
     const missionId = (0, ticket_service_support_1.requireText)(options.missionId, "L'option --mission-id est obligatoire pour `corp mission ticket update`.");
     const ticketId = (0, ticket_service_support_1.requireText)(options.ticketId, "L'option --ticket-id est obligatoire pour `corp mission ticket update`.");
     const missionRepository = (0, file_mission_repository_1.createFileMissionRepository)(layout);
@@ -64,12 +68,16 @@ async function updateTicket(options) {
     const nextAllowedCapabilities = options.clearAllowedCapabilities
         ? []
         : options.allowedCapabilities.length > 0
-            ? (0, ticket_service_support_1.normalizeOpaqueReferences)(options.allowedCapabilities)
+            ? (0, ticket_service_support_1.normalizeOpaqueReferences)(options.allowedCapabilities, {
+                caseInsensitive: true,
+            })
             : ticket.allowedCapabilities;
     const nextSkillPackRefs = options.clearSkillPackRefs
         ? []
         : options.skillPackRefs.length > 0
-            ? (0, ticket_service_support_1.normalizeOpaqueReferences)(options.skillPackRefs)
+            ? (0, ticket_service_support_1.normalizeOpaqueReferences)(options.skillPackRefs, {
+                caseInsensitive: true,
+            })
             : ticket.skillPackRefs;
     const normalizedTicket = {
         ...ticket,

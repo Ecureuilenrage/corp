@@ -30,6 +30,8 @@ Plutot que d'introduire un two-phase commit filesystem (cout V1 prohibitif) ou u
 
 5. **Saves sous verrou quand possible**. Quand un service utilise `saveIfUnchanged` (lock optimiste), toute operation de projection qui observe le snapshot **doit** etre executee dans la callback `beforeSave` (sous lock) pour eviter qu'un writer concurrent ne mute la mission entre la release du lock et le rewrite (voir Story 5.1.1 AC2).
 
+6. **Forward-compat en lecture, strict sur ecriture**. Les readers snapshot/journal tolerent les discriminants ouverts futurs (`mission.status`, `ticket.status`, `artifact.kind`) en mode `strict=false` et attachent un warning structurel non bloquant. Les chemins d'ecriture et les validations avant persistance restent `strict=true` et continuent de rejeter ces valeurs.
+
 ## Services et points de divergence connus
 
 | Service | Sequence critique | Commentaire d'intention attendu |
@@ -44,7 +46,16 @@ Plutot que d'introduire un two-phase commit filesystem (cout V1 prohibitif) ou u
 
 - **Echec `writeJsonAtomic` apres appendEvent (ENOSPC, EPERM, EACCES)** : le journal conserve la decision. Le prochain reader detecte la divergence (resumeCursor absent ou different dans `mission.json`) et reconstruit. Voir tests `tests/integration/read-model-rewrite-idempotency.test.ts` (`mission.created`, `update-mission-lifecycle`, `run-ticket`, `resolve-approval-request`).
 - **Crash SIGKILL/OOM entre `appendEvent` et `repository.save`** : identique au precedent. Le lock peut rester stale (voir D-64 dans `deferred-work.md`) ; en V1 mono-operateur c'est accepte.
+- **Lock `mission.json.lock` stale apres crash** : la mitigation V1 applique un TTL sur le `mtime` du lock (defaut `5 minutes`, surchargeable via `CORP_MISSION_LOCK_STALE_TTL_MS`). Le bootstrap workspace et `saveIfUnchanged` suppriment uniquement les locks depassant ce seuil. Les locks plus recents restent traites comme une concurrence legitime.
 - **Echec adaptateur dans `run-ticket` apres emission `artifact.registered`** : les projections sont recalculees dans le catch via `rewriteMissionReadModels` (plus de `skipProjectionRewrite: true`) pour garantir que `audit-log.json` et `resume-view.json` refletent `execution.failed` + `artifact.registered`.
+
+## Runbook stale-lock mission
+
+1. Verifier qu'aucun writer legitime n'est encore actif sur la mission cible.
+2. Si le lock a plus de 5 minutes (ou plus que le TTL configure), relancer `corp mission bootstrap --root <workspace>` ou toute commande qui reprepare le workspace pour laisser le nettoyage automatique supprimer le lock stale.
+3. En cas de doute operateur, supprimer manuellement `.corp/missions/<mission_id>/mission.json.lock` puis relancer la commande.
+
+Ce runbook reste volontairement minimal en V1. La resolution complete avec metadata `{pid, hostname, timestamp}` et verification cross-platform reste suivie en D-64 post-GA.
 
 ## Tests garde-fous
 

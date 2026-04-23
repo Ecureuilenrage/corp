@@ -2,6 +2,7 @@ import type { Dirent } from "node:fs";
 import { mkdir, readdir } from "node:fs/promises";
 
 import { validateRegisteredCapability } from "../../../contracts/src/guards/persisted-document-guards";
+import { normalizeOpaqueReferenceKey } from "../../../contracts/src/extension/extension-registration";
 import type { RegisteredCapability } from "../../../contracts/src/extension/registered-capability";
 import { deepStrictEqualForComparison } from "../../../ticket-runtime/src/utils/structural-compare";
 import { isAlreadyExistsError, writeJsonAtomic } from "../fs-layout/atomic-json";
@@ -43,6 +44,15 @@ export class FileCapabilityRegistryRepository implements CapabilityRegistryRepos
     );
 
     if (existingCapability) {
+      if (hasCaseCollision(
+        existingCapability.capabilityId,
+        registeredCapability.capabilityId,
+      )) {
+        throw new Error(
+          `Collision de casse detectee pour la capability \`${registeredCapability.capabilityId}\`: deja enregistree comme \`${existingCapability.capabilityId}\`.`,
+        );
+      }
+
       if (
         deepStrictEqualForComparison(
           toComparableRegisteredCapability(existingCapability),
@@ -150,6 +160,12 @@ function toComparableRegisteredCapability(
 ): Omit<RegisteredCapability, "registeredAt"> {
   const { registeredAt: _registeredAt, ...comparableCapability } = registeredCapability;
   return comparableCapability;
+}
+
+function hasCaseCollision(existingValue: string, requestedValue: string): boolean {
+  return existingValue !== requestedValue
+    && normalizeOpaqueReferenceKey(existingValue)
+      === normalizeOpaqueReferenceKey(requestedValue);
 }
 
 async function readDirectoryEntries(directoryPath: string): Promise<Dirent[]> {

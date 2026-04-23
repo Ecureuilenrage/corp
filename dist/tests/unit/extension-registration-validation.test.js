@@ -59,6 +59,61 @@ function loadFixture(fileName) {
     strict_1.default.ok(result.diagnostics.some((diagnostic) => diagnostic.code === "non_local_ref"
         && diagnostic.path === "localRefs.references[0]"));
 });
+(0, node_test_1.default)("validateExtensionRegistration traite un chemin UNC comme absolu meme si path.isAbsolute suit un runtime POSIX", () => {
+    const fixtureDir = getFixtureDir();
+    const nodePath = require("node:path");
+    const originalIsAbsolute = nodePath.isAbsolute;
+    nodePath.isAbsolute = nodePath.posix.isAbsolute.bind(nodePath.posix);
+    try {
+        const result = (0, validate_extension_registration_1.validateExtensionRegistration)({
+            schemaVersion: "corp.extension.v1",
+            seamType: "skill_pack",
+            id: "ext.skill-pack.unc-path",
+            displayName: "Pack UNC",
+            version: "0.1.0",
+            permissions: ["docs.read"],
+            constraints: ["local_only"],
+            metadata: {
+                description: "Fixture UNC pour fallback POSIX.",
+                owner: "core-platform",
+                tags: ["skill-pack", "unc"],
+            },
+            localRefs: {
+                rootDir: ".",
+                references: ["\\\\server\\share\\pack.md"],
+                scripts: [],
+            },
+            skillPack: {
+                packRef: "pack.unc",
+            },
+        }, {
+            baseDir: fixtureDir,
+        });
+        strict_1.default.equal(result.ok, false);
+        strict_1.default.ok(result.diagnostics.some((diagnostic) => diagnostic.code === "non_local_ref"
+            && diagnostic.path === "localRefs.references[0]"));
+        strict_1.default.ok(result.diagnostics.every((diagnostic) => diagnostic.code !== "missing_local_ref"));
+    }
+    finally {
+        nodePath.isAbsolute = originalIsAbsolute;
+    }
+});
+(0, node_test_1.default)("UNC_UNREACHABLE_ERROR_CODES contient les codes reseau specifiques qui deviennent unc_unreachable", () => {
+    const expectedCodes = [
+        "ENOTFOUND",
+        "EHOSTUNREACH",
+        "ENETUNREACH",
+        "ETIMEDOUT",
+        "ECONNREFUSED",
+        "EHOSTDOWN",
+    ];
+    for (const code of expectedCodes) {
+        strict_1.default.equal(validate_extension_registration_1.UNC_UNREACHABLE_ERROR_CODES.has(code), true, `${code} doit etre classifie unc_unreachable quand le chemin resolu est UNC.`);
+    }
+    for (const code of ["ENOENT", "EACCES", "EPERM", "EISDIR"]) {
+        strict_1.default.equal(validate_extension_registration_1.UNC_UNREACHABLE_ERROR_CODES.has(code), false, `${code} doit rester un missing_local_ref meme sur un chemin UNC.`);
+    }
+});
 (0, node_test_1.default)("validateExtensionRegistration exige un outil MCP quand provider=mcp", () => {
     const fixtureDir = getFixtureDir();
     const result = (0, validate_extension_registration_1.validateExtensionRegistration)({

@@ -8,8 +8,8 @@ import { readMissionResume } from "../../../mission-kernel/src/resume-service/re
 import { resolveWorkspaceLayout } from "../../../storage/src/fs-layout/workspace-layout";
 import { createFileMissionRepository } from "../../../storage/src/repositories/file-mission-repository";
 import { createFileTicketRepository } from "../../../storage/src/repositories/file-ticket-repository";
+import { ensureMissionWorkspaceInitialized } from "../../../mission-kernel/src/mission-service/ensure-mission-workspace";
 import {
-  ensureMissionWorkspaceInitialized,
   requireText,
   requireTicketInMission,
   rewriteMissionReadModels,
@@ -39,7 +39,10 @@ export async function moveTicket(
   options: MoveTicketOptions,
 ): Promise<MoveTicketResult> {
   const layout = resolveWorkspaceLayout(options.rootDir);
-  await ensureMissionWorkspaceInitialized(layout, "ticket move");
+  await ensureMissionWorkspaceInitialized(layout, {
+    commandLabel: "ticket move",
+    cleanupLocks: true,
+  });
 
   const missionId = requireText(
     options.missionId,

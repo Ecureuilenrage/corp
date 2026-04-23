@@ -9,6 +9,7 @@ const node_path_1 = __importDefault(require("node:path"));
 const node_os_1 = require("node:os");
 const node_test_1 = __importDefault(require("node:test"));
 const index_1 = require("../../apps/corp-cli/src/index");
+const read_ticket_board_1 = require("../../packages/ticket-runtime/src/planner/read-ticket-board");
 async function runCommand(args) {
     const lines = [];
     const exitCode = await (0, index_1.runCli)(args, {
@@ -106,4 +107,32 @@ async function createMission(rootDir) {
     ]);
     strict_1.default.equal(result.exitCode, 0);
     strict_1.default.match(result.lines.join("\n"), /Aucun ticket n'existe encore\./);
+});
+(0, node_test_1.default)("mission ticket board classe une erreur OS issue de readMissionEvents sans fuite EACCES brute", async (t) => {
+    const rootDir = await (0, promises_1.mkdtemp)(node_path_1.default.join((0, node_os_1.tmpdir)(), "corp-cli-ticket-board-journal-eacces-"));
+    t.after(async () => {
+        (0, read_ticket_board_1.setReadTicketBoardDependenciesForTesting)(null);
+        await (0, promises_1.rm)(rootDir, { recursive: true, force: true });
+    });
+    await bootstrapWorkspace(rootDir);
+    const missionId = await createMission(rootDir);
+    (0, read_ticket_board_1.setReadTicketBoardDependenciesForTesting)({
+        readMissionEvents: async () => {
+            const error = new Error("EACCES: permission denied, open events.jsonl");
+            error.code = "EACCES";
+            throw error;
+        },
+    });
+    const result = await runCommand([
+        "mission",
+        "ticket",
+        "board",
+        "--root",
+        rootDir,
+        "--mission-id",
+        missionId,
+    ]);
+    strict_1.default.equal(result.exitCode, 1);
+    strict_1.default.match(result.lines.at(-1) ?? "", /erreur_fichier: erreur de lecture journal append-only \(EACCES\)/i);
+    strict_1.default.doesNotMatch(result.lines.at(-1) ?? "", /^EACCES:/);
 });

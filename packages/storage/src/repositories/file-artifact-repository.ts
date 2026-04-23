@@ -2,7 +2,11 @@ import type { Dirent } from "node:fs";
 import { mkdir, readdir } from "node:fs/promises";
 import path from "node:path";
 
-import { validateArtifact } from "../../../contracts/src/guards/persisted-document-guards";
+import {
+  attachStructuralValidationWarnings,
+  validateArtifact,
+  type StructuralValidationWarning,
+} from "../../../contracts/src/guards/persisted-document-guards";
 import type { Artifact } from "../../../contracts/src/artifact/artifact";
 import { writeJsonAtomic } from "../fs-layout/atomic-json";
 import { isMissingFileError } from "../fs-layout/file-system-read-errors";
@@ -109,8 +113,13 @@ export class FileArtifactRepository {
 
     try {
       const storedArtifact = await readPersistedJsonDocument(context);
-      assertValidPersistedDocument<Artifact>(storedArtifact, validateArtifact, context);
-      return storedArtifact;
+      const warnings: StructuralValidationWarning[] = [];
+      assertValidPersistedDocument<Artifact>(
+        storedArtifact,
+        (value) => validateArtifact(value, { strict: false, warnings }),
+        context,
+      );
+      return attachStructuralValidationWarnings(storedArtifact, warnings);
     } catch (error) {
       if (isMissingFileError(error)) {
         return null;

@@ -54,6 +54,7 @@ export function formatExtensionHelp(): string[] {
     "  corp extension validate --file <path>  Valide offline un manifeste `corp.extension.v1` sans bootstrap mission",
     "  corp extension capability register --root <workspace> --file <path>  Enregistre une capability valide dans le registre local du workspace",
     "  corp extension skill-pack register --root <workspace> --file <path>  Enregistre un skill pack valide dans le registre local du workspace",
+    "  corp extension skill-pack list --root <workspace>  Liste les skill packs valides et les diagnostics des entrees corrompues",
     "  corp extension skill-pack show --root <workspace> --pack-ref <ref>  Affiche le resume metadata-first d'un skill pack enregistre",
     "  corp extension help                     Affiche cette aide",
     "",

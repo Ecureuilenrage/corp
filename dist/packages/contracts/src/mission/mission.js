@@ -3,6 +3,7 @@ Object.defineProperty(exports, "__esModule", { value: true });
 exports.createEmptyMissionAuthorizedExtensions = createEmptyMissionAuthorizedExtensions;
 exports.normalizeMissionAuthorizedExtensions = normalizeMissionAuthorizedExtensions;
 exports.hydrateMission = hydrateMission;
+const extension_registration_1 = require("../extension/extension-registration");
 function createEmptyMissionAuthorizedExtensions() {
     return {
         allowedCapabilities: [],
@@ -25,18 +26,5 @@ function normalizeMissionReferenceList(values) {
     if (!Array.isArray(values)) {
         return [];
     }
-    const normalizedValues = [];
-    const seenValues = new Set();
-    for (const value of values) {
-        if (typeof value !== "string") {
-            continue;
-        }
-        const normalizedValue = value.trim();
-        if (!normalizedValue || seenValues.has(normalizedValue)) {
-            continue;
-        }
-        seenValues.add(normalizedValue);
-        normalizedValues.push(normalizedValue);
-    }
-    return normalizedValues;
+    return (0, extension_registration_1.normalizeOpaqueReferences)(values.filter((value) => typeof value === "string"), { caseInsensitive: true });
 }

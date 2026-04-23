@@ -11,7 +11,10 @@ const ticket_service_support_1 = require("../../../ticket-runtime/src/ticket-ser
 const ensure_mission_workspace_1 = require("./ensure-mission-workspace");
 async function createMission(options) {
     const layout = (0, workspace_layout_1.resolveWorkspaceLayout)(options.rootDir);
-    await (0, ensure_mission_workspace_1.ensureMissionWorkspaceInitialized)(layout, { commandLabel: "create" });
+    await (0, ensure_mission_workspace_1.ensureMissionWorkspaceInitialized)(layout, {
+        commandLabel: "create",
+        cleanupLocks: true,
+    });
     const title = requireText(options.title, "Le titre de mission est obligatoire.");
     const objective = requireText(options.objective, "L'objectif de mission est obligatoire.");
     const successCriteria = requireSuccessCriteria(options.successCriteria);

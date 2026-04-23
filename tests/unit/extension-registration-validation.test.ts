@@ -7,6 +7,7 @@ import {
   EXTENSION_REGISTRATION_SCHEMA_VERSION,
 } from "../../packages/contracts/src/extension/extension-registration";
 import {
+  UNC_UNREACHABLE_ERROR_CODES,
   validateExtensionRegistration,
 } from "../../packages/capability-registry/src/validation/validate-extension-registration";
 
@@ -103,6 +104,84 @@ test("validateExtensionRegistration rejette les refs distantes dans localRefs", 
       && diagnostic.path === "localRefs.references[0]"
     ),
   );
+});
+
+test("validateExtensionRegistration traite un chemin UNC comme absolu meme si path.isAbsolute suit un runtime POSIX", () => {
+  const fixtureDir = getFixtureDir();
+  const nodePath = require("node:path") as typeof import("node:path");
+  const originalIsAbsolute = nodePath.isAbsolute;
+
+  nodePath.isAbsolute = nodePath.posix.isAbsolute.bind(nodePath.posix);
+
+  try {
+    const result = validateExtensionRegistration(
+      {
+        schemaVersion: "corp.extension.v1",
+        seamType: "skill_pack",
+        id: "ext.skill-pack.unc-path",
+        displayName: "Pack UNC",
+        version: "0.1.0",
+        permissions: ["docs.read"],
+        constraints: ["local_only"],
+        metadata: {
+          description: "Fixture UNC pour fallback POSIX.",
+          owner: "core-platform",
+          tags: ["skill-pack", "unc"],
+        },
+        localRefs: {
+          rootDir: ".",
+          references: ["\\\\server\\share\\pack.md"],
+          scripts: [],
+        },
+        skillPack: {
+          packRef: "pack.unc",
+        },
+      },
+      {
+        baseDir: fixtureDir,
+      },
+    );
+
+    assert.equal(result.ok, false);
+    assert.ok(
+      result.diagnostics.some((diagnostic) =>
+        diagnostic.code === "non_local_ref"
+        && diagnostic.path === "localRefs.references[0]"
+      ),
+    );
+    assert.ok(
+      result.diagnostics.every((diagnostic) => diagnostic.code !== "missing_local_ref"),
+    );
+  } finally {
+    nodePath.isAbsolute = originalIsAbsolute;
+  }
+});
+
+test("UNC_UNREACHABLE_ERROR_CODES contient les codes reseau specifiques qui deviennent unc_unreachable", () => {
+  const expectedCodes = [
+    "ENOTFOUND",
+    "EHOSTUNREACH",
+    "ENETUNREACH",
+    "ETIMEDOUT",
+    "ECONNREFUSED",
+    "EHOSTDOWN",
+  ];
+
+  for (const code of expectedCodes) {
+    assert.equal(
+      UNC_UNREACHABLE_ERROR_CODES.has(code),
+      true,
+      `${code} doit etre classifie unc_unreachable quand le chemin resolu est UNC.`,
+    );
+  }
+
+  for (const code of ["ENOENT", "EACCES", "EPERM", "EISDIR"]) {
+    assert.equal(
+      UNC_UNREACHABLE_ERROR_CODES.has(code),
+      false,
+      `${code} doit rester un missing_local_ref meme sur un chemin UNC.`,
+    );
+  }
 });
 
 test("validateExtensionRegistration exige un outil MCP quand provider=mcp", () => {

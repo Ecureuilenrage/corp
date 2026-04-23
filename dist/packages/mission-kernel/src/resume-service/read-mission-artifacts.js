@@ -194,17 +194,23 @@ async function readStoredArtifactsForArtifacts(artifactRepository, missionId) {
     }
 }
 async function readPayloadPreview(rootDir, payloadPath, mediaType, dependencies = {}) {
+    const resolvedPayloadPath = node_path_1.default.isAbsolute(payloadPath)
+        ? payloadPath
+        : node_path_1.default.join(rootDir, payloadPath);
     try {
-        const resolvedPayloadPath = node_path_1.default.isAbsolute(payloadPath)
-            ? payloadPath
-            : node_path_1.default.join(rootDir, payloadPath);
         if (mediaType?.includes("json") || !mediaType || mediaType.startsWith("text/")) {
             return truncatePreview(await readUtf8PreviewContents(resolvedPayloadPath, dependencies));
         }
         return null;
     }
-    catch {
-        return null;
+    catch (error) {
+        if ((0, file_system_read_errors_1.isMissingFileError)(error)) {
+            return null;
+        }
+        if ((0, file_system_read_errors_1.isFileSystemReadError)(error)) {
+            throw (0, file_system_read_errors_1.createFileSystemReadError)(error, resolvedPayloadPath, "payload artefact");
+        }
+        throw error;
     }
 }
 function truncatePreview(value) {

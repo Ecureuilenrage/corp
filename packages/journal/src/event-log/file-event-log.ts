@@ -1,15 +1,41 @@
 import { createReadStream } from "node:fs";
 import { readFile, truncate, writeFile } from "node:fs/promises";
 import { createInterface } from "node:readline";
+import { finished } from "node:stream/promises";
 
 import { isAlreadyExistsError } from "../../../storage/src/fs-layout/atomic-json";
 import { isFileSystemReadError } from "../../../storage/src/fs-layout/file-system-read-errors";
 import type { JournalEventRecord } from "./append-event";
 import { EventLogReadError, normalizeEventLogReadError } from "./event-log-errors";
 
+interface EventLogDependencies {
+  createReadStream: typeof createReadStream;
+  readFile: typeof readFile;
+  truncate: typeof truncate;
+  writeFile: typeof writeFile;
+}
+
+const DEFAULT_EVENT_LOG_DEPENDENCIES: EventLogDependencies = {
+  createReadStream,
+  readFile,
+  truncate,
+  writeFile,
+};
+
+let eventLogDependenciesForTesting: Partial<EventLogDependencies> | null = null;
+
+export function setEventLogDependenciesForTesting(
+  dependencies: Partial<EventLogDependencies> | null,
+): void {
+  eventLogDependenciesForTesting = dependencies;
+}
+
 export async function ensureAppendOnlyEventLog(journalPath: string): Promise<boolean> {
   try {
-    await writeFile(journalPath, "", { encoding: "utf8", flag: "wx" });
+    await getEventLogDependencies().writeFile(journalPath, "", {
+      encoding: "utf8",
+      flag: "wx",
+    });
     return true;
   } catch (error) {
     if (isAlreadyExistsError(error)) {
@@ -27,7 +53,7 @@ export async function ensureAppendOnlyEventLog(journalPath: string): Promise<boo
 
 export async function readEventLog(journalPath: string): Promise<JournalEventRecord[]> {
   const events: JournalEventRecord[] = [];
-  const stream = createReadStream(journalPath, { encoding: "utf8" });
+  const stream = getEventLogDependencies().createReadStream(journalPath, { encoding: "utf8" });
   const lines = createInterface({
     input: stream,
     crlfDelay: Infinity,
@@ -45,11 +71,14 @@ export async function readEventLog(journalPath: string): Promise<JournalEventRec
 
       events.push(parseJournalEventLine(line, journalPath, lineNumber));
     }
-  } catch (error) {
+    await finished(stream, { cleanup: true });
+  } catch (error: unknown) {
     throw normalizeEventLogReadError(error, journalPath);
   } finally {
     lines.close();
-    stream.destroy();
+    if (!stream.destroyed) {
+      stream.destroy();
+    }
   }
 
   return events;
@@ -89,7 +118,7 @@ async function validateExistingAppendOnlyEventLog(journalPath: string): Promise<
   let contents: string;
 
   try {
-    contents = await readFile(journalPath, "utf8");
+    contents = await getEventLogDependencies().readFile(journalPath, "utf8");
   } catch (error) {
     throw normalizeEventLogReadError(error, journalPath);
   }
@@ -104,13 +133,15 @@ async function validateExistingAppendOnlyEventLog(journalPath: string): Promise<
   }
 
   const lastLineStart = contents.lastIndexOf("\n") + 1;
+  const validatedPrefix = contents.slice(0, lastLineStart);
   const lastLine = contents.slice(lastLineStart);
   const lineNumber = countLineNumberAtOffset(contents, lastLineStart);
   const trimmedLastLine = lastLine.trim();
 
+  validateBufferedEventLog(validatedPrefix, journalPath);
+
   if (trimmedLastLine.length === 0) {
     await truncateJournal(journalPath, lastLineStart);
-    await readEventLog(journalPath);
     return;
   }
 
@@ -118,14 +149,13 @@ async function validateExistingAppendOnlyEventLog(journalPath: string): Promise<
 
   try {
     parsedLastLine = JSON.parse(trimmedLastLine) as unknown;
-  } catch (error) {
+  } catch (error: unknown) {
     if (error instanceof SyntaxError) {
       await truncateJournal(journalPath, lastLineStart);
-      await readEventLog(journalPath);
       return;
     }
 
-    throw error;
+    throw normalizeEventLogReadError(error, journalPath);
   }
 
   const validation = validateJournalEventRecord(parsedLastLine);
@@ -136,19 +166,32 @@ async function validateExistingAppendOnlyEventLog(journalPath: string): Promise<
       reason: validation.reason,
     });
   }
-
-  throw EventLogReadError.invalid({
-    journalPath,
-    lineNumber,
-    reason: "derniere ligne complete sans newline finale",
-  });
 }
 
 async function truncateJournal(journalPath: string, length: number): Promise<void> {
   try {
-    await truncate(journalPath, length);
+    await getEventLogDependencies().truncate(journalPath, length);
   } catch (error) {
     throw normalizeEventLogReadError(error, journalPath);
+  }
+}
+
+function validateBufferedEventLog(contents: string, journalPath: string): void {
+  if (!contents) {
+    return;
+  }
+
+  const lines = contents.split("\n");
+
+  for (let index = 0; index < lines.length; index += 1) {
+    const rawLine = lines[index] ?? "";
+    const line = rawLine.trim();
+
+    if (line.length === 0) {
+      continue;
+    }
+
+    parseJournalEventLine(line, journalPath, index + 1);
   }
 }
 
@@ -161,13 +204,17 @@ function parseJournalEventLine(
 
   try {
     parsedEvent = JSON.parse(line) as unknown;
-  } catch (error) {
-    throw EventLogReadError.invalid({
-      journalPath,
-      lineNumber,
-      reason: "JSON corrompu",
-      cause: error,
-    });
+  } catch (error: unknown) {
+    if (error instanceof SyntaxError) {
+      throw EventLogReadError.invalid({
+        journalPath,
+        lineNumber,
+        reason: "JSON corrompu",
+        cause: error,
+      });
+    }
+
+    throw normalizeEventLogReadError(error, journalPath);
   }
 
   const validation = validateJournalEventRecord(parsedEvent);
@@ -230,4 +277,11 @@ function validatePayload(
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function getEventLogDependencies(): EventLogDependencies {
+  return {
+    ...DEFAULT_EVENT_LOG_DEPENDENCIES,
+    ...eventLogDependenciesForTesting,
+  };
 }

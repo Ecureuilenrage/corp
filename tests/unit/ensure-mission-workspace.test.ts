@@ -21,6 +21,9 @@ test("ensureMissionWorkspaceInitialized ne cree qu'un journal et qu'une projecti
   // Bootstrap partiel: les dossiers parents existent, les fichiers sont absents.
   await mkdir(layout.journalDir, { recursive: true });
   await mkdir(layout.projectionsDir, { recursive: true });
+  await mkdir(layout.missionsDir, { recursive: true });
+  await mkdir(layout.capabilitiesDir, { recursive: true });
+  await mkdir(layout.skillPacksDir, { recursive: true });
 
   // 20 initialisations concurrentes doivent toutes reussir sans corrompre les fichiers.
   await Promise.all(
@@ -59,8 +62,8 @@ test("ensureMissionWorkspaceInitialized surface l'erreur d'initialisation quand 
   );
 });
 
-test("ensureMissionWorkspaceInitialized respecte skipProjections pour le scenario lifecycle", async (t) => {
-  const rootDir = await mkdtemp(path.join(tmpdir(), "corp-ensure-workspace-skip-"));
+test("ensureMissionWorkspaceInitialized refuse un workspace legacy sans registres d'extensions", async (t) => {
+  const rootDir = await mkdtemp(path.join(tmpdir(), "corp-ensure-workspace-legacy-layout-"));
 
   t.after(async () => {
     await rm(rootDir, { recursive: true, force: true });
@@ -70,23 +73,23 @@ test("ensureMissionWorkspaceInitialized respecte skipProjections pour le scenari
 
   await mkdir(layout.journalDir, { recursive: true });
   await mkdir(layout.projectionsDir, { recursive: true });
+  await mkdir(layout.missionsDir, { recursive: true });
 
-  await ensureMissionWorkspaceInitialized(layout, {
-    commandLabel: "pause",
-    skipProjections: new Set(["resume-view"]),
-  });
-
-  // resume-view ne doit PAS avoir ete cree.
   await assert.rejects(
-    () => readFile(resolveProjectionPath(layout.projectionsDir, "resume-view"), "utf8"),
-    /ENOENT/,
+    () => ensureMissionWorkspaceInitialized(layout, {
+      commandLabel: "resume",
+    }),
+    /Workspace mission non initialise\. Lancez `corp mission bootstrap --root .*` avant `corp mission resume`\./,
   );
 
-  // Les autres projections DOIVENT avoir ete creees.
+  await mkdir(layout.capabilitiesDir, { recursive: true });
+  await mkdir(layout.skillPacksDir, { recursive: true });
+
+  await ensureMissionWorkspaceInitialized(layout, {
+    commandLabel: "resume",
+  });
+
   for (const projectionName of Object.keys(DEFAULT_PROJECTIONS)) {
-    if (projectionName === "resume-view") {
-      continue;
-    }
     await readFile(resolveProjectionPath(layout.projectionsDir, projectionName), "utf8");
   }
 });

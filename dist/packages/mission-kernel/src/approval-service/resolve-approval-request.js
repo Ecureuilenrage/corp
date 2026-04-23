@@ -2,6 +2,7 @@
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.resolveApprovalRequest = resolveApprovalRequest;
 const node_crypto_1 = require("node:crypto");
+const persisted_document_guards_1 = require("../../../contracts/src/guards/persisted-document-guards");
 const append_event_1 = require("../../../journal/src/event-log/append-event");
 const file_event_log_1 = require("../../../journal/src/event-log/file-event-log");
 const workspace_layout_1 = require("../../../storage/src/fs-layout/workspace-layout");
@@ -188,7 +189,9 @@ function resolveNormalizedReferenceList(currentValues, nextValues, clearValues) 
     if (nextValues.length === 0) {
         return [...currentValues];
     }
-    const normalizedValues = (0, ticket_service_support_1.normalizeOpaqueReferences)(nextValues);
+    const normalizedValues = (0, ticket_service_support_1.normalizeOpaqueReferences)(nextValues, {
+        caseInsensitive: true,
+    });
     return (0, structural_compare_1.deepStrictEqualIgnoringArrayOrder)(currentValues, normalizedValues)
         ? [...currentValues]
         : normalizedValues;
@@ -238,26 +241,7 @@ function findLatestApproval(events, approvalId) {
 }
 function readApprovalFromPayload(payload) {
     const candidate = payload.approval ?? payload.approvalRequest;
-    return isApprovalRequest(candidate) ? candidate : null;
-}
-function isApprovalRequest(value) {
-    if (typeof value !== "object" || value === null) {
-        return false;
-    }
-    const candidate = value;
-    return typeof candidate.approvalId === "string"
-        && typeof candidate.missionId === "string"
-        && typeof candidate.ticketId === "string"
-        && typeof candidate.attemptId === "string"
-        && typeof candidate.status === "string"
-        && typeof candidate.title === "string"
-        && typeof candidate.actionType === "string"
-        && typeof candidate.actionSummary === "string"
-        && Array.isArray(candidate.guardrails)
-        && Array.isArray(candidate.relatedEventIds)
-        && Array.isArray(candidate.relatedArtifactIds)
-        && typeof candidate.createdAt === "string"
-        && typeof candidate.updatedAt === "string";
+    return (0, persisted_document_guards_1.isApprovalRequest)(candidate) ? candidate : null;
 }
 function resolveCommandName(outcome) {
     if (outcome === "approved") {

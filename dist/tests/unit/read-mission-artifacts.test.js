@@ -35,3 +35,28 @@ const read_mission_artifacts_1 = require("../../packages/mission-kernel/src/resu
     strict_1.default.doesNotMatch(preview, /�/);
     strict_1.default.match(preview, /^€+/);
 });
+(0, node_test_1.default)("readPayloadPreview retourne null seulement pour ENOENT", async () => {
+    const preview = await (0, read_mission_artifacts_1.readPayloadPreview)("C:/tmp", "payload.txt", "text/plain", {
+        openFile: async () => {
+            const error = new Error("ENOENT: missing payload");
+            error.code = "ENOENT";
+            throw error;
+        },
+    });
+    strict_1.default.equal(preview, null);
+});
+(0, node_test_1.default)("readPayloadPreview remonte EACCES comme erreur_fichier au lieu d'un null silencieux", async () => {
+    await strict_1.default.rejects(() => (0, read_mission_artifacts_1.readPayloadPreview)("C:/tmp", "payload.txt", "text/plain", {
+        openFile: async () => {
+            const error = new Error("EACCES: permission denied");
+            error.code = "EACCES";
+            throw error;
+        },
+    }), (error) => {
+        strict_1.default.ok(error instanceof Error);
+        strict_1.default.equal(error.code, "erreur_fichier");
+        strict_1.default.match(error.message, /EACCES/);
+        strict_1.default.match(error.message, /payload\.txt/);
+        return true;
+    });
+});

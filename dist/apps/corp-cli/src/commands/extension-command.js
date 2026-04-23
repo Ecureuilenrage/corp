@@ -11,6 +11,7 @@ const file_skill_pack_registry_repository_1 = require("../../../../packages/stor
 const read_extension_registration_file_1 = require("../../../../packages/capability-registry/src/validation/read-extension-registration-file");
 const help_formatter_1 = require("../formatters/help-formatter");
 const extension_capability_registration_formatter_1 = require("../formatters/extension-capability-registration-formatter");
+const extension_skill_pack_list_formatter_1 = require("../formatters/extension-skill-pack-list-formatter");
 const extension_skill_pack_registration_formatter_1 = require("../formatters/extension-skill-pack-registration-formatter");
 const extension_skill_pack_show_formatter_1 = require("../formatters/extension-skill-pack-show-formatter");
 const extension_validation_formatter_1 = require("../formatters/extension-validation-formatter");
@@ -99,6 +100,21 @@ async function runSkillPackExtensionCommand(args, output) {
             output.writeLine(line);
         }
         return 0;
+    }
+    if (subcommand === "list") {
+        const options = parseListSkillPackArgs(rest);
+        const layout = (0, workspace_layout_1.resolveWorkspaceLayout)(options.rootDir);
+        await ensureExtensionWorkspaceDirectoryInitialized({
+            layout,
+            commandName: "skill-pack list",
+            directoryPath: layout.skillPacksDir,
+            directoryLabel: "skill-packs",
+        });
+        const result = await (0, file_skill_pack_registry_repository_1.createFileSkillPackRegistryRepository)(layout).listAll();
+        for (const line of (0, extension_skill_pack_list_formatter_1.formatExtensionSkillPackList)(result)) {
+            output.writeLine(line);
+        }
+        return result.invalid.length > 0 ? 1 : 0;
     }
     output.writeLine(`Commande extension skill-pack inconnue: ${subcommand ?? "(vide)"}`);
     writeHelp(output);
@@ -229,6 +245,28 @@ function parseShowSkillPackArgs(args) {
     return {
         rootDir: options.rootDir,
         packRef: options.packRef,
+    };
+}
+function parseListSkillPackArgs(args) {
+    const options = {};
+    for (let index = 0; index < args.length; index += 1) {
+        const currentArg = args[index];
+        if (currentArg === "--root") {
+            options.rootDir = readOptionValue(args, index + 1, "--root");
+            index += 1;
+            continue;
+        }
+        if (currentArg.startsWith("--root=")) {
+            options.rootDir = readInlineOptionValue(currentArg, "--root");
+            continue;
+        }
+        throw new Error(`Argument de extension skill-pack list inconnu: ${currentArg}`);
+    }
+    if (!options.rootDir?.trim()) {
+        throw new Error("L'option --root est obligatoire pour `corp extension skill-pack list`.");
+    }
+    return {
+        rootDir: options.rootDir,
     };
 }
 function readOptionValue(args, valueIndex, optionName) {

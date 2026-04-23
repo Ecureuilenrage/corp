@@ -4,6 +4,7 @@ import type {
   ApprovalRequestStatus,
 } from "../../../contracts/src/approval/approval-request";
 import { TERMINAL_APPROVAL_REQUEST_STATUSES } from "../../../contracts/src/approval/approval-request";
+import { isApprovalRequest } from "../../../contracts/src/guards/persisted-document-guards";
 import type { JournalEventRecord } from "../event-log/append-event";
 
 export interface ApprovalQueueProjection {
@@ -80,30 +81,4 @@ function readApprovalFromPayload(
     relatedEventIds: [...candidate.relatedEventIds],
     relatedArtifactIds: [...candidate.relatedArtifactIds],
   };
-}
-
-function isApprovalRequest(value: unknown): value is ApprovalRequest {
-  if (typeof value !== "object" || value === null) {
-    return false;
-  }
-
-  const candidate = value as Record<string, unknown>;
-
-  return typeof candidate.approvalId === "string"
-    && typeof candidate.missionId === "string"
-    && typeof candidate.ticketId === "string"
-    && typeof candidate.attemptId === "string"
-    && typeof candidate.status === "string"
-    && typeof candidate.title === "string"
-    && typeof candidate.actionType === "string"
-    && typeof candidate.actionSummary === "string"
-    && isStringArray(candidate.guardrails)
-    && isStringArray(candidate.relatedEventIds)
-    && isStringArray(candidate.relatedArtifactIds)
-    && typeof candidate.createdAt === "string"
-    && typeof candidate.updatedAt === "string";
-}
-
-function isStringArray(value: unknown): value is string[] {
-  return Array.isArray(value) && value.every((entry) => typeof entry === "string");
 }

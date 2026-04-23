@@ -199,6 +199,50 @@ function createTicket(overrides = {}) {
     }), /Collision ambigue.*pack\.triage\.local/i);
     strict_1.default.equal((await repository.list()).length, 1);
 });
+(0, node_test_1.default)("registerSkillPack detecte une collision de casse pour un packRef deja present", async (t) => {
+    const tempDir = await (0, promises_1.mkdtemp)(node_path_1.default.join((0, node_os_1.tmpdir)(), "corp-skill-pack-case-collision-"));
+    const workspaceRoot = node_path_1.default.join(tempDir, "workspace");
+    t.after(async () => {
+        await (0, promises_1.rm)(tempDir, { recursive: true, force: true });
+    });
+    const layout = await (0, workspace_layout_1.ensureWorkspaceLayout)(workspaceRoot);
+    const repository = (0, file_skill_pack_registry_repository_1.createFileSkillPackRegistryRepository)(layout);
+    await (0, register_skill_pack_1.registerSkillPack)({
+        filePath: getFixturePath("valid-skill-pack.json"),
+        repository,
+        registeredAt: "2026-04-20T23:55:00.000Z",
+    });
+    const collisionManifestPath = node_path_1.default.join(tempDir, "case-collision-skill-pack.json");
+    await (0, promises_1.writeFile)(collisionManifestPath, `${JSON.stringify({
+        schemaVersion: "corp.extension.v1",
+        seamType: "skill_pack",
+        id: "ext.skill-pack.Pack.Triage.Local.case",
+        displayName: "Pack Triage Local Case Collision",
+        version: "0.1.0",
+        permissions: ["docs.read"],
+        constraints: ["local_only", "workspace_scoped"],
+        metadata: {
+            description: "Variation de casse pour collision deterministe.",
+            owner: "core-platform",
+            tags: ["skill-pack", "case-collision"],
+        },
+        localRefs: {
+            rootDir: "./skill-packs/triage-pack",
+            references: ["./skill-packs/triage-pack/README.md"],
+            metadataFile: "./skill-packs/triage-pack/pack.json",
+            scripts: [],
+        },
+        skillPack: {
+            packRef: "Pack.Triage.Local",
+        },
+    }, null, 2)}\n`, "utf8");
+    await (0, promises_1.cp)(node_path_1.default.join(getFixtureRoot(), "skill-packs"), node_path_1.default.join(tempDir, "skill-packs"), { recursive: true });
+    await strict_1.default.rejects(() => (0, register_skill_pack_1.registerSkillPack)({
+        filePath: collisionManifestPath,
+        repository,
+        registeredAt: "2026-04-20T23:55:01.000Z",
+    }), /collision de casse detectee.*Pack\.Triage\.Local.*pack\.triage\.local/i);
+});
 (0, node_test_1.default)("FileSkillPackRegistryRepository traite un enregistrement concurrent identique comme unchanged", async (t) => {
     const rootDir = await (0, promises_1.mkdtemp)(node_path_1.default.join((0, node_os_1.tmpdir)(), "corp-skill-pack-concurrent-identical-"));
     t.after(async () => {
@@ -289,6 +333,30 @@ function createTicket(overrides = {}) {
     strict_1.default.equal(persisted.packRef, registeredSkillPack.packRef);
     strict_1.default.equal(persisted.displayName, "Pack orphelin");
 });
+(0, node_test_1.default)("FileSkillPackRegistryRepository.listAll retourne les packs valides et les diagnostics invalides sans masquer les packs sains", async (t) => {
+    const rootDir = await (0, promises_1.mkdtemp)(node_path_1.default.join((0, node_os_1.tmpdir)(), "corp-skill-pack-list-all-"));
+    t.after(async () => {
+        await (0, promises_1.rm)(rootDir, { recursive: true, force: true });
+    });
+    const layout = await (0, workspace_layout_1.ensureWorkspaceLayout)(rootDir);
+    const repository = (0, file_skill_pack_registry_repository_1.createFileSkillPackRegistryRepository)(layout);
+    await (0, register_skill_pack_1.registerSkillPack)({
+        filePath: getFixturePath("valid-skill-pack.json"),
+        repository,
+        registeredAt: "2026-04-16T10:00:00.000Z",
+    });
+    const corruptPath = node_path_1.default.join(layout.skillPacksDir, "pack.corrupt", "skill-pack.json");
+    await (0, promises_1.mkdir)(node_path_1.default.dirname(corruptPath), { recursive: true });
+    await (0, promises_1.writeFile)(corruptPath, "{json invalide\n", "utf8");
+    const result = await repository.listAll();
+    strict_1.default.equal(result.valid.length, 1);
+    strict_1.default.equal(result.valid[0]?.packRef, "pack.triage.local");
+    strict_1.default.equal(result.invalid.length, 1);
+    strict_1.default.equal(result.invalid[0]?.packRef, "pack.corrupt");
+    strict_1.default.equal(result.invalid[0]?.code, "json_corrompu");
+    strict_1.default.equal(result.invalid[0]?.filePath, corruptPath);
+    await strict_1.default.rejects(() => repository.list(), /json_corrompu: fichier de registre corrompu pour le skill pack `pack\.corrupt` invalide/i);
+});
 (0, node_test_1.default)("FileSkillPackRegistryRepository leve un conflit legitime quand un writer concurrent publie un contenu different pendant le polling", async (t) => {
     const rootDir = await (0, promises_1.mkdtemp)(node_path_1.default.join((0, node_os_1.tmpdir)(), "corp-skill-pack-concurrent-legit-"));
     t.after(async () => {
@@ -340,6 +408,52 @@ function createTicket(overrides = {}) {
         return null;
     };
     await strict_1.default.rejects(() => repository.save(ourContent), /Conflit d'ecriture concurrente legitime.*pack\.legit-conflict/i);
+});
+(0, node_test_1.default)("FileSkillPackRegistryRepository preserve une erreur de schema apres EEXIST au lieu de signaler une dir orpheline", async (t) => {
+    const rootDir = await (0, promises_1.mkdtemp)(node_path_1.default.join((0, node_os_1.tmpdir)(), "corp-skill-pack-eexist-invalid-"));
+    t.after(async () => {
+        await (0, promises_1.rm)(rootDir, { recursive: true, force: true });
+    });
+    const layout = await (0, workspace_layout_1.ensureWorkspaceLayout)(rootDir);
+    const repository = (0, file_skill_pack_registry_repository_1.createFileSkillPackRegistryRepository)(layout);
+    const packRef = "pack.invalid-after-exist";
+    const registeredSkillPack = {
+        packRef,
+        registrationId: "ext.skill-pack.invalid-after-exist",
+        schemaVersion: "corp.extension.v1",
+        displayName: "Pack invalid after exist",
+        version: "0.1.0",
+        permissions: ["docs.read"],
+        constraints: ["local_only", "workspace_scoped"],
+        metadata: {
+            description: "Pack qui doit remonter la vraie erreur apres EEXIST.",
+            owner: "core-platform",
+            tags: ["skill-pack", "invalid"],
+        },
+        localRefs: {
+            rootDir,
+            references: [],
+            scripts: [],
+        },
+        registeredAt: "2026-04-16T11:00:00.000Z",
+        sourceManifestPath: node_path_1.default.join(rootDir, "pack.invalid-after-exist.json"),
+    };
+    const originalFindByPackRef = repository.findByPackRef.bind(repository);
+    let readCount = 0;
+    const invalidPath = node_path_1.default.join(layout.skillPacksDir, packRef, "skill-pack.json");
+    await (0, promises_1.mkdir)(node_path_1.default.dirname(invalidPath), { recursive: true });
+    await (0, promises_1.writeFile)(invalidPath, `${JSON.stringify({ packRef }, null, 2)}\n`, "utf8");
+    repository.findByPackRef = async (requestedPackRef) => {
+        if (requestedPackRef !== packRef) {
+            return await originalFindByPackRef(requestedPackRef);
+        }
+        readCount += 1;
+        if (readCount <= 8) {
+            return null;
+        }
+        return await originalFindByPackRef(requestedPackRef);
+    };
+    await strict_1.default.rejects(() => repository.save(registeredSkillPack), /schema_invalide: RegisteredSkillPack `pack\.invalid-after-exist` invalide/i);
 });
 (0, node_test_1.default)("resolveTicketSkillPacks deduplique les packRefs en double dans un ticket", async (t) => {
     const rootDir = await (0, promises_1.mkdtemp)(node_path_1.default.join((0, node_os_1.tmpdir)(), "corp-skill-pack-dedup-"));

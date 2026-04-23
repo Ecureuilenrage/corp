@@ -1,10 +1,10 @@
-import { access } from "node:fs/promises";
+import { access, mkdir } from "node:fs/promises";
 
 import type { ApprovalQueueEntry } from "../../../contracts/src/approval/approval-request";
 import type { Mission } from "../../../contracts/src/mission/mission";
 import { EventLogReadError, isEventLogReadError } from "../../../journal/src/event-log/event-log-errors";
 import { readEventLog } from "../../../journal/src/event-log/file-event-log";
-import { readMissionSnapshotFromJournalOrThrow } from "../../../journal/src/reconstruction/mission-reconstruction";
+import { reconstructMissionFromJournal } from "../../../journal/src/reconstruction/mission-reconstruction";
 import {
   createApprovalQueueProjection,
   type ApprovalQueueProjection,
@@ -52,23 +52,43 @@ export interface ReadApprovalQueueResult {
   projectionPath: string;
 }
 
+interface ReadApprovalQueueDependencies {
+  readEventLog: typeof readEventLog;
+  mkdir: typeof mkdir;
+}
+
+const DEFAULT_READ_APPROVAL_QUEUE_DEPENDENCIES: ReadApprovalQueueDependencies = {
+  readEventLog,
+  mkdir,
+};
+
+let readApprovalQueueDependenciesForTesting: Partial<ReadApprovalQueueDependencies> | null = null;
+
+export function setReadApprovalQueueDependenciesForTesting(
+  dependencies: Partial<ReadApprovalQueueDependencies> | null,
+): void {
+  readApprovalQueueDependenciesForTesting = dependencies;
+}
+
 export async function readApprovalQueue(
   options: ReadApprovalQueueOptions,
 ): Promise<ReadApprovalQueueResult> {
   const layout = resolveWorkspaceLayout(options.rootDir);
   await ensureApprovalQueueWorkspaceInitialized(layout, options.commandName);
 
+  const missionEvents = (await getReadApprovalQueueDependencies().readEventLog(layout.journalPath))
+    .filter((event) => event.missionId === options.missionId);
+
   const missionSnapshotResult = await readMissionSnapshotForApprovalQueue(
     layout,
     options.missionId,
+    missionEvents,
   );
   const missionSnapshot = missionSnapshotResult.mission;
 
   const projectionPath = resolveProjectionPath(layout.projectionsDir, "approval-queue");
 
   try {
-    const missionEvents = (await readEventLog(layout.journalPath))
-      .filter((event) => event.missionId === missionSnapshot.id);
     const rebuiltProjection = createApprovalQueueProjection({
       missionId: missionSnapshot.id,
       events: missionEvents,
@@ -137,6 +157,19 @@ async function ensureApprovalQueueWorkspaceInitialized(
     throw EventLogReadError.missing(layout.journalPath, journalError);
   }
 
+  if (projectionsError?.code === "ENOENT" && !journalError && !missionsError) {
+    try {
+      await getReadApprovalQueueDependencies().mkdir(layout.projectionsDir, { recursive: true });
+      return;
+    } catch (error) {
+      if (isFileSystemReadError(error)) {
+        throw createFileSystemReadError(error, layout.projectionsDir, "repertoire projections");
+      }
+
+      throw error;
+    }
+  }
+
   if (journalError || projectionsError || missionsError) {
     throw new Error(
       `Workspace mission non initialise. Lancez \`corp mission bootstrap --root ${layout.rootDir}\` avant \`corp mission ${commandName}\`.`,
@@ -176,6 +209,7 @@ function formatApprovalQueueReadError(
 async function readMissionSnapshotForApprovalQueue(
   layout: WorkspaceLayout,
   missionId: string,
+  missionEvents: Awaited<ReturnType<typeof readEventLog>>,
 ): Promise<{ mission: Mission; reconstructed: boolean }> {
   const missionRepository = createFileMissionRepository(layout);
 
@@ -191,12 +225,23 @@ async function readMissionSnapshotForApprovalQueue(
     }
   }
 
+  if (missionEvents.length === 0) {
+    throw new Error(`Mission introuvable: ${missionId}.`);
+  }
+
   return {
-    mission: await readMissionSnapshotFromJournalOrThrow(layout.journalPath, missionId),
+    mission: reconstructMissionFromJournal(missionEvents, missionId),
     reconstructed: true,
   };
 }
 
 function isClassifiedReadError(error: unknown): boolean {
   return isEventLogReadError(error) || isPersistedDocumentReadError(error);
+}
+
+function getReadApprovalQueueDependencies(): ReadApprovalQueueDependencies {
+  return {
+    ...DEFAULT_READ_APPROVAL_QUEUE_DEPENDENCIES,
+    ...readApprovalQueueDependenciesForTesting,
+  };
 }

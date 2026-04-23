@@ -14,6 +14,10 @@ exports.FILE_SYSTEM_READ_ERROR_CODES = new Set([
     "EIO",
     "EMFILE",
     "ENOSPC",
+    "EBUSY",
+    "ETIMEDOUT",
+    "EROFS",
+    "EISDIR",
 ]);
 function createFileSystemReadError(error, filePath, label = "fichier") {
     return Object.assign(new Error(formatFileSystemReadError(error, filePath, label), { cause: error }), {

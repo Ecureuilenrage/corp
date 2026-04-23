@@ -1,8 +1,10 @@
 import type { ExecutionAttempt } from "../../../contracts/src/execution-attempt/execution-attempt";
 import {
-  isExecutionAttempt,
-  isMission,
-  isTicket,
+  attachStructuralValidationWarnings,
+  validateExecutionAttempt,
+  validateMission,
+  validateTicket,
+  type StructuralValidationWarning,
 } from "../../../contracts/src/guards/persisted-document-guards";
 import { hydrateMission, type Mission } from "../../../contracts/src/mission/mission";
 import type { Ticket } from "../../../contracts/src/ticket/ticket";
@@ -22,6 +24,11 @@ export interface ReconstructMissionOptions {
   // de preserver leur surface d'erreur historique (ex. "la reprise" pour le flow
   // resume depuis la story 5.1). Par defaut : "la mission".
   errorContextNoun?: string;
+}
+
+export interface MissionAuthoritativeCursor {
+  occurredAt: string;
+  eventId: string;
 }
 
 export async function readMissionFromJournal(
@@ -56,38 +63,63 @@ export async function readMissionSnapshotFromJournalOrThrow(
 // a jour DOIT etre ajoute ici, sinon l'etat reconstruit sera obsolete. Les payloads
 // qui embarquent une mission a des fins historiques (ex. champ `previousMission`) ne
 // doivent PAS etre inclus : seul `payload.mission` est lu.
-const MISSION_AUTHORITATIVE_EVENT_TYPES: ReadonlySet<string> = new Set([
-  // Cycle de vie mission
+export const MISSION_AUTHORITATIVE_EVENT_TYPES: ReadonlySet<string> = new Set([
   "mission.created",
   "mission.paused",
   "mission.relaunched",
   "mission.completed",
   "mission.cancelled",
   "mission.extensions_selected",
-  // Cycle de vie ticket (mettent a jour mission.ticketIds / updatedAt)
   "ticket.created",
   "ticket.updated",
   "ticket.reprioritized",
   "ticket.cancelled",
   "ticket.claimed",
   "ticket.in_progress",
-  // Execution (mettent a jour mission.updatedAt, compteurs attempts)
   "workspace.isolation_created",
   "execution.requested",
   "execution.background_started",
   "execution.completed",
   "execution.failed",
   "execution.cancelled",
-  // Usage d'extensions (mettent a jour mission.eventIds / resumeCursor)
   "skill_pack.used",
-  // File d'approbation
   "approval.requested",
   "approval.approved",
   "approval.rejected",
   "approval.deferred",
-  // Artefacts (mettent a jour mission.artifactIds / updatedAt)
   "artifact.detected",
   "artifact.registered",
+]);
+
+export const TICKET_AUTHORITATIVE_EVENT_TYPES: ReadonlySet<string> = new Set([
+  "ticket.created",
+  "ticket.updated",
+  "ticket.reprioritized",
+  "ticket.cancelled",
+  "ticket.claimed",
+  "ticket.in_progress",
+  "execution.requested",
+  "execution.background_started",
+  "execution.completed",
+  "execution.failed",
+  "execution.cancelled",
+  "approval.requested",
+  "approval.approved",
+  "approval.rejected",
+  "approval.deferred",
+]);
+
+export const ATTEMPT_AUTHORITATIVE_EVENT_TYPES: ReadonlySet<string> = new Set([
+  "execution.requested",
+  "ticket.in_progress",
+  "execution.background_started",
+  "approval.requested",
+  "approval.approved",
+  "approval.rejected",
+  "approval.deferred",
+  "execution.completed",
+  "execution.failed",
+  "execution.cancelled",
 ]);
 
 export function reconstructMissionFromJournal(
@@ -102,10 +134,13 @@ export function reconstructMissionFromJournal(
       continue;
     }
 
-    const payloadMission = (event.payload as Record<string, unknown>).mission;
+    const payloadMission = readPayloadRecord(event.payload, "mission");
+    const nextMission = payloadMission
+      ? tryReadMissionSnapshot(payloadMission, missionId)
+      : null;
 
-    if (isMission(payloadMission) && payloadMission.id === missionId) {
-      reconstructedMission = hydrateMission(payloadMission);
+    if (nextMission) {
+      reconstructedMission = nextMission;
     }
   }
 
@@ -126,10 +161,17 @@ export function reconstructTicketsFromJournal(
   const ticketsById = new Map<string, Ticket>();
 
   for (const event of missionEvents) {
-    const payloadTicket = (event.payload as Record<string, unknown>).ticket;
+    if (event.missionId !== missionId || !TICKET_AUTHORITATIVE_EVENT_TYPES.has(event.type)) {
+      continue;
+    }
 
-    if (isTicket(payloadTicket) && payloadTicket.missionId === missionId) {
-      ticketsById.set(payloadTicket.id, payloadTicket);
+    const payloadTicket = readPayloadRecord(event.payload, "ticket");
+    const nextTicket = payloadTicket
+      ? tryReadTicketSnapshot(payloadTicket, missionId)
+      : null;
+
+    if (nextTicket) {
+      ticketsById.set(nextTicket.id, nextTicket);
     }
   }
 
@@ -138,16 +180,114 @@ export function reconstructTicketsFromJournal(
 
 export function reconstructAttemptsFromJournal(
   missionEvents: JournalEventRecord[],
+  missionId: string,
 ): ExecutionAttempt[] {
   const attemptsById = new Map<string, ExecutionAttempt>();
 
   for (const event of missionEvents) {
-    const payloadAttempt = (event.payload as Record<string, unknown>).attempt;
+    if (event.missionId !== missionId || !ATTEMPT_AUTHORITATIVE_EVENT_TYPES.has(event.type)) {
+      continue;
+    }
 
-    if (isExecutionAttempt(payloadAttempt)) {
-      attemptsById.set(payloadAttempt.id, payloadAttempt);
+    const payloadAttempt = readPayloadRecord(event.payload, "attempt");
+    const nextAttempt = payloadAttempt ? tryReadAttemptSnapshot(payloadAttempt) : null;
+
+    if (nextAttempt) {
+      attemptsById.set(nextAttempt.id, nextAttempt);
     }
   }
 
   return [...attemptsById.values()];
+}
+
+export function getLastAuthoritativeMissionCursor(
+  missionEvents: JournalEventRecord[],
+): MissionAuthoritativeCursor | null {
+  for (let index = missionEvents.length - 1; index >= 0; index -= 1) {
+    const event = missionEvents[index];
+
+    if (!event || !MISSION_AUTHORITATIVE_EVENT_TYPES.has(event.type)) {
+      continue;
+    }
+
+    const payloadMission = readPayloadRecord(event.payload, "mission");
+
+    if (!payloadMission) {
+      continue;
+    }
+
+    const warnings: StructuralValidationWarning[] = [];
+    const validation = validateMission(payloadMission, {
+      strict: false,
+      warnings,
+    });
+
+    if (!validation.ok) {
+      continue;
+    }
+
+    return {
+      occurredAt: event.occurredAt,
+      eventId: event.eventId,
+    };
+  }
+
+  return null;
+}
+
+function tryReadMissionSnapshot(
+  candidate: Record<string, unknown>,
+  missionId: string,
+): Mission | null {
+  const warnings: StructuralValidationWarning[] = [];
+  const validation = validateMission(candidate, { strict: false, warnings });
+
+  if (!validation.ok || candidate.id !== missionId) {
+    return null;
+  }
+
+  return attachStructuralValidationWarnings(
+    hydrateMission(candidate as unknown as Mission),
+    warnings,
+  );
+}
+
+function tryReadTicketSnapshot(
+  candidate: Record<string, unknown>,
+  missionId: string,
+): Ticket | null {
+  const warnings: StructuralValidationWarning[] = [];
+  const validation = validateTicket(candidate, { strict: false, warnings });
+
+  if (!validation.ok || candidate.missionId !== missionId) {
+    return null;
+  }
+
+  return attachStructuralValidationWarnings(candidate as unknown as Ticket, warnings);
+}
+
+function tryReadAttemptSnapshot(
+  candidate: Record<string, unknown>,
+): ExecutionAttempt | null {
+  const warnings: StructuralValidationWarning[] = [];
+  const validation = validateExecutionAttempt(candidate, { strict: false, warnings });
+
+  if (!validation.ok) {
+    return null;
+  }
+
+  return attachStructuralValidationWarnings(
+    candidate as unknown as ExecutionAttempt,
+    warnings,
+  );
+}
+
+function readPayloadRecord(
+  payload: Record<string, unknown>,
+  key: string,
+): Record<string, unknown> | null {
+  const candidate = payload[key];
+  return typeof candidate === "object" && candidate !== null && !Array.isArray(candidate)
+    ? candidate as Record<string, unknown>
+    : null;
 }

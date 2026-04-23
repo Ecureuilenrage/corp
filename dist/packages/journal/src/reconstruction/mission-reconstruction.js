@@ -1,11 +1,13 @@
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
+exports.ATTEMPT_AUTHORITATIVE_EVENT_TYPES = exports.TICKET_AUTHORITATIVE_EVENT_TYPES = exports.MISSION_AUTHORITATIVE_EVENT_TYPES = void 0;
 exports.readMissionEvents = readMissionEvents;
 exports.readMissionFromJournal = readMissionFromJournal;
 exports.readMissionSnapshotFromJournalOrThrow = readMissionSnapshotFromJournalOrThrow;
 exports.reconstructMissionFromJournal = reconstructMissionFromJournal;
 exports.reconstructTicketsFromJournal = reconstructTicketsFromJournal;
 exports.reconstructAttemptsFromJournal = reconstructAttemptsFromJournal;
+exports.getLastAuthoritativeMissionCursor = getLastAuthoritativeMissionCursor;
 const persisted_document_guards_1 = require("../../../contracts/src/guards/persisted-document-guards");
 const mission_1 = require("../../../contracts/src/mission/mission");
 const event_log_errors_1 = require("../event-log/event-log-errors");
@@ -32,48 +34,74 @@ async function readMissionSnapshotFromJournalOrThrow(journalPath, missionId) {
 // a jour DOIT etre ajoute ici, sinon l'etat reconstruit sera obsolete. Les payloads
 // qui embarquent une mission a des fins historiques (ex. champ `previousMission`) ne
 // doivent PAS etre inclus : seul `payload.mission` est lu.
-const MISSION_AUTHORITATIVE_EVENT_TYPES = new Set([
-    // Cycle de vie mission
+exports.MISSION_AUTHORITATIVE_EVENT_TYPES = new Set([
     "mission.created",
     "mission.paused",
     "mission.relaunched",
     "mission.completed",
     "mission.cancelled",
     "mission.extensions_selected",
-    // Cycle de vie ticket (mettent a jour mission.ticketIds / updatedAt)
     "ticket.created",
     "ticket.updated",
     "ticket.reprioritized",
     "ticket.cancelled",
     "ticket.claimed",
     "ticket.in_progress",
-    // Execution (mettent a jour mission.updatedAt, compteurs attempts)
     "workspace.isolation_created",
     "execution.requested",
     "execution.background_started",
     "execution.completed",
     "execution.failed",
     "execution.cancelled",
-    // Usage d'extensions (mettent a jour mission.eventIds / resumeCursor)
     "skill_pack.used",
-    // File d'approbation
     "approval.requested",
     "approval.approved",
     "approval.rejected",
     "approval.deferred",
-    // Artefacts (mettent a jour mission.artifactIds / updatedAt)
     "artifact.detected",
     "artifact.registered",
+]);
+exports.TICKET_AUTHORITATIVE_EVENT_TYPES = new Set([
+    "ticket.created",
+    "ticket.updated",
+    "ticket.reprioritized",
+    "ticket.cancelled",
+    "ticket.claimed",
+    "ticket.in_progress",
+    "execution.requested",
+    "execution.background_started",
+    "execution.completed",
+    "execution.failed",
+    "execution.cancelled",
+    "approval.requested",
+    "approval.approved",
+    "approval.rejected",
+    "approval.deferred",
+]);
+exports.ATTEMPT_AUTHORITATIVE_EVENT_TYPES = new Set([
+    "execution.requested",
+    "ticket.in_progress",
+    "execution.background_started",
+    "approval.requested",
+    "approval.approved",
+    "approval.rejected",
+    "approval.deferred",
+    "execution.completed",
+    "execution.failed",
+    "execution.cancelled",
 ]);
 function reconstructMissionFromJournal(missionEvents, missionId, options = {}) {
     let reconstructedMission = null;
     for (const event of missionEvents) {
-        if (!MISSION_AUTHORITATIVE_EVENT_TYPES.has(event.type)) {
+        if (!exports.MISSION_AUTHORITATIVE_EVENT_TYPES.has(event.type)) {
             continue;
         }
-        const payloadMission = event.payload.mission;
-        if ((0, persisted_document_guards_1.isMission)(payloadMission) && payloadMission.id === missionId) {
-            reconstructedMission = (0, mission_1.hydrateMission)(payloadMission);
+        const payloadMission = readPayloadRecord(event.payload, "mission");
+        const nextMission = payloadMission
+            ? tryReadMissionSnapshot(payloadMission, missionId)
+            : null;
+        if (nextMission) {
+            reconstructedMission = nextMission;
         }
     }
     if (!reconstructedMission) {
@@ -85,20 +113,85 @@ function reconstructMissionFromJournal(missionEvents, missionId, options = {}) {
 function reconstructTicketsFromJournal(missionEvents, missionId) {
     const ticketsById = new Map();
     for (const event of missionEvents) {
-        const payloadTicket = event.payload.ticket;
-        if ((0, persisted_document_guards_1.isTicket)(payloadTicket) && payloadTicket.missionId === missionId) {
-            ticketsById.set(payloadTicket.id, payloadTicket);
+        if (event.missionId !== missionId || !exports.TICKET_AUTHORITATIVE_EVENT_TYPES.has(event.type)) {
+            continue;
+        }
+        const payloadTicket = readPayloadRecord(event.payload, "ticket");
+        const nextTicket = payloadTicket
+            ? tryReadTicketSnapshot(payloadTicket, missionId)
+            : null;
+        if (nextTicket) {
+            ticketsById.set(nextTicket.id, nextTicket);
         }
     }
     return [...ticketsById.values()];
 }
-function reconstructAttemptsFromJournal(missionEvents) {
+function reconstructAttemptsFromJournal(missionEvents, missionId) {
     const attemptsById = new Map();
     for (const event of missionEvents) {
-        const payloadAttempt = event.payload.attempt;
-        if ((0, persisted_document_guards_1.isExecutionAttempt)(payloadAttempt)) {
-            attemptsById.set(payloadAttempt.id, payloadAttempt);
+        if (event.missionId !== missionId || !exports.ATTEMPT_AUTHORITATIVE_EVENT_TYPES.has(event.type)) {
+            continue;
+        }
+        const payloadAttempt = readPayloadRecord(event.payload, "attempt");
+        const nextAttempt = payloadAttempt ? tryReadAttemptSnapshot(payloadAttempt) : null;
+        if (nextAttempt) {
+            attemptsById.set(nextAttempt.id, nextAttempt);
         }
     }
     return [...attemptsById.values()];
+}
+function getLastAuthoritativeMissionCursor(missionEvents) {
+    for (let index = missionEvents.length - 1; index >= 0; index -= 1) {
+        const event = missionEvents[index];
+        if (!event || !exports.MISSION_AUTHORITATIVE_EVENT_TYPES.has(event.type)) {
+            continue;
+        }
+        const payloadMission = readPayloadRecord(event.payload, "mission");
+        if (!payloadMission) {
+            continue;
+        }
+        const warnings = [];
+        const validation = (0, persisted_document_guards_1.validateMission)(payloadMission, {
+            strict: false,
+            warnings,
+        });
+        if (!validation.ok) {
+            continue;
+        }
+        return {
+            occurredAt: event.occurredAt,
+            eventId: event.eventId,
+        };
+    }
+    return null;
+}
+function tryReadMissionSnapshot(candidate, missionId) {
+    const warnings = [];
+    const validation = (0, persisted_document_guards_1.validateMission)(candidate, { strict: false, warnings });
+    if (!validation.ok || candidate.id !== missionId) {
+        return null;
+    }
+    return (0, persisted_document_guards_1.attachStructuralValidationWarnings)((0, mission_1.hydrateMission)(candidate), warnings);
+}
+function tryReadTicketSnapshot(candidate, missionId) {
+    const warnings = [];
+    const validation = (0, persisted_document_guards_1.validateTicket)(candidate, { strict: false, warnings });
+    if (!validation.ok || candidate.missionId !== missionId) {
+        return null;
+    }
+    return (0, persisted_document_guards_1.attachStructuralValidationWarnings)(candidate, warnings);
+}
+function tryReadAttemptSnapshot(candidate) {
+    const warnings = [];
+    const validation = (0, persisted_document_guards_1.validateExecutionAttempt)(candidate, { strict: false, warnings });
+    if (!validation.ok) {
+        return null;
+    }
+    return (0, persisted_document_guards_1.attachStructuralValidationWarnings)(candidate, warnings);
+}
+function readPayloadRecord(payload, key) {
+    const candidate = payload[key];
+    return typeof candidate === "object" && candidate !== null && !Array.isArray(candidate)
+        ? candidate
+        : null;
 }

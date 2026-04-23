@@ -271,6 +271,67 @@ test("registerCapability rejette une collision ambigue sur un meme capabilityId"
   );
 });
 
+test("registerCapability detecte une collision de casse pour un capabilityId deja present", async (t) => {
+  const tempDir = await mkdtemp(path.join(tmpdir(), "corp-capability-case-collision-"));
+  const copiedFixturesDir = path.join(tempDir, "fixtures", "extensions");
+  const workspaceRoot = path.join(tempDir, "workspace");
+
+  t.after(async () => {
+    await rm(tempDir, { recursive: true, force: true });
+  });
+
+  await cp(getFixtureRoot(), copiedFixturesDir, { recursive: true });
+  await writeFile(
+    path.join(copiedFixturesDir, "valid-capability-local-case-collision.json"),
+    `${JSON.stringify({
+      schemaVersion: "corp.extension.v1",
+      seamType: "capability",
+      id: "ext.capability.Shell.Exec.case",
+      displayName: "Shell Exec Case Collision",
+      version: "0.1.0",
+      permissions: ["shell.exec", "fs.read"],
+      constraints: ["local_only", "approval_sensitive", "workspace_scoped"],
+      metadata: {
+        description: "Variation de casse pour collision deterministe.",
+        owner: "core-platform",
+        tags: ["capability", "case-collision"],
+      },
+      localRefs: {
+        rootDir: ".",
+        entrypoint: "./capabilities/shell-exec.ts",
+        references: ["./docs/capability-local.md"],
+        scripts: [],
+      },
+      capability: {
+        capabilityId: "Shell.Exec",
+        provider: "local",
+        approvalSensitive: true,
+        requiredEnvNames: [],
+      },
+    }, null, 2)}\n`,
+    "utf8",
+  );
+
+  const layout = await ensureWorkspaceLayout(workspaceRoot);
+  const repository = createFileCapabilityRegistryRepository(layout);
+
+  await registerCapability({
+    filePath: path.join(copiedFixturesDir, "valid-capability-local.json"),
+    repository,
+    registeredAt: "2026-04-20T23:50:00.000Z",
+  });
+
+  await assert.rejects(
+    () =>
+      registerCapability({
+        filePath: path.join(copiedFixturesDir, "valid-capability-local-case-collision.json"),
+        repository,
+        registeredAt: "2026-04-20T23:50:01.000Z",
+      }),
+    /collision de casse detectee.*Shell\.Exec.*shell\.exec/i,
+  );
+});
+
 test("invokeRegisteredCapability produit un evenement auditable et rejette les usages non autorises", async (t) => {
   const rootDir = await mkdtemp(path.join(tmpdir(), "corp-capability-invoke-unit-"));
 

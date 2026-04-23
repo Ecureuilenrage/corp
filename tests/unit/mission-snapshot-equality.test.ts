@@ -64,3 +64,59 @@ test("areMissionSnapshotsEqual preserve l'ordre des arrays (semantiquement ordon
 
   assert.equal(areMissionSnapshotsEqual(reference, reordered), false);
 });
+
+test("areMissionSnapshotsEqual traite une cle undefined comme equivalente a une cle absente", () => {
+  const withUndefined = {
+    ...buildMission(),
+    authorizedExtensions: undefined,
+  } as unknown as Mission;
+  const { authorizedExtensions: _removed, ...withoutKey } = buildMission() as unknown as Record<string, unknown>;
+
+  assert.equal(
+    areMissionSnapshotsEqual(withUndefined, withoutKey as unknown as Mission),
+    true,
+  );
+});
+
+test("areMissionSnapshotsEqual canonise Date et BigInt avant comparaison", () => {
+  const left = {
+    ...buildMission(),
+    metadata: {
+      generatedAt: new Date("2026-04-16T10:00:00.000Z"),
+      revision: 7n,
+    },
+  } as unknown as Mission;
+  const right = {
+    ...buildMission(),
+    metadata: {
+      generatedAt: "2026-04-16T10:00:00.000Z",
+      revision: "7",
+    },
+  } as unknown as Mission;
+
+  assert.equal(areMissionSnapshotsEqual(left, right), true);
+});
+
+test("areMissionSnapshotsEqual rejette Map et Set inattendus dans les snapshots mission", () => {
+  const withMap = {
+    ...buildMission(),
+    metadata: {
+      extensionMap: new Map([["shell.exec", true]]),
+    },
+  } as unknown as Mission;
+  const withSet = {
+    ...buildMission(),
+    metadata: {
+      extensionSet: new Set(["shell.exec"]),
+    },
+  } as unknown as Mission;
+
+  assert.throws(
+    () => areMissionSnapshotsEqual(withMap, buildMission() as Mission),
+    /Map\/Set non supportes/i,
+  );
+  assert.throws(
+    () => areMissionSnapshotsEqual(buildMission() as Mission, withSet),
+    /Map\/Set non supportes/i,
+  );
+});

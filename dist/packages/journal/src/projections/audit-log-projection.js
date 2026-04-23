@@ -1,6 +1,8 @@
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.createAuditLogProjection = createAuditLogProjection;
+const extension_registration_1 = require("../../../contracts/src/extension/extension-registration");
+const persisted_document_guards_1 = require("../../../contracts/src/guards/persisted-document-guards");
 const mission_1 = require("../../../contracts/src/mission/mission");
 const artifact_index_projection_1 = require("./artifact-index-projection");
 function createAuditLogProjection(options) {
@@ -10,7 +12,7 @@ function createAuditLogProjection(options) {
     for (const artifact of artifactIndex.artifacts) {
         const existingArtifactIds = relatedArtifactIdsByEventId.get(artifact.producingEventId) ?? [];
         existingArtifactIds.push(artifact.artifactId);
-        relatedArtifactIdsByEventId.set(artifact.producingEventId, normalizeOpaqueReferences(existingArtifactIds));
+        relatedArtifactIdsByEventId.set(artifact.producingEventId, (0, extension_registration_1.normalizeOpaqueReferences)(existingArtifactIds));
     }
     const entries = options.events
         .filter((event) => event.missionId === options.mission.id)
@@ -30,12 +32,12 @@ function buildMissionAuditEntry(event, context) {
     const capability = readCapabilityInvocationFromPayload(event.payload);
     const skillPack = readSkillPackUsageFromPayload(event.payload);
     const sourceReferences = (0, artifact_index_projection_1.readSourceReferences)(event.payload);
-    const relatedArtifactIds = normalizeOpaqueReferences([
+    const relatedArtifactIds = (0, extension_registration_1.normalizeOpaqueReferences)([
         ...readRelatedArtifactIds(event.payload),
         ...(context.relatedArtifactIdsByEventId.get(event.eventId) ?? []),
         ...(artifact ? [artifact.id] : []),
     ]);
-    const relatedEventIds = normalizeOpaqueReferences([
+    const relatedEventIds = (0, extension_registration_1.normalizeOpaqueReferences)([
         ...readRelatedEventIds(event.payload),
         ...readSourceEventIds(event.payload),
     ]);
@@ -354,27 +356,27 @@ function resolveEventKind(eventType) {
 }
 function readApprovalFromPayload(payload) {
     const candidate = payload.approval ?? payload.approvalRequest;
-    return isApprovalRequest(candidate) ? candidate : null;
+    return (0, persisted_document_guards_1.isApprovalRequest)(candidate) ? candidate : null;
 }
 function readArtifactFromPayload(payload) {
     const candidate = payload.artifact;
-    return isArtifact(candidate) ? candidate : null;
+    return (0, persisted_document_guards_1.isArtifact)(candidate) ? candidate : null;
 }
 function readMissionFromPayload(payload) {
     const candidate = payload.mission;
-    return isMission(candidate) ? (0, mission_1.hydrateMission)(candidate) : null;
+    return isAuditMissionShape(candidate) ? (0, mission_1.hydrateMission)(candidate) : null;
 }
 function readTicketFromPayload(payload) {
     const candidate = payload.ticket;
-    return isTicket(candidate) ? candidate : null;
+    return (0, persisted_document_guards_1.isTicket)(candidate) ? candidate : null;
 }
 function readIsolationFromPayload(payload) {
     const candidate = payload.isolation;
-    return isWorkspaceIsolationMetadata(candidate) ? candidate : null;
+    return (0, persisted_document_guards_1.isWorkspaceIsolationMetadata)(candidate) ? candidate : null;
 }
 function readCapabilityInvocationFromPayload(payload) {
     const candidate = payload.capability;
-    return isCapabilityInvocationDetails(candidate) ? candidate : null;
+    return (0, persisted_document_guards_1.isCapabilityInvocationDetails)(candidate) ? candidate : null;
 }
 function readSkillPackUsageFromPayload(payload) {
     const candidate = payload.skillPack;
@@ -391,13 +393,13 @@ function readAuthorizedExtensionsFromPayload(payload, key) {
 }
 function readRelatedEventIds(payload) {
     const approval = readApprovalFromPayload(payload);
-    return normalizeOpaqueReferences([
+    return (0, extension_registration_1.normalizeOpaqueReferences)([
         ...readStringArray(payload, "relatedEventIds"),
         ...(approval?.relatedEventIds ?? []),
     ]);
 }
 function readSourceEventIds(payload) {
-    return normalizeOpaqueReferences([
+    return (0, extension_registration_1.normalizeOpaqueReferences)([
         ...readStringArray(payload, "sourceEventIds"),
         ...readOptionalStringValues([
             payload.producingEventId,
@@ -407,7 +409,7 @@ function readSourceEventIds(payload) {
 }
 function readRelatedArtifactIds(payload) {
     const approval = readApprovalFromPayload(payload);
-    return normalizeOpaqueReferences([
+    return (0, extension_registration_1.normalizeOpaqueReferences)([
         ...readStringArray(payload, "relatedArtifactIds"),
         ...(approval?.relatedArtifactIds ?? []),
     ]);
@@ -437,7 +439,7 @@ function readAttemptIdFromPayload(payload) {
         return artifact.attemptId;
     }
     const attempt = payload.attempt;
-    if (isExecutionAttempt(attempt)) {
+    if ((0, persisted_document_guards_1.isExecutionAttempt)(attempt)) {
         return attempt.id;
     }
     return undefined;
@@ -445,19 +447,6 @@ function readAttemptIdFromPayload(payload) {
 function readTicketOwnerFromPayload(payload) {
     const ticket = readTicketFromPayload(payload);
     return ticket?.owner?.trim().length ? ticket.owner : undefined;
-}
-function normalizeOpaqueReferences(values) {
-    const normalizedValues = [];
-    const seenValues = new Set();
-    for (const value of values) {
-        const normalizedValue = value.trim();
-        if (!normalizedValue || seenValues.has(normalizedValue)) {
-            continue;
-        }
-        seenValues.add(normalizedValue);
-        normalizedValues.push(normalizedValue);
-    }
-    return normalizedValues;
 }
 function readStringArray(payload, key) {
     const candidate = payload[key];
@@ -484,41 +473,13 @@ function readOptionalBoolean(payload, key) {
     const candidate = payload[key];
     return typeof candidate === "boolean" ? candidate : undefined;
 }
-function isApprovalRequest(value) {
-    if (typeof value !== "object" || value === null) {
-        return false;
-    }
-    const candidate = value;
-    return typeof candidate.approvalId === "string"
-        && typeof candidate.missionId === "string"
-        && typeof candidate.ticketId === "string"
-        && typeof candidate.attemptId === "string"
-        && typeof candidate.status === "string"
-        && typeof candidate.title === "string"
-        && typeof candidate.actionType === "string"
-        && typeof candidate.actionSummary === "string"
-        && Array.isArray(candidate.guardrails)
-        && Array.isArray(candidate.relatedEventIds)
-        && Array.isArray(candidate.relatedArtifactIds)
-        && typeof candidate.createdAt === "string"
-        && typeof candidate.updatedAt === "string";
-}
-function isArtifact(value) {
-    if (typeof value !== "object" || value === null) {
-        return false;
-    }
-    const candidate = value;
-    return typeof candidate.id === "string"
-        && typeof candidate.missionId === "string"
-        && typeof candidate.ticketId === "string"
-        && typeof candidate.producingEventId === "string"
-        && (typeof candidate.attemptId === "string" || candidate.attemptId === null)
-        && (typeof candidate.workspaceIsolationId === "string" || candidate.workspaceIsolationId === null)
-        && typeof candidate.kind === "string"
-        && typeof candidate.title === "string"
-        && typeof candidate.createdAt === "string";
-}
-function isMission(value) {
+// Fork delibere du guard `isMission` canonique : l'audit doit pouvoir surfacer
+// des snapshots mission historiques meme si leurs tableaux (successCriteria,
+// ticketIds, artifactIds, eventIds) contiennent des entrees non-string residuelles
+// ou si le statut est hors union courante. Le guard canonique
+// `isMission` dans packages/contracts impose une validation stricte pour les
+// reads repository ; ici, l'audit privilegie la fidelite journalistique.
+function isAuditMissionShape(value) {
     if (typeof value !== "object" || value === null) {
         return false;
     }
@@ -537,70 +498,6 @@ function isMission(value) {
         && typeof candidate.resumeCursor === "string"
         && typeof candidate.createdAt === "string"
         && typeof candidate.updatedAt === "string";
-}
-function isTicket(value) {
-    if (typeof value !== "object" || value === null) {
-        return false;
-    }
-    const candidate = value;
-    return typeof candidate.id === "string"
-        && typeof candidate.missionId === "string"
-        && typeof candidate.kind === "string"
-        && typeof candidate.goal === "string"
-        && typeof candidate.status === "string"
-        && typeof candidate.owner === "string"
-        && Array.isArray(candidate.dependsOn)
-        && Array.isArray(candidate.successCriteria)
-        && Array.isArray(candidate.allowedCapabilities)
-        && Array.isArray(candidate.skillPackRefs)
-        && (typeof candidate.workspaceIsolationId === "string" || candidate.workspaceIsolationId === null)
-        && typeof candidate.executionHandle === "object"
-        && candidate.executionHandle !== null
-        && Array.isArray(candidate.artifactIds)
-        && Array.isArray(candidate.eventIds)
-        && typeof candidate.createdAt === "string"
-        && typeof candidate.updatedAt === "string";
-}
-function isExecutionAttempt(value) {
-    if (typeof value !== "object" || value === null) {
-        return false;
-    }
-    const candidate = value;
-    return typeof candidate.id === "string"
-        && typeof candidate.ticketId === "string"
-        && typeof candidate.adapter === "string"
-        && typeof candidate.status === "string"
-        && typeof candidate.workspaceIsolationId === "string"
-        && typeof candidate.backgroundRequested === "boolean"
-        && typeof candidate.adapterState === "object"
-        && candidate.adapterState !== null
-        && typeof candidate.startedAt === "string"
-        && (typeof candidate.endedAt === "string" || candidate.endedAt === null);
-}
-function isWorkspaceIsolationMetadata(value) {
-    if (typeof value !== "object" || value === null) {
-        return false;
-    }
-    const candidate = value;
-    return typeof candidate.workspaceIsolationId === "string"
-        && typeof candidate.kind === "string"
-        && typeof candidate.sourceRoot === "string"
-        && typeof candidate.workspacePath === "string"
-        && typeof candidate.createdAt === "string"
-        && typeof candidate.retained === "boolean";
-}
-function isCapabilityInvocationDetails(value) {
-    if (typeof value !== "object" || value === null) {
-        return false;
-    }
-    const candidate = value;
-    return typeof candidate.capabilityId === "string"
-        && typeof candidate.registrationId === "string"
-        && (candidate.provider === "local" || candidate.provider === "mcp")
-        && typeof candidate.approvalSensitive === "boolean"
-        && Array.isArray(candidate.permissions)
-        && Array.isArray(candidate.constraints)
-        && Array.isArray(candidate.requiredEnvNames);
 }
 function isAuthorizedExtensions(value) {
     if (typeof value !== "object" || value === null) {

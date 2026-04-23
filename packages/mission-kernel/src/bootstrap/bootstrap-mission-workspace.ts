@@ -7,6 +7,7 @@ import {
   ensureWorkspaceLayout,
   type WorkspaceLayout,
 } from "../../../storage/src/fs-layout/workspace-layout";
+import { cleanupStaleMissionLocks } from "../../../storage/src/repositories/file-mission-repository";
 
 export interface BootstrapMissionWorkspaceOptions {
   rootDir: string;
@@ -23,6 +24,8 @@ export async function bootstrapMissionWorkspace(
 ): Promise<BootstrapMissionWorkspaceResult> {
   const layout = await ensureWorkspaceLayout(options.rootDir);
   const createdPaths: string[] = [];
+
+  await cleanupStaleMissionLocks(layout);
 
   const createdJournal = await ensureAppendOnlyEventLog(layout.journalPath);
   if (createdJournal) {

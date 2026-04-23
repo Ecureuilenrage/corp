@@ -1,0 +1,2740 @@
+diff --git a/packages/contracts/src/guards/persisted-document-guards.ts b/packages/contracts/src/guards/persisted-document-guards.ts
+index ce0f685..c02636d 100644
+--- a/packages/contracts/src/guards/persisted-document-guards.ts
++++ b/packages/contracts/src/guards/persisted-document-guards.ts
+@@ -6,11 +6,24 @@ import type { ExecutionAttempt } from "../execution-attempt/execution-attempt";
+ import type { Mission } from "../mission/mission";
+ import type { Ticket } from "../ticket/ticket";
+ 
+-export type ValidationResult =
+-  | { ok: true }
++export type ValidationResult<T = void> =
++  | { ok: true; value: T }
+   | { ok: false; reason: string };
+ 
+-const valid: ValidationResult = { ok: true };
++export interface StructuralValidationWarning {
++  code: "open_discriminant_unknown";
++  path: string;
++  value: string;
++  message: string;
++}
++
++export interface ValidationOptions {
++  strict?: boolean;
++  warnings?: StructuralValidationWarning[];
++}
++
++const valid: ValidationResult = { ok: true, value: undefined };
++const STRUCTURAL_VALIDATION_WARNINGS = Symbol("corp.structural_validation_warnings");
+ 
+ const MISSION_STATUSES = new Set([
+   "draft",
+@@ -65,21 +78,30 @@ const ARTIFACT_KINDS = new Set([
+ ]);
+ 
+ export function isMission(value: unknown): value is Mission {
+-  return validateMission(value).ok;
++  return validateMission(value, { strict: false }).ok;
+ }
+ 
+-export function validateMission(value: unknown): ValidationResult {
++export function validateMission(
++  value: unknown,
++  options: ValidationOptions = {},
++): ValidationResult<Mission> {
+   const recordResult = validateRecord(value, "Mission");
+   if (!recordResult.ok) {
+     return recordResult;
+   }
+ 
+   const candidate = value as Record<string, unknown>;
+-  return firstInvalid([
++  const validation = firstInvalid([
+     validateString(candidate, "id"),
+     validateString(candidate, "title"),
+     validateString(candidate, "objective"),
+-    validateStringUnion(candidate, "status", MISSION_STATUSES, "statut inconnu"),
++    validateOpenStringUnion(
++      candidate,
++      "status",
++      MISSION_STATUSES,
++      "statut inconnu",
++      options,
++    ),
+     validateStringArray(candidate, "successCriteria"),
+     validateString(candidate, "policyProfileId"),
+     validateOptionalAuthorizedExtensions(candidate, "authorizedExtensions"),
+@@ -90,25 +112,38 @@ export function validateMission(value: unknown): ValidationResult {
+     validateString(candidate, "createdAt"),
+     validateString(candidate, "updatedAt"),
+   ]);
++
++  return validation.ok
++    ? success(candidate as unknown as Mission)
++    : validation;
+ }
+ 
+ export function isTicket(value: unknown): value is Ticket {
+-  return validateTicket(value).ok;
++  return validateTicket(value, { strict: false }).ok;
+ }
+ 
+-export function validateTicket(value: unknown): ValidationResult {
++export function validateTicket(
++  value: unknown,
++  options: ValidationOptions = {},
++): ValidationResult<Ticket> {
+   const recordResult = validateRecord(value, "Ticket");
+   if (!recordResult.ok) {
+     return recordResult;
+   }
+ 
+   const candidate = value as Record<string, unknown>;
+-  return firstInvalid([
++  const validation = firstInvalid([
+     validateString(candidate, "id"),
+     validateString(candidate, "missionId"),
+     validateStringUnion(candidate, "kind", TICKET_KINDS, "discriminant invalide"),
+     validateString(candidate, "goal"),
+-    validateStringUnion(candidate, "status", TICKET_STATUSES, "statut inconnu"),
++    validateOpenStringUnion(
++      candidate,
++      "status",
++      TICKET_STATUSES,
++      "statut inconnu",
++      options,
++    ),
+     validateString(candidate, "owner"),
+     validateStringArray(candidate, "dependsOn"),
+     validateStringArray(candidate, "successCriteria"),
+@@ -121,51 +156,83 @@ export function validateTicket(value: unknown): ValidationResult {
+     validateString(candidate, "createdAt"),
+     validateString(candidate, "updatedAt"),
+   ]);
++
++  return validation.ok
++    ? success(candidate as unknown as Ticket)
++    : validation;
+ }
+ 
+ export function isExecutionAttempt(value: unknown): value is ExecutionAttempt {
+-  return validateExecutionAttempt(value).ok;
++  return validateExecutionAttempt(value, { strict: false }).ok;
+ }
+ 
+-export function validateExecutionAttempt(value: unknown): ValidationResult {
++export function validateExecutionAttempt(
++  value: unknown,
++  options: ValidationOptions = {},
++): ValidationResult<ExecutionAttempt> {
+   const recordResult = validateRecord(value, "ExecutionAttempt");
+   if (!recordResult.ok) {
+     return recordResult;
+   }
+ 
+   const candidate = value as Record<string, unknown>;
+-  return firstInvalid([
++  const validation = firstInvalid([
+     validateString(candidate, "id"),
+     validateString(candidate, "ticketId"),
+-    validateStringUnion(candidate, "adapter", EXECUTION_ADAPTER_IDS, "discriminant invalide"),
+-    validateStringUnion(candidate, "status", EXECUTION_ATTEMPT_STATUSES, "statut inconnu"),
++    validateOpenStringUnion(
++      candidate,
++      "adapter",
++      EXECUTION_ADAPTER_IDS,
++      "discriminant invalide",
++      options,
++    ),
++    validateOpenStringUnion(
++      candidate,
++      "status",
++      EXECUTION_ATTEMPT_STATUSES,
++      "statut inconnu",
++      options,
++    ),
+     validateString(candidate, "workspaceIsolationId"),
+     validateBoolean(candidate, "backgroundRequested"),
+     validateRecordField(candidate, "adapterState"),
+     validateString(candidate, "startedAt"),
+     validateNullableString(candidate, "endedAt"),
+   ]);
++
++  return validation.ok
++    ? success(candidate as unknown as ExecutionAttempt)
++    : validation;
+ }
+ 
+ export function isArtifact(value: unknown): value is Artifact {
+-  return validateArtifact(value).ok;
++  return validateArtifact(value, { strict: false }).ok;
+ }
+ 
+-export function validateArtifact(value: unknown): ValidationResult {
++export function validateArtifact(
++  value: unknown,
++  options: ValidationOptions = {},
++): ValidationResult<Artifact> {
+   const recordResult = validateRecord(value, "Artifact");
+   if (!recordResult.ok) {
+     return recordResult;
+   }
+ 
+   const candidate = value as Record<string, unknown>;
+-  return firstInvalid([
++  const validation = firstInvalid([
+     validateString(candidate, "id"),
+     validateString(candidate, "missionId"),
+     validateString(candidate, "ticketId"),
+     validateString(candidate, "producingEventId"),
+     validateNullableString(candidate, "attemptId"),
+     validateNullableString(candidate, "workspaceIsolationId"),
+-    validateStringUnion(candidate, "kind", ARTIFACT_KINDS, "discriminant invalide"),
++    validateOpenStringUnion(
++      candidate,
++      "kind",
++      ARTIFACT_KINDS,
++      "discriminant invalide",
++      options,
++    ),
+     validateString(candidate, "title"),
+     validateString(candidate, "createdAt"),
+     validateOptionalString(candidate, "label"),
+@@ -178,13 +245,17 @@ export function validateArtifact(value: unknown): ValidationResult {
+     validateOptionalString(candidate, "sourceEventType"),
+     validateOptionalString(candidate, "sourceEventOccurredAt"),
+   ]);
++
++  return validation.ok
++    ? success(candidate as unknown as Artifact)
++    : validation;
+ }
+ 
+ export function isRegisteredCapability(value: unknown): value is RegisteredCapability {
+   return validateRegisteredCapability(value).ok;
+ }
+ 
+-export function validateRegisteredCapability(value: unknown): ValidationResult {
++export function validateRegisteredCapability(value: unknown): ValidationResult<RegisteredCapability> {
+   const recordResult = validateRecord(value, "RegisteredCapability");
+   if (!recordResult.ok) {
+     return recordResult;
+@@ -219,29 +290,32 @@ export function validateRegisteredCapability(value: unknown): ValidationResult {
+ 
+   if (candidate.provider === "local") {
+     return candidate.mcp === null
+-      ? valid
++      ? success(candidate as unknown as RegisteredCapability)
+       : invalid("type incorrect `mcp`: attendu null pour provider local.");
+   }
+ 
+-  if (!("mcp" in candidate) || candidate.mcp === undefined || candidate.mcp === null) {
++  if (!hasOwnField(candidate, "mcp") || candidate.mcp === undefined || candidate.mcp === null) {
+     return invalid("champ manquant `mcp`.");
+   }
+ 
+-  return validateMcpBinding(candidate.mcp, "mcp");
++  const validation = validateMcpBinding(candidate.mcp, "mcp");
++  return validation.ok
++    ? success(candidate as unknown as RegisteredCapability)
++    : validation;
+ }
+ 
+ export function isRegisteredSkillPack(value: unknown): value is RegisteredSkillPack {
+   return validateRegisteredSkillPack(value).ok;
+ }
+ 
+-export function validateRegisteredSkillPack(value: unknown): ValidationResult {
++export function validateRegisteredSkillPack(value: unknown): ValidationResult<RegisteredSkillPack> {
+   const recordResult = validateRecord(value, "RegisteredSkillPack");
+   if (!recordResult.ok) {
+     return recordResult;
+   }
+ 
+   const candidate = value as Record<string, unknown>;
+-  return firstInvalid([
++  const validation = firstInvalid([
+     validateString(candidate, "packRef"),
+     validateString(candidate, "registrationId"),
+     validateLiteral(
+@@ -259,9 +333,49 @@ export function validateRegisteredSkillPack(value: unknown): ValidationResult {
+     validateString(candidate, "registeredAt"),
+     validateString(candidate, "sourceManifestPath"),
+   ]);
++
++  return validation.ok
++    ? success(candidate as unknown as RegisteredSkillPack)
++    : validation;
++}
++
++export function attachStructuralValidationWarnings<T>(
++  value: T,
++  warnings: StructuralValidationWarning[],
++): T {
++  if (warnings.length === 0 || typeof value !== "object" || value === null) {
++    return value;
++  }
++
++  Object.defineProperty(value, STRUCTURAL_VALIDATION_WARNINGS, {
++    value: warnings.map((warning) => ({ ...warning })),
++    enumerable: false,
++    configurable: true,
++    writable: false,
++  });
++
++  return value;
++}
++
++export function getStructuralValidationWarnings(
++  value: unknown,
++): StructuralValidationWarning[] {
++  if (typeof value !== "object" || value === null) {
++    return [];
++  }
++
++  const warnings = (value as Record<PropertyKey, unknown>)[STRUCTURAL_VALIDATION_WARNINGS];
++
++  return Array.isArray(warnings)
++    ? warnings.filter(isStructuralValidationWarning)
++    : [];
+ }
+ 
+ function validateExecutionHandle(value: unknown, fieldPath: string): ValidationResult {
++  if (value === undefined) {
++    return invalid(`champ manquant \`${fieldPath}\`.`);
++  }
++
+   const recordResult = validateRecord(value, fieldPath);
+   if (!recordResult.ok) {
+     return recordResult;
+@@ -284,7 +398,7 @@ function validateOptionalAuthorizedExtensions(
+   record: Record<string, unknown>,
+   fieldName: string,
+ ): ValidationResult {
+-  if (!(fieldName in record) || record[fieldName] === undefined || record[fieldName] === null) {
++  if (!hasOwnField(record, fieldName) || record[fieldName] === undefined || record[fieldName] === null) {
+     return valid;
+   }
+ 
+@@ -369,7 +483,7 @@ function validateString(
+   fieldPath: string,
+   fieldName = fieldPath,
+ ): ValidationResult {
+-  if (!(fieldName in record) || record[fieldName] === undefined) {
++  if (!hasOwnField(record, fieldName) || record[fieldName] === undefined) {
+     return invalid(`champ manquant \`${fieldPath}\`.`);
+   }
+ 
+@@ -383,7 +497,7 @@ function validateOptionalString(
+   fieldPath: string,
+   fieldName = fieldPath,
+ ): ValidationResult {
+-  if (!(fieldName in record) || record[fieldName] === undefined) {
++  if (!hasOwnField(record, fieldName) || record[fieldName] === undefined) {
+     return valid;
+   }
+ 
+@@ -397,7 +511,7 @@ function validateNullableString(
+   fieldPath: string,
+   fieldName = fieldPath,
+ ): ValidationResult {
+-  if (!(fieldName in record) || record[fieldName] === undefined) {
++  if (!hasOwnField(record, fieldName) || record[fieldName] === undefined) {
+     return invalid(`champ manquant \`${fieldPath}\`.`);
+   }
+ 
+@@ -411,7 +525,7 @@ function validateBoolean(
+   fieldPath: string,
+   fieldName = fieldPath,
+ ): ValidationResult {
+-  if (!(fieldName in record) || record[fieldName] === undefined) {
++  if (!hasOwnField(record, fieldName) || record[fieldName] === undefined) {
+     return invalid(`champ manquant \`${fieldPath}\`.`);
+   }
+ 
+@@ -425,7 +539,7 @@ function validateOptionalNumber(
+   fieldPath: string,
+   fieldName = fieldPath,
+ ): ValidationResult {
+-  if (!(fieldName in record) || record[fieldName] === undefined) {
++  if (!hasOwnField(record, fieldName) || record[fieldName] === undefined) {
+     return valid;
+   }
+ 
+@@ -439,7 +553,7 @@ function validateStringArray(
+   fieldPath: string,
+   fieldName = fieldPath,
+ ): ValidationResult {
+-  if (!(fieldName in record) || record[fieldName] === undefined) {
++  if (!hasOwnField(record, fieldName) || record[fieldName] === undefined) {
+     return invalid(`champ manquant \`${fieldPath}\`.`);
+   }
+ 
+@@ -458,7 +572,7 @@ function validateRecordField(
+   fieldPath: string,
+   fieldName = fieldPath,
+ ): ValidationResult {
+-  if (!(fieldName in record) || record[fieldName] === undefined) {
++  if (!hasOwnField(record, fieldName) || record[fieldName] === undefined) {
+     return invalid(`champ manquant \`${fieldPath}\`.`);
+   }
+ 
+@@ -485,6 +599,38 @@ function validateStringUnion(
+     : invalid(`${invalidKind} \`${fieldPath}\`: \`${value}\`.`);
+ }
+ 
++function validateOpenStringUnion(
++  record: Record<string, unknown>,
++  fieldPath: string,
++  allowedValues: ReadonlySet<string>,
++  invalidKind: "statut inconnu" | "discriminant invalide",
++  options: ValidationOptions,
++  fieldName = fieldPath,
++): ValidationResult {
++  const stringResult = validateString(record, fieldPath, fieldName);
++  if (!stringResult.ok) {
++    return stringResult;
++  }
++
++  const value = record[fieldName] as string;
++  if (allowedValues.has(value)) {
++    return valid;
++  }
++
++  if (options.strict !== false) {
++    return invalid(`${invalidKind} \`${fieldPath}\`: \`${value}\`.`);
++  }
++
++  options.warnings?.push({
++    code: "open_discriminant_unknown",
++    path: fieldPath,
++    value,
++    message: `Valeur future toleree pour \`${fieldPath}\`: \`${value}\`.`,
++  });
++
++  return valid;
++}
++
+ function validateLiteral(
+   record: Record<string, unknown>,
+   fieldName: string,
+@@ -501,14 +647,35 @@ function validateLiteral(
+     : invalid(`${invalidKind} \`${fieldName}\`: \`${String(record[fieldName])}\`.`);
+ }
+ 
+-function firstInvalid(results: ValidationResult[]): ValidationResult {
++function firstInvalid(results: ValidationResult<unknown>[]): ValidationResult {
+   return results.find((result) => !result.ok) ?? valid;
+ }
+ 
+-function invalid(reason: string): ValidationResult {
++function success<T>(value: T): ValidationResult<T> {
++  return { ok: true, value };
++}
++
++function invalid(reason: string): ValidationResult<never> {
+   return { ok: false, reason };
+ }
+ 
++function hasOwnField(record: Record<string, unknown>, fieldName: string): boolean {
++  return Object.prototype.hasOwnProperty.call(record, fieldName);
++}
++
+ function isRecord(value: unknown): value is Record<string, unknown> {
+   return typeof value === "object" && value !== null && !Array.isArray(value);
+ }
++
++function isStructuralValidationWarning(
++  value: unknown,
++): value is StructuralValidationWarning {
++  if (!isRecord(value)) {
++    return false;
++  }
++
++  return value.code === "open_discriminant_unknown"
++    && typeof value.path === "string"
++    && typeof value.value === "string"
++    && typeof value.message === "string";
++}
+diff --git a/packages/journal/src/event-log/event-log-errors.ts b/packages/journal/src/event-log/event-log-errors.ts
+index 74cb10a..9545a68 100644
+--- a/packages/journal/src/event-log/event-log-errors.ts
++++ b/packages/journal/src/event-log/event-log-errors.ts
+@@ -1,7 +1,6 @@
+ import {
+   formatFileSystemReadError,
+   isErrnoException,
+-  isFileSystemReadError,
+   isMissingFileError,
+ } from "../../../storage/src/fs-layout/file-system-read-errors";
+ 
+@@ -10,6 +9,8 @@ export type EventLogReadErrorCode =
+   | "journal_invalide"
+   | "erreur_fichier";
+ 
++const UNEXPECTED_EVENT_LOG_READ_PREFIX = "Lecture du journal append-only irreconciliable (";
++
+ export class EventLogReadError extends Error {
+   public readonly code: EventLogReadErrorCode;
+   public readonly journalPath: string;
+@@ -86,17 +87,20 @@ export function normalizeEventLogReadError(
+     return EventLogReadError.missing(journalPath, error);
+   }
+ 
+-  if (isFileSystemReadError(error)) {
++  if (isErrnoException(error)) {
+     return EventLogReadError.fileSystem(journalPath, error);
+   }
+ 
+-  return error instanceof Error ? error : new Error(String(error));
++  if (error instanceof Error && error.message.startsWith(UNEXPECTED_EVENT_LOG_READ_PREFIX)) {
++    return error;
++  }
++
++  return new Error(
++    `${UNEXPECTED_EVENT_LOG_READ_PREFIX}${journalPath}).`,
++    { cause: error },
++  );
+ }
+ 
+ export function isEventLogReadError(error: unknown): error is EventLogReadError {
+   return error instanceof EventLogReadError;
+ }
+-
+-export function isEventLogFileSystemError(error: unknown): boolean {
+-  return isErrnoException(error) && isFileSystemReadError(error);
+-}
+diff --git a/packages/journal/src/event-log/file-event-log.ts b/packages/journal/src/event-log/file-event-log.ts
+index c6c7085..b139fb4 100644
+--- a/packages/journal/src/event-log/file-event-log.ts
++++ b/packages/journal/src/event-log/file-event-log.ts
+@@ -1,15 +1,41 @@
+ import { createReadStream } from "node:fs";
+ import { readFile, truncate, writeFile } from "node:fs/promises";
+ import { createInterface } from "node:readline";
++import { finished } from "node:stream/promises";
+ 
+ import { isAlreadyExistsError } from "../../../storage/src/fs-layout/atomic-json";
+ import { isFileSystemReadError } from "../../../storage/src/fs-layout/file-system-read-errors";
+ import type { JournalEventRecord } from "./append-event";
+ import { EventLogReadError, normalizeEventLogReadError } from "./event-log-errors";
+ 
++interface EventLogDependencies {
++  createReadStream: typeof createReadStream;
++  readFile: typeof readFile;
++  truncate: typeof truncate;
++  writeFile: typeof writeFile;
++}
++
++const DEFAULT_EVENT_LOG_DEPENDENCIES: EventLogDependencies = {
++  createReadStream,
++  readFile,
++  truncate,
++  writeFile,
++};
++
++let eventLogDependenciesForTesting: Partial<EventLogDependencies> | null = null;
++
++export function setEventLogDependenciesForTesting(
++  dependencies: Partial<EventLogDependencies> | null,
++): void {
++  eventLogDependenciesForTesting = dependencies;
++}
++
+ export async function ensureAppendOnlyEventLog(journalPath: string): Promise<boolean> {
+   try {
+-    await writeFile(journalPath, "", { encoding: "utf8", flag: "wx" });
++    await getEventLogDependencies().writeFile(journalPath, "", {
++      encoding: "utf8",
++      flag: "wx",
++    });
+     return true;
+   } catch (error) {
+     if (isAlreadyExistsError(error)) {
+@@ -27,7 +53,7 @@ export async function ensureAppendOnlyEventLog(journalPath: string): Promise<boo
+ 
+ export async function readEventLog(journalPath: string): Promise<JournalEventRecord[]> {
+   const events: JournalEventRecord[] = [];
+-  const stream = createReadStream(journalPath, { encoding: "utf8" });
++  const stream = getEventLogDependencies().createReadStream(journalPath, { encoding: "utf8" });
+   const lines = createInterface({
+     input: stream,
+     crlfDelay: Infinity,
+@@ -45,11 +71,14 @@ export async function readEventLog(journalPath: string): Promise<JournalEventRec
+ 
+       events.push(parseJournalEventLine(line, journalPath, lineNumber));
+     }
+-  } catch (error) {
++    await finished(stream, { cleanup: true });
++  } catch (error: unknown) {
+     throw normalizeEventLogReadError(error, journalPath);
+   } finally {
+     lines.close();
+-    stream.destroy();
++    if (!stream.destroyed) {
++      stream.destroy();
++    }
+   }
+ 
+   return events;
+@@ -89,7 +118,7 @@ async function validateExistingAppendOnlyEventLog(journalPath: string): Promise<
+   let contents: string;
+ 
+   try {
+-    contents = await readFile(journalPath, "utf8");
++    contents = await getEventLogDependencies().readFile(journalPath, "utf8");
+   } catch (error) {
+     throw normalizeEventLogReadError(error, journalPath);
+   }
+@@ -104,13 +133,15 @@ async function validateExistingAppendOnlyEventLog(journalPath: string): Promise<
+   }
+ 
+   const lastLineStart = contents.lastIndexOf("\n") + 1;
++  const validatedPrefix = contents.slice(0, lastLineStart);
+   const lastLine = contents.slice(lastLineStart);
+   const lineNumber = countLineNumberAtOffset(contents, lastLineStart);
+   const trimmedLastLine = lastLine.trim();
+ 
++  validateBufferedEventLog(validatedPrefix, journalPath);
++
+   if (trimmedLastLine.length === 0) {
+     await truncateJournal(journalPath, lastLineStart);
+-    await readEventLog(journalPath);
+     return;
+   }
+ 
+@@ -118,14 +149,13 @@ async function validateExistingAppendOnlyEventLog(journalPath: string): Promise<
+ 
+   try {
+     parsedLastLine = JSON.parse(trimmedLastLine) as unknown;
+-  } catch (error) {
++  } catch (error: unknown) {
+     if (error instanceof SyntaxError) {
+       await truncateJournal(journalPath, lastLineStart);
+-      await readEventLog(journalPath);
+       return;
+     }
+ 
+-    throw error;
++    throw normalizeEventLogReadError(error, journalPath);
+   }
+ 
+   const validation = validateJournalEventRecord(parsedLastLine);
+@@ -136,22 +166,35 @@ async function validateExistingAppendOnlyEventLog(journalPath: string): Promise<
+       reason: validation.reason,
+     });
+   }
+-
+-  throw EventLogReadError.invalid({
+-    journalPath,
+-    lineNumber,
+-    reason: "derniere ligne complete sans newline finale",
+-  });
+ }
+ 
+ async function truncateJournal(journalPath: string, length: number): Promise<void> {
+   try {
+-    await truncate(journalPath, length);
++    await getEventLogDependencies().truncate(journalPath, length);
+   } catch (error) {
+     throw normalizeEventLogReadError(error, journalPath);
+   }
+ }
+ 
++function validateBufferedEventLog(contents: string, journalPath: string): void {
++  if (!contents) {
++    return;
++  }
++
++  const lines = contents.split("\n");
++
++  for (let index = 0; index < lines.length; index += 1) {
++    const rawLine = lines[index] ?? "";
++    const line = rawLine.trim();
++
++    if (line.length === 0) {
++      continue;
++    }
++
++    parseJournalEventLine(line, journalPath, index + 1);
++  }
++}
++
+ function parseJournalEventLine(
+   line: string,
+   journalPath: string,
+@@ -161,13 +204,17 @@ function parseJournalEventLine(
+ 
+   try {
+     parsedEvent = JSON.parse(line) as unknown;
+-  } catch (error) {
+-    throw EventLogReadError.invalid({
+-      journalPath,
+-      lineNumber,
+-      reason: "JSON corrompu",
+-      cause: error,
+-    });
++  } catch (error: unknown) {
++    if (error instanceof SyntaxError) {
++      throw EventLogReadError.invalid({
++        journalPath,
++        lineNumber,
++        reason: "JSON corrompu",
++        cause: error,
++      });
++    }
++
++    throw normalizeEventLogReadError(error, journalPath);
+   }
+ 
+   const validation = validateJournalEventRecord(parsedEvent);
+@@ -231,3 +278,10 @@ function validatePayload(
+ function isRecord(value: unknown): value is Record<string, unknown> {
+   return typeof value === "object" && value !== null && !Array.isArray(value);
+ }
++
++function getEventLogDependencies(): EventLogDependencies {
++  return {
++    ...DEFAULT_EVENT_LOG_DEPENDENCIES,
++    ...eventLogDependenciesForTesting,
++  };
++}
+diff --git a/packages/mission-kernel/src/resume-service/read-approval-queue.ts b/packages/mission-kernel/src/resume-service/read-approval-queue.ts
+index 6f6ac10..b930631 100644
+--- a/packages/mission-kernel/src/resume-service/read-approval-queue.ts
++++ b/packages/mission-kernel/src/resume-service/read-approval-queue.ts
+@@ -1,10 +1,10 @@
+-import { access } from "node:fs/promises";
++import { access, mkdir } from "node:fs/promises";
+ 
+ import type { ApprovalQueueEntry } from "../../../contracts/src/approval/approval-request";
+ import type { Mission } from "../../../contracts/src/mission/mission";
+ import { EventLogReadError, isEventLogReadError } from "../../../journal/src/event-log/event-log-errors";
+ import { readEventLog } from "../../../journal/src/event-log/file-event-log";
+-import { readMissionSnapshotFromJournalOrThrow } from "../../../journal/src/reconstruction/mission-reconstruction";
++import { reconstructMissionFromJournal } from "../../../journal/src/reconstruction/mission-reconstruction";
+ import {
+   createApprovalQueueProjection,
+   type ApprovalQueueProjection,
+@@ -52,23 +52,43 @@ export interface ReadApprovalQueueResult {
+   projectionPath: string;
+ }
+ 
++interface ReadApprovalQueueDependencies {
++  readEventLog: typeof readEventLog;
++  mkdir: typeof mkdir;
++}
++
++const DEFAULT_READ_APPROVAL_QUEUE_DEPENDENCIES: ReadApprovalQueueDependencies = {
++  readEventLog,
++  mkdir,
++};
++
++let readApprovalQueueDependenciesForTesting: Partial<ReadApprovalQueueDependencies> | null = null;
++
++export function setReadApprovalQueueDependenciesForTesting(
++  dependencies: Partial<ReadApprovalQueueDependencies> | null,
++): void {
++  readApprovalQueueDependenciesForTesting = dependencies;
++}
++
+ export async function readApprovalQueue(
+   options: ReadApprovalQueueOptions,
+ ): Promise<ReadApprovalQueueResult> {
+   const layout = resolveWorkspaceLayout(options.rootDir);
+   await ensureApprovalQueueWorkspaceInitialized(layout, options.commandName);
+ 
++  const missionEvents = (await getReadApprovalQueueDependencies().readEventLog(layout.journalPath))
++    .filter((event) => event.missionId === options.missionId);
++
+   const missionSnapshotResult = await readMissionSnapshotForApprovalQueue(
+     layout,
+     options.missionId,
++    missionEvents,
+   );
+   const missionSnapshot = missionSnapshotResult.mission;
+ 
+   const projectionPath = resolveProjectionPath(layout.projectionsDir, "approval-queue");
+ 
+   try {
+-    const missionEvents = (await readEventLog(layout.journalPath))
+-      .filter((event) => event.missionId === missionSnapshot.id);
+     const rebuiltProjection = createApprovalQueueProjection({
+       missionId: missionSnapshot.id,
+       events: missionEvents,
+@@ -137,6 +157,19 @@ async function ensureApprovalQueueWorkspaceInitialized(
+     throw EventLogReadError.missing(layout.journalPath, journalError);
+   }
+ 
++  if (projectionsError?.code === "ENOENT" && !journalError && !missionsError) {
++    try {
++      await getReadApprovalQueueDependencies().mkdir(layout.projectionsDir, { recursive: true });
++      return;
++    } catch (error) {
++      if (isFileSystemReadError(error)) {
++        throw createFileSystemReadError(error, layout.projectionsDir, "repertoire projections");
++      }
++
++      throw error;
++    }
++  }
++
+   if (journalError || projectionsError || missionsError) {
+     throw new Error(
+       `Workspace mission non initialise. Lancez \`corp mission bootstrap --root ${layout.rootDir}\` avant \`corp mission ${commandName}\`.`,
+@@ -176,6 +209,7 @@ function formatApprovalQueueReadError(
+ async function readMissionSnapshotForApprovalQueue(
+   layout: WorkspaceLayout,
+   missionId: string,
++  missionEvents: Awaited<ReturnType<typeof readEventLog>>,
+ ): Promise<{ mission: Mission; reconstructed: boolean }> {
+   const missionRepository = createFileMissionRepository(layout);
+ 
+@@ -191,8 +225,12 @@ async function readMissionSnapshotForApprovalQueue(
+     }
+   }
+ 
++  if (missionEvents.length === 0) {
++    throw new Error(`Mission introuvable: ${missionId}.`);
++  }
++
+   return {
+-    mission: await readMissionSnapshotFromJournalOrThrow(layout.journalPath, missionId),
++    mission: reconstructMissionFromJournal(missionEvents, missionId),
+     reconstructed: true,
+   };
+ }
+@@ -200,3 +238,10 @@ async function readMissionSnapshotForApprovalQueue(
+ function isClassifiedReadError(error: unknown): boolean {
+   return isEventLogReadError(error) || isPersistedDocumentReadError(error);
+ }
++
++function getReadApprovalQueueDependencies(): ReadApprovalQueueDependencies {
++  return {
++    ...DEFAULT_READ_APPROVAL_QUEUE_DEPENDENCIES,
++    ...readApprovalQueueDependenciesForTesting,
++  };
++}
+diff --git a/packages/mission-kernel/src/resume-service/read-mission-artifacts.ts b/packages/mission-kernel/src/resume-service/read-mission-artifacts.ts
+index 7abe729..9352237 100644
+--- a/packages/mission-kernel/src/resume-service/read-mission-artifacts.ts
++++ b/packages/mission-kernel/src/resume-service/read-mission-artifacts.ts
+@@ -338,11 +338,11 @@ export async function readPayloadPreview(
+   mediaType: string | undefined,
+   dependencies: ReadPayloadPreviewDependencies = {},
+ ): Promise<string | null> {
+-  try {
+-    const resolvedPayloadPath = path.isAbsolute(payloadPath)
+-      ? payloadPath
+-      : path.join(rootDir, payloadPath);
++  const resolvedPayloadPath = path.isAbsolute(payloadPath)
++    ? payloadPath
++    : path.join(rootDir, payloadPath);
+ 
++  try {
+     if (mediaType?.includes("json") || !mediaType || mediaType.startsWith("text/")) {
+       return truncatePreview(
+         await readUtf8PreviewContents(resolvedPayloadPath, dependencies),
+@@ -350,8 +350,16 @@ export async function readPayloadPreview(
+     }
+ 
+     return null;
+-  } catch {
+-    return null;
++  } catch (error) {
++    if (isMissingFileError(error)) {
++      return null;
++    }
++
++    if (isFileSystemReadError(error)) {
++      throw createFileSystemReadError(error, resolvedPayloadPath, "payload artefact");
++    }
++
++    throw error;
+   }
+ }
+ 
+diff --git a/packages/mission-kernel/src/resume-service/read-mission-resume.ts b/packages/mission-kernel/src/resume-service/read-mission-resume.ts
+index 8f14c7e..45b62d4 100644
+--- a/packages/mission-kernel/src/resume-service/read-mission-resume.ts
++++ b/packages/mission-kernel/src/resume-service/read-mission-resume.ts
+@@ -36,7 +36,11 @@ import {
+   readAccessError,
+ } from "../../../storage/src/fs-layout/file-system-read-errors";
+ import { createFileMissionRepository } from "../../../storage/src/repositories/file-mission-repository";
+-import { isRecoverablePersistedDocumentError } from "../../../storage/src/repositories/persisted-document-errors";
++import {
++  CorruptedPersistedDocumentError,
++  type InvalidPersistedDocumentError,
++  isRecoverablePersistedDocumentError,
++} from "../../../storage/src/repositories/persisted-document-errors";
+ import { readTicketBoard } from "../../../ticket-runtime/src/planner/read-ticket-board";
+ import { readApprovalQueue } from "./read-approval-queue";
+ import { readMissionArtifacts } from "./read-mission-artifacts";
+@@ -55,6 +59,11 @@ export interface ReadMissionResumeResult {
+   ticketBoardReconstructed: boolean;
+ }
+ 
++export interface ReadStoredResumeViewResult {
++  projection: ResumeViewProjection | null;
++  readError: CorruptedPersistedDocumentError | null;
++}
++
+ const CLOSED_OPEN_TICKET_STATUSES = new Set<string>([
+   ...TERMINAL_TICKET_STATUSES,
+ ]);
+@@ -70,7 +79,8 @@ export async function readMissionResume(
+   await ensureMissionWorkspaceInitialized(layout, options.commandName);
+ 
+   const repository = createFileMissionRepository(layout);
+-  const storedMission = await readStoredMissionSnapshot(repository, options.missionId);
++  const storedMissionResult = await readStoredMissionSnapshot(repository, options.missionId);
++  const storedMission = storedMissionResult.mission;
+ 
+   let missionEvents: JournalEventRecord[];
+ 
+@@ -83,6 +93,7 @@ export async function readMissionResume(
+ 
+     throw new Error(
+       `Journal mission irreconciliable pour ${options.missionId}. Impossible de reconstruire la reprise.`,
++      { cause: error },
+     );
+   }
+ 
+@@ -94,6 +105,10 @@ export async function readMissionResume(
+ 
+   const baseMission = storedMission ?? missionFromJournal;
+ 
++  if (!baseMission && missionEvents.length === 0 && storedMissionResult.readError) {
++    throw storedMissionResult.readError;
++  }
++
+   if (!baseMission) {
+     throw new Error(`Mission introuvable: ${options.missionId}.`);
+   }
+@@ -122,12 +137,14 @@ export async function readMissionResume(
+   }
+ 
+   const projectionPath = resolveProjectionPath(layout.projectionsDir, "resume-view");
+-  const rawResumeView = await readStoredResumeView(layout.projectionsDir);
++  const rawResumeViewResult = await readStoredResumeView(layout.projectionsDir);
++  const rawResumeView = rawResumeViewResult.projection;
+   const shouldReconstruct = !storedMission
+     || isMissionSnapshotSuspicious(storedMission, lastMissionEvent.eventId)
+     || approvalQueueResult.reconstructed
+     || ticketBoardResult.reconstructed
+     || artifactIndexResult.reconstructed
++    || rawResumeViewResult.readError !== null
+     || isResumeViewSuspicious(
+       rawResumeView,
+       options.missionId,
+@@ -217,20 +234,36 @@ async function ensureMissionWorkspaceInitialized(
+   }
+ }
+ 
+-async function readStoredResumeView(
++export async function readStoredResumeView(
+   projectionsDir: string,
+-): Promise<ResumeViewProjection | null> {
++): Promise<ReadStoredResumeViewResult> {
+   const projectionPath = resolveProjectionPath(projectionsDir, "resume-view");
+ 
+   try {
+-    return JSON.parse(await readProjectionFile(projectionsDir, "resume-view")) as ResumeViewProjection;
++    return {
++      projection: JSON.parse(await readProjectionFile(projectionsDir, "resume-view")) as ResumeViewProjection,
++      readError: null,
++    };
+   } catch (error) {
+     if (isMissingFileError(error)) {
+-      return null;
++      return {
++        projection: null,
++        readError: null,
++      };
+     }
+ 
+     if (error instanceof SyntaxError) {
+-      return null;
++      return {
++        projection: null,
++        readError: new CorruptedPersistedDocumentError(
++          {
++            filePath: projectionPath,
++            entityLabel: "Projection resume-view",
++            corruptionLabel: "projection resume-view",
++          },
++          error,
++        ),
++      };
+     }
+ 
+     if (isFileSystemReadError(error)) {
+@@ -312,12 +345,21 @@ function isMissionSnapshotSuspicious(mission: Mission, lastEventId: string): boo
+ async function readStoredMissionSnapshot(
+   repository: ReturnType<typeof createFileMissionRepository>,
+   missionId: string,
+-): Promise<Mission | null> {
++): Promise<{
++  mission: Mission | null;
++  readError: CorruptedPersistedDocumentError | InvalidPersistedDocumentError | null;
++}> {
+   try {
+-    return await repository.findById(missionId);
++    return {
++      mission: await repository.findById(missionId),
++      readError: null,
++    };
+   } catch (error) {
+     if (isRecoverablePersistedDocumentError(error)) {
+-      return null;
++      return {
++        mission: null,
++        readError: error,
++      };
+     }
+ 
+     throw error;
+diff --git a/packages/storage/src/fs-layout/file-system-read-errors.ts b/packages/storage/src/fs-layout/file-system-read-errors.ts
+index 439a3d2..bb2a4a0 100644
+--- a/packages/storage/src/fs-layout/file-system-read-errors.ts
++++ b/packages/storage/src/fs-layout/file-system-read-errors.ts
+@@ -5,6 +5,10 @@ export const FILE_SYSTEM_READ_ERROR_CODES = new Set([
+   "EIO",
+   "EMFILE",
+   "ENOSPC",
++  "EBUSY",
++  "ETIMEDOUT",
++  "EROFS",
++  "EISDIR",
+ ]);
+ 
+ export interface ClassifiedFileSystemError extends Error {
+diff --git a/packages/storage/src/repositories/file-mission-repository.ts b/packages/storage/src/repositories/file-mission-repository.ts
+index 0c4d824..f9885ea 100644
+--- a/packages/storage/src/repositories/file-mission-repository.ts
++++ b/packages/storage/src/repositories/file-mission-repository.ts
+@@ -1,7 +1,13 @@
+-import { mkdir, unlink, writeFile } from "node:fs/promises";
++import type { Dirent } from "node:fs";
++import { mkdir, readdir, stat, unlink, writeFile } from "node:fs/promises";
++import path from "node:path";
+ import { isDeepStrictEqual } from "node:util";
+ 
+-import { validateMission } from "../../../contracts/src/guards/persisted-document-guards";
++import {
++  attachStructuralValidationWarnings,
++  validateMission,
++  type StructuralValidationWarning,
++} from "../../../contracts/src/guards/persisted-document-guards";
+ import { hydrateMission, type Mission } from "../../../contracts/src/mission/mission";
+ import { isAlreadyExistsError, writeJsonAtomic } from "../fs-layout/atomic-json";
+ import { isMissingFileError } from "../fs-layout/file-system-read-errors";
+@@ -19,14 +25,52 @@ export interface SaveMissionResult {
+   missionPath: string;
+ }
+ 
++export interface FileMissionRepositoryDependencies {
++  mkdir?: typeof mkdir;
++  createLockFile?: typeof writeFile;
++  removeLockFile?: typeof unlink;
++  readLockStat?: typeof stat;
++  writeMissionJson?: typeof writeJsonAtomic;
++  warn?: (message: string) => void;
++  now?: () => Date;
++  lockStaleTtlMs?: number;
++}
++
++export interface CleanupStaleMissionLocksOptions {
++  lockStaleTtlMs?: number;
++  warn?: (message: string) => void;
++  now?: () => Date;
++}
++
++interface ResolvedMissionRepositoryDependencies {
++  mkdir: typeof mkdir;
++  createLockFile: typeof writeFile;
++  removeLockFile: typeof unlink;
++  readLockStat: typeof stat;
++  writeMissionJson: typeof writeJsonAtomic;
++  warn: (message: string) => void;
++  now: () => Date;
++  lockStaleTtlMs: number;
++}
++
++export const DEFAULT_MISSION_LOCK_STALE_TTL_MS = 5 * 60 * 1000;
++const MISSION_LOCK_STALE_TTL_ENV_VAR = "CORP_MISSION_LOCK_STALE_TTL_MS";
++
+ export class FileMissionRepository {
+-  public constructor(private readonly layout: WorkspaceLayout) {}
++  private readonly dependencies: ResolvedMissionRepositoryDependencies;
++
++  public constructor(
++    private readonly layout: WorkspaceLayout,
++    dependencies: FileMissionRepositoryDependencies = {},
++  ) {
++    this.dependencies = resolveRepositoryDependencies(dependencies);
++  }
+ 
+   public async save(mission: Mission): Promise<SaveMissionResult> {
+     const missionStoragePaths = resolveMissionStoragePaths(this.layout, mission.id);
+ 
+-    await mkdir(missionStoragePaths.missionDir, { recursive: true });
+-    await writeJsonAtomic(missionStoragePaths.missionPath, mission);
++    await this.dependencies.mkdir(missionStoragePaths.missionDir, { recursive: true });
++    await this.dependencies.writeMissionJson(missionStoragePaths.missionPath, mission);
+ 
+     return missionStoragePaths;
+   }
+@@ -37,12 +81,16 @@ export class FileMissionRepository {
+     beforeSave?: () => Promise<void>,
+   ): Promise<SaveMissionResult> {
+     const missionStoragePaths = resolveMissionStoragePaths(this.layout, mission.id);
+-    const lockPath = `${missionStoragePaths.missionPath}.lock`;
++    const lockPath = resolveMissionLockPath(missionStoragePaths.missionPath);
+ 
+-    await mkdir(missionStoragePaths.missionDir, { recursive: true });
++    await this.dependencies.mkdir(missionStoragePaths.missionDir, { recursive: true });
++    await removeStaleMissionLockIfNeeded(lockPath, mission.id, this.dependencies);
+ 
+     try {
+-      await writeFile(lockPath, "", { encoding: "utf8", flag: "wx" });
++      await this.dependencies.createLockFile(lockPath, "", {
++        encoding: "utf8",
++        flag: "wx",
++      });
+     } catch (error) {
+       if (isAlreadyExistsError(error)) {
+         throw new Error(
+@@ -53,6 +101,8 @@ export class FileMissionRepository {
+       throw error;
+     }
+ 
++    let primaryError: unknown;
++
+     try {
+       const currentMission = await this.findById(mission.id);
+ 
+@@ -68,17 +118,14 @@ export class FileMissionRepository {
+       // prochain reader reconstruira l'etat via reconstructMissionFromJournal.
+       // Voir docs/architecture/journal-as-source-of-truth.md.
+       await beforeSave?.();
+-      await writeJsonAtomic(missionStoragePaths.missionPath, mission);
++      await this.dependencies.writeMissionJson(missionStoragePaths.missionPath, mission);
+ 
+       return missionStoragePaths;
++    } catch (error) {
++      primaryError = error;
++      throw error;
+     } finally {
+-      try {
+-        await unlink(lockPath);
+-      } catch (error) {
+-        if (!isMissingFileError(error)) {
+-          throw error;
+-        }
+-      }
++      await releaseMissionLock(lockPath, mission.id, primaryError, this.dependencies);
+     }
+   }
+ 
+@@ -92,8 +139,13 @@ export class FileMissionRepository {
+ 
+     try {
+       const storedMission = await readPersistedJsonDocument(context);
+-      assertValidPersistedDocument<Mission>(storedMission, validateMission, context);
+-      return hydrateMission(storedMission);
++      const warnings: StructuralValidationWarning[] = [];
++      assertValidPersistedDocument<Mission>(
++        storedMission,
++        (value) => validateMission(value, { strict: false, warnings }),
++        context,
++      );
++      return attachStructuralValidationWarnings(hydrateMission(storedMission), warnings);
+     } catch (error) {
+       if (isMissingFileError(error)) {
+         return null;
+@@ -110,10 +162,33 @@ export function createFileMissionRepository(
+   return new FileMissionRepository(layout);
+ }
+ 
++export async function cleanupStaleMissionLocks(
++  layout: WorkspaceLayout,
++  options: CleanupStaleMissionLocksOptions = {},
++): Promise<string[]> {
++  const removedLockPaths: string[] = [];
++  const missionEntries = await readDirectoryEntries(layout.missionsDir);
++  const dependencies = resolveRepositoryDependencies(options);
++
++  for (const missionEntry of missionEntries) {
++    if (!missionEntry.isDirectory()) {
++      continue;
++    }
++
++    const lockPath = path.join(layout.missionsDir, missionEntry.name, "mission.json.lock");
++
++    if (await removeStaleMissionLockIfNeeded(lockPath, missionEntry.name, dependencies)) {
++      removedLockPaths.push(lockPath);
++    }
++  }
++
++  return removedLockPaths;
++}
++
+ export function areMissionSnapshotsEqual(left: Mission, right: Mission): boolean {
+   // Compare sous forme canonique (cles triees recursivement) pour que deux missions
+   // logiquement egales mais hydratees par des chemins distincts (lecture disque vs
+-  // reconstruction programmatique) soient considerees egales. Voir Story 5.1.1 AC4.
++  // reconstruction programmatique) restent equivalentes sans changer le contrat persiste.
+   return isDeepStrictEqual(canonicalize(left), canonicalize(right));
+ }
+ 
+@@ -122,6 +197,18 @@ function canonicalize(value: unknown): unknown {
+     return value.map((item) => canonicalize(item));
+   }
+ 
++  if (value instanceof Date) {
++    return value.toISOString();
++  }
++
++  if (typeof value === "bigint") {
++    return value.toString();
++  }
++
++  if (value instanceof Map || value instanceof Set) {
++    throw new TypeError("Map/Set non supportes dans les snapshots mission.");
++  }
++
+   if (typeof value !== "object" || value === null) {
+     return value;
+   }
+@@ -130,8 +217,115 @@ function canonicalize(value: unknown): unknown {
+   const sortedKeys = Object.keys(value as Record<string, unknown>).sort();
+ 
+   for (const key of sortedKeys) {
+-    sortedRecord[key] = canonicalize((value as Record<string, unknown>)[key]);
++    const nextValue = (value as Record<string, unknown>)[key];
++
++    if (nextValue === undefined) {
++      continue;
++    }
++
++    sortedRecord[key] = canonicalize(nextValue);
+   }
+ 
+   return sortedRecord;
+ }
++
++function resolveRepositoryDependencies(
++  dependencies: FileMissionRepositoryDependencies | CleanupStaleMissionLocksOptions,
++): ResolvedMissionRepositoryDependencies {
++  const repositoryDependencies = dependencies as FileMissionRepositoryDependencies;
++
++  return {
++    mkdir: repositoryDependencies.mkdir ?? mkdir,
++    createLockFile: repositoryDependencies.createLockFile ?? writeFile,
++    removeLockFile: repositoryDependencies.removeLockFile ?? unlink,
++    readLockStat: repositoryDependencies.readLockStat ?? stat,
++    writeMissionJson: repositoryDependencies.writeMissionJson ?? writeJsonAtomic,
++    warn: dependencies.warn ?? ((message: string) => console.warn(message)),
++    now: dependencies.now ?? (() => new Date()),
++    lockStaleTtlMs: resolveMissionLockStaleTtlMs(dependencies.lockStaleTtlMs),
++  };
++}
++
++function resolveMissionLockPath(missionPath: string): string {
++  return `${missionPath}.lock`;
++}
++
++function resolveMissionLockStaleTtlMs(override?: number): number {
++  if (typeof override === "number" && Number.isFinite(override) && override > 0) {
++    return override;
++  }
++
++  const rawValue = process.env[MISSION_LOCK_STALE_TTL_ENV_VAR];
++  const parsedValue = rawValue ? Number.parseInt(rawValue, 10) : Number.NaN;
++
++  return Number.isFinite(parsedValue) && parsedValue > 0
++    ? parsedValue
++    : DEFAULT_MISSION_LOCK_STALE_TTL_MS;
++}
++
++async function removeStaleMissionLockIfNeeded(
++  lockPath: string,
++  missionId: string,
++  dependencies: ResolvedMissionRepositoryDependencies,
++): Promise<boolean> {
++  try {
++    const lockStats = await dependencies.readLockStat(lockPath);
++
++    if (!isMissionLockStale(lockStats.mtimeMs, dependencies)) {
++      return false;
++    }
++
++    await dependencies.removeLockFile(lockPath);
++    dependencies.warn(`Lock stale supprime pour la mission \`${missionId}\`: ${lockPath}.`);
++    return true;
++  } catch (error) {
++    if (isMissingFileError(error)) {
++      return false;
++    }
++
++    throw error;
++  }
++}
++
++function isMissionLockStale(
++  mtimeMs: number,
++  dependencies: ResolvedMissionRepositoryDependencies,
++): boolean {
++  return dependencies.now().getTime() - mtimeMs >= dependencies.lockStaleTtlMs;
++}
++
++async function releaseMissionLock(
++  lockPath: string,
++  missionId: string,
++  primaryError: unknown,
++  dependencies: ResolvedMissionRepositoryDependencies,
++): Promise<void> {
++  try {
++    await dependencies.removeLockFile(lockPath);
++  } catch (error) {
++    if (isMissingFileError(error)) {
++      return;
++    }
++
++    if (primaryError !== undefined) {
++      dependencies.warn(
++        `Liberation du lock mission echouee apres une erreur primaire pour \`${missionId}\`: ${String(error)}.`,
++      );
++      return;
++    }
++
++    throw error;
++  }
++}
++
++async function readDirectoryEntries(directoryPath: string): Promise<Dirent[]> {
++  try {
++    return await readdir(directoryPath, { withFileTypes: true, encoding: "utf8" });
++  } catch (error) {
++    if (isMissingFileError(error)) {
++      return [];
++    }
++
++    throw error;
++  }
++}
+diff --git a/packages/storage/src/repositories/persisted-document-errors.ts b/packages/storage/src/repositories/persisted-document-errors.ts
+index 8d1d9eb..f68e17e 100644
+--- a/packages/storage/src/repositories/persisted-document-errors.ts
++++ b/packages/storage/src/repositories/persisted-document-errors.ts
+@@ -57,8 +57,9 @@ export class InvalidPersistedDocumentError extends Error {
+   public constructor(
+     context: PersistedDocumentContext,
+     reason: string,
++    cause: unknown = new Error(reason),
+   ) {
+-    super(formatPersistedDocumentMessage("schema_invalide", context, reason));
++    super(formatPersistedDocumentMessage("schema_invalide", context, reason), { cause });
+     this.name = "InvalidPersistedDocumentError";
+     this.filePath = context.filePath;
+     this.entityLabel = context.entityLabel;
+@@ -93,7 +94,7 @@ export type PersistedDocumentReadError =
+   | InvalidPersistedDocumentError
+   | PersistedDocumentFileSystemError;
+ 
+-export type PersistedDocumentValidator<T> = (value: unknown) => ValidationResult;
++export type PersistedDocumentValidator<T> = (value: unknown) => ValidationResult<T>;
+ 
+ export async function readPersistedJsonDocument(
+   context: PersistedDocumentContext,
+@@ -115,13 +116,13 @@ export async function readPersistedJsonDocument(
+   }
+ 
+   try {
+-    return JSON.parse(contents) as unknown;
+-  } catch (error) {
++    return JSON.parse(stripUtf8Bom(contents)) as unknown;
++  } catch (error: unknown) {
+     if (error instanceof SyntaxError) {
+       throw new CorruptedPersistedDocumentError(context, error);
+     }
+ 
+-    throw error;
++    throw normalizePersistedDocumentReadError(error, context);
+   }
+ }
+ 
+@@ -137,6 +138,22 @@ export function assertValidPersistedDocument<T>(
+   }
+ }
+ 
++export function normalizePersistedDocumentReadError(
++  error: unknown,
++  context: PersistedDocumentContext,
++): Error {
++  if (isPersistedDocumentReadError(error) || isMissingFileError(error)) {
++    return error as Error;
++  }
++
++  if (isFileSystemReadError(error)) {
++    return new PersistedDocumentFileSystemError(context, error);
++  }
++
++  const message = formatUnexpectedPersistedDocumentReadMessage(context);
++  return new Error(message, { cause: error });
++}
++
+ export function isPersistedDocumentReadError(
+   error: unknown,
+ ): error is PersistedDocumentReadError {
+@@ -161,3 +178,17 @@ function formatPersistedDocumentMessage(
+ 
+   return `${code}: ${context.entityLabel}${documentId} invalide (${context.filePath}): ${reason}.`;
+ }
++
++function stripUtf8Bom(contents: string): string {
++  return contents.startsWith("\uFEFF")
++    ? contents.slice(1)
++    : contents;
++}
++
++function formatUnexpectedPersistedDocumentReadMessage(
++  context: PersistedDocumentContext,
++): string {
++  const documentId = context.documentId ? ` \`${context.documentId}\`` : "";
++
++  return `Lecture du document persiste ${context.entityLabel}${documentId} irreconciliable (${context.filePath}).`;
++}
+diff --git a/packages/ticket-runtime/src/planner/read-ticket-board.ts b/packages/ticket-runtime/src/planner/read-ticket-board.ts
+index 910bf71..9080e4d 100644
+--- a/packages/ticket-runtime/src/planner/read-ticket-board.ts
++++ b/packages/ticket-runtime/src/planner/read-ticket-board.ts
+@@ -5,10 +5,12 @@ import type { ExecutionAttempt } from "../../../contracts/src/execution-attempt/
+ import type { Ticket } from "../../../contracts/src/ticket/ticket";
+ import { EventLogReadError, isEventLogReadError } from "../../../journal/src/event-log/event-log-errors";
+ import {
++  getLastAuthoritativeMissionCursor,
+   readMissionEvents,
+   reconstructAttemptsFromJournal,
+   reconstructMissionFromJournal,
+   reconstructTicketsFromJournal,
++  type MissionAuthoritativeCursor,
+ } from "../../../journal/src/reconstruction/mission-reconstruction";
+ import type { TicketBoardProjection } from "../../../journal/src/projections/ticket-board-projection";
+ import {
+@@ -49,60 +51,80 @@ export interface ReadTicketBoardResult {
+   projectionPath: string;
+ }
+ 
++interface TicketBoardDependencies {
++  readMissionEvents: typeof readMissionEvents;
++}
++
++const DEFAULT_TICKET_BOARD_DEPENDENCIES: TicketBoardDependencies = {
++  readMissionEvents,
++};
++
++let ticketBoardDependenciesForTesting: Partial<TicketBoardDependencies> | null = null;
++
++export function setReadTicketBoardDependenciesForTesting(
++  dependencies: Partial<TicketBoardDependencies> | null,
++): void {
++  ticketBoardDependenciesForTesting = dependencies;
++}
++
+ export async function readTicketBoard(
+   options: ReadTicketBoardOptions,
+ ): Promise<ReadTicketBoardResult> {
+   const layout = resolveWorkspaceLayout(options.rootDir);
+   await ensureTicketBoardWorkspaceInitialized(layout, options.commandName);
+ 
+-  const missionRepository = createFileMissionRepository(layout);
+-  const ticketRepository = createFileTicketRepository(layout);
+-  const attemptRepository = createFileExecutionAttemptRepository(layout);
+-  const storedMissionResult = await readStoredMissionSnapshot(
+-    missionRepository,
+-    options.missionId,
+-  );
+-  const storedMission = storedMissionResult.mission;
+-  const missionEvents = await readMissionEvents(layout.journalPath, options.missionId);
+-  const missionFromJournal = missionEvents.length > 0
+-    ? reconstructMissionFromJournal(missionEvents, options.missionId)
+-    : null;
+-
+-  if (!storedMission && !missionFromJournal) {
+-    throw new Error(`Mission introuvable: ${options.missionId}.`);
+-  }
+-
+-  const missionSnapshot = selectFreshMissionSnapshot(
+-    storedMission,
+-    missionFromJournal,
+-    missionEvents.at(-1)?.eventId,
+-  );
+-
+   const projectionPath = resolveProjectionPath(layout.projectionsDir, "ticket-board");
+ 
+   try {
++    const missionRepository = createFileMissionRepository(layout);
++    const ticketRepository = createFileTicketRepository(layout);
++    const attemptRepository = createFileExecutionAttemptRepository(layout);
++    const storedMissionResult = await readStoredMissionSnapshot(
++      missionRepository,
++      options.missionId,
++    );
++    const storedMission = storedMissionResult.mission;
++    const missionEvents = await readMissionEventsSafely(layout, options.missionId);
++    const missionFromJournal = missionEvents.length > 0
++      ? reconstructMissionFromJournal(missionEvents, options.missionId)
++      : null;
++
++    if (!storedMission && !missionFromJournal) {
++      throw new Error(`Mission introuvable: ${options.missionId}.`);
++    }
++
++    const missionSnapshot = selectFreshMissionSnapshot(
++      storedMission,
++      missionFromJournal,
++      getLastAuthoritativeMissionCursor(missionEvents),
++    );
+     const storedTickets = await readStoredTicketsForBoard(
+       ticketRepository,
+       missionSnapshot.id,
+     );
+     const journalTickets = reconstructTicketsFromJournal(missionEvents, missionSnapshot.id);
++    const journalTicketCursors = buildTicketCursors(missionEvents, missionSnapshot.id);
+     const mergedTickets = mergeTicketsById(
+       storedTickets.tickets,
+       journalTickets,
++      journalTicketCursors,
+     );
+     const missionTickets = mergedTickets.tickets;
+     const storedAttempts = await readStoredAttemptsForBoard(
+       missionSnapshot,
+       attemptRepository,
+     );
++    const journalAttempts = reconstructAttemptsFromJournal(missionEvents, missionSnapshot.id);
++    const journalAttemptCursors = buildAttemptCursors(missionEvents, missionSnapshot.id);
+     const missionAttempts = mergeAttemptsById(
+       storedAttempts.attempts,
+-      reconstructAttemptsFromJournal(missionEvents),
++      journalAttempts,
+       mergedTickets.usedJournalSnapshot
+         || missionSnapshot === missionFromJournal
+         || storedMissionResult.recovered
+         || storedTickets.recovered
+         || storedAttempts.recovered,
++      journalAttemptCursors,
+     );
+     const rebuiltBoard = buildTicketBoardProjection(
+       missionSnapshot,
+@@ -144,10 +166,10 @@ export async function readTicketBoard(
+   }
+ }
+ 
+-function selectFreshMissionSnapshot(
++export function selectFreshMissionSnapshot(
+   storedMission: Mission | null,
+   missionFromJournal: Mission | null,
+-  lastEventId: string | undefined,
++  lastAuthoritativeCursor: MissionAuthoritativeCursor | null,
+ ): Mission {
+   if (!storedMission) {
+     if (!missionFromJournal) {
+@@ -157,16 +179,22 @@ function selectFreshMissionSnapshot(
+     return missionFromJournal;
+   }
+ 
+-  if (missionFromJournal && lastEventId && storedMission.resumeCursor !== lastEventId) {
+-    return missionFromJournal;
++  if (!missionFromJournal || !lastAuthoritativeCursor) {
++    return storedMission;
+   }
+ 
+-  return storedMission;
++  return compareMissionFreshness(
++    toStoredMissionCursor(storedMission),
++    lastAuthoritativeCursor,
++  ) < 0
++    ? missionFromJournal
++    : storedMission;
+ }
+ 
+-function mergeTicketsById(
++export function mergeTicketsById(
+   storedTickets: Ticket[],
+   journalTickets: Ticket[],
++  journalTicketCursors: ReadonlyMap<string, MissionAuthoritativeCursor> = new Map(),
+ ): { tickets: Ticket[]; usedJournalSnapshot: boolean } {
+   const ticketsById = new Map(storedTickets.map((ticket) => [ticket.id, ticket] as const));
+   let usedJournalSnapshot = false;
+@@ -174,7 +202,7 @@ function mergeTicketsById(
+   for (const ticket of journalTickets) {
+     const storedTicket = ticketsById.get(ticket.id);
+ 
+-    if (!storedTicket || isJournalTicketNewer(storedTicket, ticket)) {
++    if (!storedTicket || isJournalTicketNewer(storedTicket, ticket, journalTicketCursors)) {
+       ticketsById.set(ticket.id, ticket);
+       usedJournalSnapshot = true;
+     }
+@@ -186,21 +214,40 @@ function mergeTicketsById(
+   };
+ }
+ 
+-function isJournalTicketNewer(storedTicket: Ticket, journalTicket: Ticket): boolean {
++function isJournalTicketNewer(
++  storedTicket: Ticket,
++  journalTicket: Ticket,
++  journalTicketCursors: ReadonlyMap<string, MissionAuthoritativeCursor>,
++): boolean {
+   const storedEventIds = new Set(storedTicket.eventIds);
++  const hasUnseenJournalEvent = journalTicket.eventIds.some((eventId) => !storedEventIds.has(eventId));
++
++  if (!hasUnseenJournalEvent) {
++    return false;
++  }
+ 
+-  return journalTicket.eventIds.some((eventId) => !storedEventIds.has(eventId));
++  return compareMissionFreshness(
++    toStoredTicketCursor(storedTicket),
++    toJournalTicketCursor(journalTicket, journalTicketCursors),
++  ) < 0;
+ }
+ 
+-function mergeAttemptsById(
++export function mergeAttemptsById(
+   storedAttempts: ExecutionAttempt[],
+   journalAttempts: ExecutionAttempt[],
+   preferJournalSnapshots: boolean,
++  journalAttemptCursors: ReadonlyMap<string, MissionAuthoritativeCursor> = new Map(),
+ ): ExecutionAttempt[] {
+   const attemptsById = new Map(storedAttempts.map((attempt) => [attempt.id, attempt] as const));
+ 
+   for (const attempt of journalAttempts) {
+-    if (preferJournalSnapshots || !attemptsById.has(attempt.id)) {
++    const storedAttempt = attemptsById.get(attempt.id);
++
++    if (
++      preferJournalSnapshots
++      || !storedAttempt
++      || isJournalAttemptNewer(storedAttempt, attempt, journalAttemptCursors)
++    ) {
+       attemptsById.set(attempt.id, attempt);
+     }
+   }
+@@ -365,7 +412,7 @@ function formatTicketBoardReadError(
+   return `Projection ticket-board irreconciliable pour ${missionId}. Impossible d'afficher la mission.`;
+ }
+ 
+-function normalizeTicketBoardReadError(
++export function normalizeTicketBoardReadError(
+   error: unknown,
+   options: {
+     missionId: string;
+@@ -377,10 +424,14 @@ function normalizeTicketBoardReadError(
+     return error;
+   }
+ 
+-  if (isEventLogReadError(error) || isPersistedDocumentReadError(error)) {
++  if (isClassifiedReadError(error)) {
+     return error instanceof Error ? error : new Error(String(error));
+   }
+ 
++  if (error instanceof Error && error.message.startsWith("Mission introuvable: ")) {
++    return error;
++  }
++
+   if (isFileSystemReadError(error)) {
+     return createFileSystemReadError(error, options.projectionPath, "projection ticket-board");
+   }
+@@ -391,6 +442,7 @@ function normalizeTicketBoardReadError(
+ 
+   return new Error(
+     formatTicketBoardReadError(options.missionId, options.commandName),
++    { cause: error },
+   );
+ }
+ 
+@@ -415,3 +467,136 @@ function isProjectionCorruptionError(
+     && "code" in error
+     && error.code === "EPROJCORRUPT";
+ }
++
++function isClassifiedReadError(error: unknown): boolean {
++  return isEventLogReadError(error) || isPersistedDocumentReadError(error);
++}
++
++function getTicketBoardDependencies(): TicketBoardDependencies {
++  return {
++    ...DEFAULT_TICKET_BOARD_DEPENDENCIES,
++    ...ticketBoardDependenciesForTesting,
++  };
++}
++
++async function readMissionEventsSafely(
++  layout: WorkspaceLayout,
++  missionId: string,
++): Promise<Awaited<ReturnType<typeof readMissionEvents>>> {
++  try {
++    return await getTicketBoardDependencies().readMissionEvents(layout.journalPath, missionId);
++  } catch (error) {
++    if (isClassifiedReadError(error)) {
++      throw error;
++    }
++
++    if (isFileSystemReadError(error)) {
++      throw EventLogReadError.fileSystem(layout.journalPath, error);
++    }
++
++    throw error;
++  }
++}
++
++function toStoredMissionCursor(mission: Mission): MissionAuthoritativeCursor {
++  return {
++    occurredAt: mission.updatedAt,
++    eventId: mission.resumeCursor,
++  };
++}
++
++function toStoredTicketCursor(ticket: Ticket): MissionAuthoritativeCursor {
++  return {
++    occurredAt: ticket.updatedAt,
++    eventId: ticket.eventIds.at(-1) ?? "",
++  };
++}
++
++function toJournalTicketCursor(
++  ticket: Ticket,
++  journalTicketCursors: ReadonlyMap<string, MissionAuthoritativeCursor>,
++): MissionAuthoritativeCursor {
++  return journalTicketCursors.get(ticket.id) ?? toStoredTicketCursor(ticket);
++}
++
++function isJournalAttemptNewer(
++  storedAttempt: ExecutionAttempt,
++  journalAttempt: ExecutionAttempt,
++  journalAttemptCursors: ReadonlyMap<string, MissionAuthoritativeCursor>,
++): boolean {
++  return compareMissionFreshness(
++    toStoredAttemptCursor(storedAttempt),
++    toJournalAttemptCursor(journalAttempt, journalAttemptCursors),
++  ) < 0;
++}
++
++function toStoredAttemptCursor(attempt: ExecutionAttempt): MissionAuthoritativeCursor {
++  return {
++    occurredAt: getAttemptFreshnessTimestamp(attempt),
++    eventId: "",
++  };
++}
++
++function toJournalAttemptCursor(
++  attempt: ExecutionAttempt,
++  journalAttemptCursors: ReadonlyMap<string, MissionAuthoritativeCursor>,
++): MissionAuthoritativeCursor {
++  return journalAttemptCursors.get(attempt.id) ?? toStoredAttemptCursor(attempt);
++}
++
++function getAttemptFreshnessTimestamp(attempt: ExecutionAttempt): string {
++  return attempt.endedAt ?? attempt.startedAt;
++}
++
++function compareMissionFreshness(
++  left: MissionAuthoritativeCursor,
++  right: MissionAuthoritativeCursor,
++): number {
++  const occurredAtComparison = left.occurredAt.localeCompare(right.occurredAt);
++
++  if (occurredAtComparison !== 0) {
++    return occurredAtComparison;
++  }
++
++  return left.eventId.localeCompare(right.eventId);
++}
++
++function buildTicketCursors(
++  missionEvents: Awaited<ReturnType<typeof readMissionEvents>>,
++  missionId: string,
++): Map<string, MissionAuthoritativeCursor> {
++  const ticketCursors = new Map<string, MissionAuthoritativeCursor>();
++
++  for (const event of missionEvents) {
++    if (event.missionId !== missionId || typeof event.ticketId !== "string") {
++      continue;
++    }
++
++    ticketCursors.set(event.ticketId, {
++      occurredAt: event.occurredAt,
++      eventId: event.eventId,
++    });
++  }
++
++  return ticketCursors;
++}
++
++function buildAttemptCursors(
++  missionEvents: Awaited<ReturnType<typeof readMissionEvents>>,
++  missionId: string,
++): Map<string, MissionAuthoritativeCursor> {
++  const attemptCursors = new Map<string, MissionAuthoritativeCursor>();
++
++  for (const event of missionEvents) {
++    if (event.missionId !== missionId || typeof event.attemptId !== "string") {
++      continue;
++    }
++
++    attemptCursors.set(event.attemptId, {
++      occurredAt: event.occurredAt,
++      eventId: event.eventId,
++    });
++  }
++
++  return attemptCursors;
++}
+diff --git a/tests/unit/event-log-defensive-read.test.ts b/tests/unit/event-log-defensive-read.test.ts
+index 789c193..f13875d 100644
+--- a/tests/unit/event-log-defensive-read.test.ts
++++ b/tests/unit/event-log-defensive-read.test.ts
+@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
+ import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+ import path from "node:path";
+ import { tmpdir } from "node:os";
++import { Readable } from "node:stream";
+ import test from "node:test";
+ 
+ import type { JournalEventRecord } from "../../packages/journal/src/event-log/append-event";
+@@ -13,6 +14,7 @@ import {
+   ensureAppendOnlyEventLog,
+   isJournalEventRecord,
+   readEventLog,
++  setEventLogDependenciesForTesting,
+ } from "../../packages/journal/src/event-log/file-event-log";
+ 
+ function createEvent(index: number): JournalEventRecord {
+@@ -157,6 +159,56 @@ test("ensureAppendOnlyEventLog garde une ligne complete semantiquement invalide
+   assert.equal(await readFile(journalPath, "utf8"), contents);
+ });
+ 
++test("ensureAppendOnlyEventLog accepte une derniere ligne valide sans newline finale sans relire le journal", async (t) => {
++  const rootDir = await mkdtemp(path.join(tmpdir(), "corp-event-log-complete-no-newline-"));
++  t.after(async () => {
++    setEventLogDependenciesForTesting(null);
++    await rm(rootDir, { recursive: true, force: true });
++  });
++
++  const journalPath = path.join(rootDir, "events.jsonl");
++  const contents = `${JSON.stringify(createEvent(1))}\n${JSON.stringify(createEvent(2))}`;
++  await writeFile(journalPath, contents, "utf8");
++
++  setEventLogDependenciesForTesting({
++    createReadStream: (() => {
++      throw new Error("readEventLog ne doit pas etre appele pour une derniere ligne valide");
++    }) as typeof import("node:fs").createReadStream,
++  });
++
++  const created = await ensureAppendOnlyEventLog(journalPath);
++
++  assert.equal(created, false);
++  assert.equal(await readFile(journalPath, "utf8"), contents);
++});
++
++test("ensureAppendOnlyEventLog classe EROFS et EISDIR comme erreurs de lecture journal", async (t) => {
++  t.after(() => {
++    setEventLogDependenciesForTesting(null);
++  });
++
++  for (const osCode of ["EROFS", "EISDIR"] as const) {
++    setEventLogDependenciesForTesting({
++      writeFile: (async () => {
++        const error = new Error(`${osCode}: simulated`) as NodeJS.ErrnoException;
++        error.code = osCode;
++        throw error;
++      }) as typeof import("node:fs/promises").writeFile,
++    });
++
++    await assert.rejects(
++      () => ensureAppendOnlyEventLog(`C:/tmp/${osCode.toLowerCase()}.jsonl`),
++      (error: unknown) => {
++        assert.ok(error instanceof EventLogReadError);
++        assert.equal(error.code, "erreur_fichier");
++        assert.equal(error.osCode, osCode);
++        assert.match(error.message, new RegExp(osCode));
++        return true;
++      },
++    );
++  }
++});
++
+ test("normalizeEventLogReadError conserve le code OS et le chemin", () => {
+   const journalPath = "C:/tmp/events.jsonl";
+   const errno = Object.assign(new Error("permission denied"), { code: "EACCES" });
+@@ -169,3 +221,90 @@ test("normalizeEventLogReadError conserve le code OS et le chemin", () => {
+   assert.match(error.message, /EACCES/);
+   assert.match(error.message, /events\.jsonl/);
+ });
++
++test("normalizeEventLogReadError preserve la cause pour une erreur opaque", () => {
++  const journalPath = "C:/tmp/events.jsonl";
++  const cause = { kind: "opaque_event_log_failure" };
++  const error = normalizeEventLogReadError(cause, journalPath);
++
++  assert.ok(error instanceof Error);
++  assert.equal(error.cause, cause);
++  assert.match(error.message, /journal append-only irreconciliable/i);
++});
++
++test("readEventLog capture une erreur async du stream et ne fuit pas en unhandledRejection", async (t) => {
++  let unhandledRejection = false;
++  const onUnhandledRejection = () => {
++    unhandledRejection = true;
++  };
++
++  class AsyncErrorReadable extends Readable {
++    private emitted = false;
++
++    public override _read(): void {
++      if (this.emitted) {
++        return;
++      }
++
++      this.emitted = true;
++      this.push(`${JSON.stringify(createEvent(1))}\n`);
++
++      setImmediate(() => {
++        const error = new Error("EBADF: simulated async stream failure") as NodeJS.ErrnoException;
++        error.code = "EBADF";
++        this.destroy(error);
++      });
++    }
++  }
++
++  process.once("unhandledRejection", onUnhandledRejection);
++  t.after(() => {
++    process.removeListener("unhandledRejection", onUnhandledRejection);
++    setEventLogDependenciesForTesting(null);
++  });
++
++  setEventLogDependenciesForTesting({
++    createReadStream: (() => new AsyncErrorReadable()) as unknown as typeof import("node:fs").createReadStream,
++  });
++
++  await assert.rejects(
++    () => readEventLog("C:/tmp/events.jsonl"),
++    (error: unknown) => {
++      assert.ok(error instanceof EventLogReadError);
++      assert.equal(error.code, "erreur_fichier");
++      assert.equal(error.osCode, "EBADF");
++      return true;
++    },
++  );
++
++  await new Promise((resolve) => setImmediate(resolve));
++  assert.equal(unhandledRejection, false);
++});
++
++test("readEventLog normalise une erreur inattendue de JSON.parse en preservant la cause", async (t) => {
++  const rootDir = await mkdtemp(path.join(tmpdir(), "corp-event-log-unknown-json-"));
++  const journalPath = path.join(rootDir, "events.jsonl");
++  const rootCause = new TypeError("synthetic event-log parse failure");
++  const originalJsonParse = JSON.parse;
++
++  t.after(async () => {
++    JSON.parse = originalJsonParse;
++    await rm(rootDir, { recursive: true, force: true });
++  });
++
++  await writeFile(journalPath, `${JSON.stringify(createEvent(1))}\n`, "utf8");
++
++  JSON.parse = (() => {
++    throw rootCause;
++  }) as typeof JSON.parse;
++
++  await assert.rejects(
++    () => readEventLog(journalPath),
++    (error: unknown) => {
++      assert.ok(error instanceof Error);
++      assert.match(error.message, /journal append-only irreconciliable/i);
++      assert.equal(error.cause, rootCause);
++      return true;
++    },
++  );
++});
+diff --git a/tests/unit/persisted-document-guards.test.ts b/tests/unit/persisted-document-guards.test.ts
+index 266ac06..4d5d35a 100644
+--- a/tests/unit/persisted-document-guards.test.ts
++++ b/tests/unit/persisted-document-guards.test.ts
+@@ -20,10 +20,11 @@ import {
+   validateRegisteredCapability,
+   validateRegisteredSkillPack,
+   validateTicket,
++  type StructuralValidationWarning,
+   type ValidationResult,
+ } from "../../packages/contracts/src/guards/persisted-document-guards";
+ 
+-function assertInvalid(result: ValidationResult, reasonPattern: RegExp): void {
++function assertInvalid(result: ValidationResult<unknown>, reasonPattern: RegExp): void {
+   assert.equal(result.ok, false);
+   if (!result.ok) {
+     assert.match(result.reason, reasonPattern);
+@@ -179,6 +180,56 @@ test("isMission valide le snapshot mission et documente les raisons de rejet", (
+   );
+ });
+ 
++test("validateMission accepte authorizedExtensions null et tolere un statut futur en lecture", () => {
++  const warnings: StructuralValidationWarning[] = [];
++
++  const nullAuthorizedExtensions = validateMission({
++    ...createMission(),
++    authorizedExtensions: null,
++  });
++  const futureMissionStatus = validateMission(
++    {
++      ...createMission(),
++      status: "archived_v2",
++    },
++    { strict: false, warnings },
++  );
++  const futureTicketStatus = validateTicket(
++    {
++      ...createTicket(),
++      status: "on_hold",
++    },
++    { strict: false, warnings },
++  );
++  const futureArtifactKind = validateArtifact(
++    {
++      ...createArtifact(),
++      kind: "binary_blob_v2",
++    },
++    { strict: false, warnings },
++  );
++
++  assert.equal(nullAuthorizedExtensions.ok, true);
++  assertInvalid(
++    validateMission({ ...createMission(), authorizedExtensions: 42 }),
++    /type incorrect.*authorizedExtensions/i,
++  );
++  assert.equal(futureMissionStatus.ok, true);
++  assert.equal(futureTicketStatus.ok, true);
++  assert.equal(futureArtifactKind.ok, true);
++  assert.equal(isMission({ ...createMission(), status: "archived_v2" }), true);
++  assert.equal(isTicket({ ...createTicket(), status: "on_hold" }), true);
++  assert.equal(isArtifact({ ...createArtifact(), kind: "binary_blob_v2" }), true);
++  assert.deepEqual(
++    warnings.map((warning) => ({ path: warning.path, value: warning.value })),
++    [
++      { path: "status", value: "archived_v2" },
++      { path: "status", value: "on_hold" },
++      { path: "kind", value: "binary_blob_v2" },
++    ],
++  );
++});
++
+ test("isTicket valide le snapshot ticket et rejette champs, types et discriminants inconnus", () => {
+   assert.equal(isTicket(createTicket()), true);
+   assertInvalid(validateTicket({ ...createTicket(), goal: undefined }), /champ manquant.*goal/i);
+@@ -191,6 +242,39 @@ test("isTicket valide le snapshot ticket et rejette champs, types et discriminan
+   );
+ });
+ 
++test("validateTicket rejette les champs herites du prototype et distingue champ manquant vs type incorrect", () => {
++  const inheritedTicket = Object.create({
++    id: "ticket_proto",
++  }) as Record<string, unknown>;
++
++  Object.assign(inheritedTicket, {
++    missionId: "mission_guard",
++    kind: "implement",
++    goal: "Ticket prototype pollution",
++    status: "todo",
++    owner: "agent_guard",
++    dependsOn: [],
++    successCriteria: [],
++    allowedCapabilities: [],
++    skillPackRefs: [],
++    workspaceIsolationId: null,
++    artifactIds: [],
++    eventIds: ["event_guard"],
++    createdAt: "2026-04-15T10:00:00.000Z",
++    updatedAt: "2026-04-15T10:00:00.000Z",
++  });
++
++  assertInvalid(validateTicket(inheritedTicket), /champ manquant.*id/i);
++  assertInvalid(
++    validateTicket({ ...createTicket(), executionHandle: undefined }),
++    /champ manquant.*executionHandle/i,
++  );
++  assertInvalid(
++    validateTicket({ ...createTicket(), executionHandle: "invalid" as unknown as Ticket["executionHandle"] }),
++    /type incorrect.*executionHandle/i,
++  );
++});
++
+ test("isExecutionAttempt valide les tentatives et rejette les statuts/adapters inconnus", () => {
+   assert.equal(isExecutionAttempt(createExecutionAttempt()), true);
+   assertInvalid(
+diff --git a/tests/unit/persisted-document-repositories.test.ts b/tests/unit/persisted-document-repositories.test.ts
+index 7f85ce6..baf5db3 100644
+--- a/tests/unit/persisted-document-repositories.test.ts
++++ b/tests/unit/persisted-document-repositories.test.ts
+@@ -10,6 +10,7 @@ import type { RegisteredSkillPack } from "../../packages/contracts/src/extension
+ import type { ExecutionAttempt } from "../../packages/contracts/src/execution-attempt/execution-attempt";
+ import type { Mission } from "../../packages/contracts/src/mission/mission";
+ import type { Ticket } from "../../packages/contracts/src/ticket/ticket";
++import { getStructuralValidationWarnings } from "../../packages/contracts/src/guards/persisted-document-guards";
+ import { ensureWorkspaceLayout, type WorkspaceLayout } from "../../packages/storage/src/fs-layout/workspace-layout";
+ import {
+   CorruptedPersistedDocumentError,
+@@ -44,7 +45,7 @@ function createCases(): RepositoryCase[] {
+       documentId: missionId,
+       filePath: (layout) => path.join(layout.missionsDir, missionId, "mission.json"),
+       read: (layout) => createFileMissionRepository(layout).findById(missionId),
+-      invalidDocument: { ...createMission(), status: "closed" },
++      invalidDocument: { ...createMission(), ticketIds: [42] },
+     },
+     {
+       entityLabel: "Ticket",
+@@ -65,7 +66,7 @@ function createCases(): RepositoryCase[] {
+       documentId: artifactId,
+       filePath: (layout) => path.join(layout.missionsDir, missionId, "tickets", ticketId, "artifacts", artifactId, "artifact.json"),
+       read: (layout) => createFileArtifactRepository(layout).findById(missionId, artifactId),
+-      invalidDocument: { ...createArtifact(), kind: "binary_blob" },
++      invalidDocument: { ...createArtifact(), sizeBytes: "12" },
+     },
+     {
+       entityLabel: "RegisteredCapability",
+@@ -118,6 +119,28 @@ test("les repositories classent le JSON corrompu sans laisser fuir SyntaxError",
+   }
+ });
+ 
++test("les repositories acceptent un document UTF-8 avec BOM sans le classer json_corrompu", async (t) => {
++  const rootDir = await mkdtemp(path.join(tmpdir(), "corp-defensive-json-bom-"));
++  t.after(async () => {
++    await rm(rootDir, { recursive: true, force: true });
++  });
++
++  const layout = await ensureWorkspaceLayout(rootDir);
++  const missionPath = path.join(layout.missionsDir, missionId, "mission.json");
++
++  await mkdir(path.dirname(missionPath), { recursive: true });
++  await writeFile(
++    missionPath,
++    `\uFEFF${JSON.stringify(createMission(), null, 2)}\n`,
++    "utf8",
++  );
++
++  const mission = await createFileMissionRepository(layout).findById(missionId);
++
++  assert.ok(mission);
++  assert.equal(mission.id, missionId);
++});
++
+ test("les repositories rejettent les schemas valides JSON mais invalides runtime", async (t) => {
+   const rootDir = await mkdtemp(path.join(tmpdir(), "corp-defensive-schema-"));
+   t.after(async () => {
+@@ -139,13 +162,71 @@ test("les repositories rejettent les schemas valides JSON mais invalides runtime
+         assert.equal(error.filePath, snapshotPath);
+         assert.equal(error.documentId, repositoryCase.documentId);
+         assert.match(error.message, new RegExp(repositoryCase.entityLabel));
+-        assert.match(error.message, /statut inconnu|discriminant invalide/i);
++        assert.match(error.message, /statut inconnu|discriminant invalide|type incorrect/i);
+         return true;
+       },
+     );
+   }
+ });
+ 
++test("InvalidPersistedDocumentError preserve une cause exploitable", async (t) => {
++  const rootDir = await mkdtemp(path.join(tmpdir(), "corp-defensive-schema-cause-"));
++  t.after(async () => {
++    await rm(rootDir, { recursive: true, force: true });
++  });
++
++  const layout = await ensureWorkspaceLayout(rootDir);
++  const missionPath = path.join(layout.missionsDir, missionId, "mission.json");
++
++  await mkdir(path.dirname(missionPath), { recursive: true });
++  await writeFile(
++    missionPath,
++    `${JSON.stringify({ ...createMission(), title: undefined }, null, 2)}\n`,
++    "utf8",
++  );
++
++  await assert.rejects(
++    () => createFileMissionRepository(layout).findById(missionId),
++    (error: unknown) => {
++      assert.ok(error instanceof InvalidPersistedDocumentError);
++      assert.ok(error.cause instanceof Error);
++      assert.match(error.cause.message, /champ manquant.*title/i);
++      return true;
++    },
++  );
++});
++
++test("les repositories normalisent une erreur inattendue de JSON.parse avec sa cause", async (t) => {
++  const rootDir = await mkdtemp(path.join(tmpdir(), "corp-defensive-json-unknown-"));
++  const rootCause = new TypeError("synthetic persisted parse failure");
++  const originalJsonParse = JSON.parse;
++
++  t.after(async () => {
++    JSON.parse = originalJsonParse;
++    await rm(rootDir, { recursive: true, force: true });
++  });
++
++  const layout = await ensureWorkspaceLayout(rootDir);
++  const missionPath = path.join(layout.missionsDir, missionId, "mission.json");
++
++  await mkdir(path.dirname(missionPath), { recursive: true });
++  await writeFile(missionPath, `${JSON.stringify(createMission(), null, 2)}\n`, "utf8");
++
++  JSON.parse = (() => {
++    throw rootCause;
++  }) as typeof JSON.parse;
++
++  await assert.rejects(
++    () => createFileMissionRepository(layout).findById(missionId),
++    (error: unknown) => {
++      assert.ok(error instanceof Error);
++      assert.match(error.message, /Lecture du document persiste Mission/);
++      assert.equal(error.cause, rootCause);
++      return true;
++    },
++  );
++});
++
+ test("FileSkillPackRegistryRepository.list expose une entree corrompue au lieu de retourner une liste partielle", async (t) => {
+   const rootDir = await mkdtemp(path.join(tmpdir(), "corp-defensive-skill-pack-list-"));
+   t.after(async () => {
+@@ -175,6 +256,69 @@ test("FileSkillPackRegistryRepository.list expose une entree corrompue au lieu d
+   );
+ });
+ 
++test("les repositories lisent les discriminants ouverts inconnus en attachant des warnings structurels", async (t) => {
++  const rootDir = await mkdtemp(path.join(tmpdir(), "corp-defensive-open-discriminants-"));
++  t.after(async () => {
++    await rm(rootDir, { recursive: true, force: true });
++  });
++
++  const layout = await ensureWorkspaceLayout(rootDir);
++  const missionPath = path.join(layout.missionsDir, missionId, "mission.json");
++  const ticketPath = path.join(layout.missionsDir, missionId, "tickets", ticketId, "ticket.json");
++  const artifactPath = path.join(
++    layout.missionsDir,
++    missionId,
++    "tickets",
++    ticketId,
++    "artifacts",
++    artifactId,
++    "artifact.json",
++  );
++
++  await mkdir(path.dirname(missionPath), { recursive: true });
++  await mkdir(path.dirname(ticketPath), { recursive: true });
++  await mkdir(path.dirname(artifactPath), { recursive: true });
++
++  await writeFile(
++    missionPath,
++    `${JSON.stringify({ ...createMission(), status: "archived_v2" }, null, 2)}\n`,
++    "utf8",
++  );
++  await writeFile(
++    ticketPath,
++    `${JSON.stringify({ ...createTicket(), status: "on_hold" }, null, 2)}\n`,
++    "utf8",
++  );
++  await writeFile(
++    artifactPath,
++    `${JSON.stringify({ ...createArtifact(), kind: "binary_blob_v2" }, null, 2)}\n`,
++    "utf8",
++  );
++
++  const mission = await createFileMissionRepository(layout).findById(missionId);
++  const ticket = await createFileTicketRepository(layout).findById(missionId, ticketId);
++  const artifact = await createFileArtifactRepository(layout).findById(missionId, artifactId);
++
++  assert.ok(mission);
++  assert.ok(ticket);
++  assert.ok(artifact);
++  assert.equal((mission as unknown as Record<string, unknown>).status, "archived_v2");
++  assert.equal((ticket as unknown as Record<string, unknown>).status, "on_hold");
++  assert.equal((artifact as unknown as Record<string, unknown>).kind, "binary_blob_v2");
++  assert.deepEqual(
++    getStructuralValidationWarnings(mission).map((warning) => warning.path),
++    ["status"],
++  );
++  assert.deepEqual(
++    getStructuralValidationWarnings(ticket).map((warning) => warning.path),
++    ["status"],
++  );
++  assert.deepEqual(
++    getStructuralValidationWarnings(artifact).map((warning) => warning.path),
++    ["kind"],
++  );
++});
++
+ function createMission(overrides: Partial<Mission> = {}): Mission {
+   return {
+     id: missionId,
+diff --git a/tests/unit/read-mission-artifacts.test.ts b/tests/unit/read-mission-artifacts.test.ts
+index 4de211d..b21c9a8 100644
+--- a/tests/unit/read-mission-artifacts.test.ts
++++ b/tests/unit/read-mission-artifacts.test.ts
+@@ -45,3 +45,34 @@ test("readPayloadPreview lit un payload volumineux de maniere bornee sans casser
+   assert.doesNotMatch(preview, /�/);
+   assert.match(preview, /^€+/);
+ });
++
++test("readPayloadPreview retourne null seulement pour ENOENT", async () => {
++  const preview = await readPayloadPreview("C:/tmp", "payload.txt", "text/plain", {
++    openFile: async () => {
++      const error = new Error("ENOENT: missing payload") as NodeJS.ErrnoException;
++      error.code = "ENOENT";
++      throw error;
++    },
++  });
++
++  assert.equal(preview, null);
++});
++
++test("readPayloadPreview remonte EACCES comme erreur_fichier au lieu d'un null silencieux", async () => {
++  await assert.rejects(
++    () => readPayloadPreview("C:/tmp", "payload.txt", "text/plain", {
++      openFile: async () => {
++        const error = new Error("EACCES: permission denied") as NodeJS.ErrnoException;
++        error.code = "EACCES";
++        throw error;
++      },
++    }),
++    (error: unknown) => {
++      assert.ok(error instanceof Error);
++      assert.equal((error as Error & { code?: string }).code, "erreur_fichier");
++      assert.match(error.message, /EACCES/);
++      assert.match(error.message, /payload\.txt/);
++      return true;
++    },
++  );
++});
+
+=== NEW FILES (untracked) ===
+
+=== NEW FILE: tests/typecheck/persisted-document-validator.typecheck.ts ===
+diff --git a/tests/typecheck/persisted-document-validator.typecheck.ts b/tests/typecheck/persisted-document-validator.typecheck.ts
+new file mode 100644
+index 0000000..3a6bf7e
+--- /dev/null
++++ b/tests/typecheck/persisted-document-validator.typecheck.ts
+@@ -0,0 +1,22 @@
++import { validateMission } from "../../packages/contracts/src/guards/persisted-document-guards";
++import {
++  assertValidPersistedDocument,
++  type PersistedDocumentContext,
++} from "../../packages/storage/src/repositories/persisted-document-errors";
++
++const context: PersistedDocumentContext = {
++  filePath: "C:/tmp/mission.json",
++  entityLabel: "Mission",
++  documentId: "mission_typecheck",
++};
++
++const candidate: unknown = {
++  id: "mission_typecheck",
++};
++
++assertValidPersistedDocument(candidate, validateMission, context);
++
++// @ts-expect-error validateMission ne peut pas asserter un string.
++assertValidPersistedDocument<string>(candidate, validateMission, context);
++
++export {};
+
+=== NEW FILE: tests/unit/file-system-read-errors.test.ts ===
+diff --git a/tests/unit/file-system-read-errors.test.ts b/tests/unit/file-system-read-errors.test.ts
+new file mode 100644
+index 0000000..414f652
+--- /dev/null
++++ b/tests/unit/file-system-read-errors.test.ts
+@@ -0,0 +1,13 @@
++import assert from "node:assert/strict";
++import test from "node:test";
++
++import { isFileSystemReadError } from "../../packages/storage/src/fs-layout/file-system-read-errors";
++
++for (const osCode of ["EBUSY", "ETIMEDOUT"] as const) {
++  test(`isFileSystemReadError classe ${osCode} comme erreur de lecture`, () => {
++    const error = new Error(`${osCode}: simulated`) as NodeJS.ErrnoException;
++    error.code = osCode;
++
++    assert.equal(isFileSystemReadError(error), true);
++  });
++}
+
+=== NEW FILE: tests/unit/read-approval-queue.test.ts ===
+diff --git a/tests/unit/read-approval-queue.test.ts b/tests/unit/read-approval-queue.test.ts
+new file mode 100644
+index 0000000..ab4a04b
+--- /dev/null
++++ b/tests/unit/read-approval-queue.test.ts
+@@ -0,0 +1,110 @@
++import assert from "node:assert/strict";
++import { access, mkdtemp, rm } from "node:fs/promises";
++import path from "node:path";
++import { tmpdir } from "node:os";
++import test from "node:test";
++
++import { runCli } from "../../apps/corp-cli/src/index";
++import { readEventLog } from "../../packages/journal/src/event-log/file-event-log";
++import {
++  readApprovalQueue,
++  setReadApprovalQueueDependenciesForTesting,
++} from "../../packages/mission-kernel/src/resume-service/read-approval-queue";
++
++interface CommandResult {
++  exitCode: number;
++  lines: string[];
++}
++
++async function runCommand(args: string[]): Promise<CommandResult> {
++  const lines: string[] = [];
++  const exitCode = await runCli(args, {
++    writeLine: (line: string) => lines.push(line),
++  });
++
++  return {
++    exitCode,
++    lines,
++  };
++}
++
++async function bootstrapAndCreateMission(rootDir: string): Promise<string> {
++  const bootstrapResult = await runCommand(["mission", "bootstrap", "--root", rootDir]);
++  assert.equal(bootstrapResult.exitCode, 0);
++
++  const createResult = await runCommand([
++    "mission",
++    "create",
++    "--root",
++    rootDir,
++    "--title",
++    "Mission approval queue",
++    "--objective",
++    "Verifier la lecture defensive de la queue",
++    "--success-criterion",
++    "La queue reste lisible",
++    "--policy-profile",
++    "policy_profile_local",
++  ]);
++
++  assert.equal(createResult.exitCode, 0);
++
++  const missionLine = createResult.lines.find((line) => line.startsWith("Mission creee: "));
++  assert.ok(missionLine);
++
++  return missionLine.slice("Mission creee: ".length);
++}
++
++test("readApprovalQueue lit le journal une seule fois quand il doit reconstruire la mission depuis le journal", async (t) => {
++  const rootDir = await mkdtemp(path.join(tmpdir(), "corp-read-approval-queue-single-read-"));
++
++  t.after(async () => {
++    setReadApprovalQueueDependenciesForTesting(null);
++    await rm(rootDir, { recursive: true, force: true });
++  });
++
++  const missionId = await bootstrapAndCreateMission(rootDir);
++  const missionPath = path.join(rootDir, ".corp", "missions", missionId, "mission.json");
++  let readCount = 0;
++
++  await rm(missionPath, { force: true });
++  setReadApprovalQueueDependenciesForTesting({
++    readEventLog: async (...args) => {
++      readCount += 1;
++      return readEventLog(...args);
++    },
++  });
++
++  const result = await readApprovalQueue({
++    rootDir,
++    missionId,
++    commandName: "approval queue",
++  });
++
++  assert.equal(result.mission.id, missionId);
++  assert.equal(readCount, 1);
++});
++
++test("readApprovalQueue recree le dossier projections manquant quand le journal existe", async (t) => {
++  const rootDir = await mkdtemp(path.join(tmpdir(), "corp-read-approval-queue-projections-"));
++
++  t.after(async () => {
++    setReadApprovalQueueDependenciesForTesting(null);
++    await rm(rootDir, { recursive: true, force: true });
++  });
++
++  const missionId = await bootstrapAndCreateMission(rootDir);
++  const projectionsDir = path.join(rootDir, ".corp", "projections");
++  const projectionPath = path.join(projectionsDir, "approval-queue.json");
++
++  await rm(projectionsDir, { recursive: true, force: true });
++
++  const result = await readApprovalQueue({
++    rootDir,
++    missionId,
++    commandName: "approval queue",
++  });
++
++  assert.equal(result.mission.id, missionId);
++  await access(projectionPath);
++});
+
+=== NEW FILE: tests/unit/read-mission-resume.test.ts ===
+diff --git a/tests/unit/read-mission-resume.test.ts b/tests/unit/read-mission-resume.test.ts
+new file mode 100644
+index 0000000..ec65e8b
+--- /dev/null
++++ b/tests/unit/read-mission-resume.test.ts
+@@ -0,0 +1,111 @@
++import assert from "node:assert/strict";
++import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
++import path from "node:path";
++import { tmpdir } from "node:os";
++import test from "node:test";
++
++import { runCli } from "../../apps/corp-cli/src/index";
++import { CorruptedPersistedDocumentError } from "../../packages/storage/src/repositories/persisted-document-errors";
++import {
++  readMissionResume,
++  readStoredResumeView,
++} from "../../packages/mission-kernel/src/resume-service/read-mission-resume";
++
++interface CommandResult {
++  exitCode: number;
++  lines: string[];
++}
++
++async function runCommand(args: string[]): Promise<CommandResult> {
++  const lines: string[] = [];
++  const exitCode = await runCli(args, {
++    writeLine: (line: string) => lines.push(line),
++  });
++
++  return {
++    exitCode,
++    lines,
++  };
++}
++
++async function bootstrapAndCreateMission(rootDir: string): Promise<string> {
++  const bootstrapResult = await runCommand(["mission", "bootstrap", "--root", rootDir]);
++  assert.equal(bootstrapResult.exitCode, 0);
++
++  const createResult = await runCommand([
++    "mission",
++    "create",
++    "--root",
++    rootDir,
++    "--title",
++    "Mission read resume",
++    "--objective",
++    "Verifier la lecture defensive du resume",
++    "--success-criterion",
++    "Le resume reste lisible",
++    "--policy-profile",
++    "policy_profile_local",
++  ]);
++
++  assert.equal(createResult.exitCode, 0);
++
++  const missionLine = createResult.lines.find((line) => line.startsWith("Mission creee: "));
++  assert.ok(missionLine);
++
++  return missionLine.slice("Mission creee: ".length);
++}
++
++test("readStoredResumeView classe explicitement une projection resume-view corrompue", async (t) => {
++  const rootDir = await mkdtemp(path.join(tmpdir(), "corp-read-stored-resume-view-"));
++  const projectionsDir = path.join(rootDir, "projections");
++  const projectionPath = path.join(projectionsDir, "resume-view.json");
++
++  t.after(async () => {
++    await rm(rootDir, { recursive: true, force: true });
++  });
++
++  await mkdir(projectionsDir, { recursive: true });
++  await writeFile(projectionPath, "{corrupted", "utf8");
++
++  const result = await readStoredResumeView(projectionsDir);
++
++  assert.equal(result.projection, null);
++  assert.ok(result.readError instanceof CorruptedPersistedDocumentError);
++  assert.equal(result.readError.filePath, projectionPath);
++});
++
++test("readMissionResume preserve la cause d'une erreur inattendue issue de readMissionEvents", async (t) => {
++  const rootDir = await mkdtemp(path.join(tmpdir(), "corp-read-mission-resume-cause-"));
++  const missionId = await bootstrapAndCreateMission(rootDir);
++  const missionReconstructionModule = require("../../packages/journal/src/reconstruction/mission-reconstruction") as {
++    readMissionEvents: (
++      journalPath: string,
++      missionId: string,
++    ) => Promise<unknown[]>;
++  };
++  const originalReadMissionEvents = missionReconstructionModule.readMissionEvents;
++  const rootCause = new TypeError("synthetic mission resume failure");
++
++  t.after(async () => {
++    missionReconstructionModule.readMissionEvents = originalReadMissionEvents;
++    await rm(rootDir, { recursive: true, force: true });
++  });
++
++  missionReconstructionModule.readMissionEvents = async () => {
++    throw rootCause;
++  };
++
++  await assert.rejects(
++    () => readMissionResume({
++      rootDir,
++      missionId,
++      commandName: "resume",
++    }),
++    (error: unknown) => {
++      assert.ok(error instanceof Error);
++      assert.match(error.message, /Journal mission irreconciliable/);
++      assert.equal(error.cause, rootCause);
++      return true;
++    },
++  );
++});
+
+=== NEW FILE: tests/unit/read-ticket-board-merge.test.ts ===
+diff --git a/tests/unit/read-ticket-board-merge.test.ts b/tests/unit/read-ticket-board-merge.test.ts
+new file mode 100644
+index 0000000..d4a831f
+--- /dev/null
++++ b/tests/unit/read-ticket-board-merge.test.ts
+@@ -0,0 +1,123 @@
++import assert from "node:assert/strict";
++import test from "node:test";
++
++import type { ExecutionAttempt } from "../../packages/contracts/src/execution-attempt/execution-attempt";
++import type { Ticket } from "../../packages/contracts/src/ticket/ticket";
++import type { MissionAuthoritativeCursor } from "../../packages/journal/src/reconstruction/mission-reconstruction";
++import {
++  mergeAttemptsById,
++  mergeTicketsById,
++  normalizeTicketBoardReadError,
++} from "../../packages/ticket-runtime/src/planner/read-ticket-board";
++
++function createTicket(overrides: Partial<Ticket> = {}): Ticket {
++  return {
++    id: "ticket_merge",
++    missionId: "mission_merge",
++    kind: "implement",
++    goal: "Tester la fusion ticket-board",
++    status: "todo",
++    owner: "agent_merge",
++    dependsOn: [],
++    successCriteria: [],
++    allowedCapabilities: [],
++    skillPackRefs: [],
++    workspaceIsolationId: null,
++    executionHandle: {
++      adapter: "codex_responses",
++      adapterState: {},
++    },
++    artifactIds: [],
++    eventIds: ["event_010"],
++    createdAt: "2026-04-20T10:00:00.000Z",
++    updatedAt: "2026-04-20T10:00:00.000Z",
++    ...overrides,
++  };
++}
++
++function createAttempt(overrides: Partial<ExecutionAttempt> = {}): ExecutionAttempt {
++  return {
++    id: "attempt_merge",
++    ticketId: "ticket_merge",
++    adapter: "codex_responses",
++    status: "running",
++    workspaceIsolationId: "iso_merge",
++    backgroundRequested: true,
++    adapterState: {},
++    startedAt: "2026-04-20T10:00:00.000Z",
++    endedAt: null,
++    ...overrides,
++  };
++}
++
++test("mergeTicketsById conserve le snapshot le plus recent meme si le journal porte un eventId plus grand", () => {
++  const storedTicket = createTicket({
++    status: "done",
++    eventIds: ["event_020"],
++    updatedAt: "2026-04-20T10:10:00.000Z",
++  });
++  const journalTicket = createTicket({
++    status: "blocked",
++    eventIds: ["event_030"],
++    updatedAt: "2026-04-20T10:00:00.000Z",
++  });
++  const journalTicketCursors = new Map<string, MissionAuthoritativeCursor>([
++    [
++      journalTicket.id,
++      {
++        occurredAt: "2026-04-20T10:00:00.000Z",
++        eventId: "event_030",
++      },
++    ],
++  ]);
++
++  const merged = mergeTicketsById([storedTicket], [journalTicket], journalTicketCursors);
++
++  assert.equal(merged.usedJournalSnapshot, false);
++  assert.equal(merged.tickets[0]?.status, "done");
++});
++
++test("mergeAttemptsById conserve la tentative la plus fraiche par timestamp avant le tie-break eventId", () => {
++  const storedAttempt = createAttempt({
++    status: "completed",
++    startedAt: "2026-04-20T10:00:00.000Z",
++    endedAt: "2026-04-20T10:10:00.000Z",
++  });
++  const journalAttempt = createAttempt({
++    status: "failed",
++    startedAt: "2026-04-20T10:00:00.000Z",
++    endedAt: "2026-04-20T10:05:00.000Z",
++  });
++  const journalAttemptCursors = new Map<string, MissionAuthoritativeCursor>([
++    [
++      journalAttempt.id,
++      {
++        occurredAt: "2026-04-20T10:05:00.000Z",
++        eventId: "event_030",
++      },
++    ],
++  ]);
++
++  const merged = mergeAttemptsById(
++    [storedAttempt],
++    [journalAttempt],
++    false,
++    journalAttemptCursors,
++  );
++
++  assert.equal(merged[0]?.status, "completed");
++  assert.equal(merged[0]?.endedAt, "2026-04-20T10:10:00.000Z");
++});
++
++test("normalizeTicketBoardReadError preserve la cause inattendue", () => {
++  const rootCause = new TypeError("synthetic ticket-board failure");
++  const error = normalizeTicketBoardReadError(rootCause, {
++    missionId: "mission_merge",
++    commandName: "ticket board",
++    projectionPath: "C:/tmp/ticket-board.json",
++  });
++
++  assert.ok(error instanceof Error);
++  assert.match(error.message, /Projection ticket-board irreconciliable/);
++  assert.equal(error.cause, rootCause);
++});

@@ -1,29 +1,38 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
+import type { ApprovalDecision } from "../../packages/contracts/src/approval/approval-decision";
+import type { ApprovalRequest } from "../../packages/contracts/src/approval/approval-request";
 import type { Artifact } from "../../packages/contracts/src/artifact/artifact";
+import type { CapabilityInvocationDetails } from "../../packages/contracts/src/extension/registered-capability";
 import type { RegisteredCapability } from "../../packages/contracts/src/extension/registered-capability";
 import type { RegisteredSkillPack } from "../../packages/contracts/src/extension/registered-skill-pack";
 import type { ExecutionAttempt } from "../../packages/contracts/src/execution-attempt/execution-attempt";
 import type { Mission } from "../../packages/contracts/src/mission/mission";
 import type { Ticket } from "../../packages/contracts/src/ticket/ticket";
+import type { WorkspaceIsolationMetadata } from "../../packages/workspace-isolation/src/workspace-isolation";
 import {
+  isApprovalDecision,
+  isApprovalRequest,
   isArtifact,
+  isCapabilityInvocationDetails,
   isExecutionAttempt,
   isMission,
   isRegisteredCapability,
   isRegisteredSkillPack,
   isTicket,
+  isWorkspaceIsolationMetadata,
   validateArtifact,
   validateExecutionAttempt,
   validateMission,
   validateRegisteredCapability,
   validateRegisteredSkillPack,
   validateTicket,
+  type StructuralValidationWarning,
   type ValidationResult,
 } from "../../packages/contracts/src/guards/persisted-document-guards";
 
-function assertInvalid(result: ValidationResult, reasonPattern: RegExp): void {
+function assertInvalid(result: ValidationResult<unknown>, reasonPattern: RegExp): void {
   assert.equal(result.ok, false);
   if (!result.ok) {
     assert.match(result.reason, reasonPattern);
@@ -109,6 +118,75 @@ function createArtifact(overrides: Partial<Artifact> = {}): Artifact {
   };
 }
 
+function createApprovalRequest(overrides: Partial<ApprovalRequest> = {}): ApprovalRequest {
+  return {
+    approvalId: "approval_guard",
+    missionId: "mission_guard",
+    ticketId: "ticket_guard",
+    attemptId: "attempt_guard",
+    status: "requested",
+    title: "Validation guard",
+    actionType: "fs.write",
+    actionSummary: "Verifier le guard approval request",
+    guardrails: ["local_only"],
+    relatedEventIds: ["event_guard"],
+    relatedArtifactIds: ["artifact_guard"],
+    createdAt: "2026-04-15T10:00:00.000Z",
+    updatedAt: "2026-04-15T10:00:00.000Z",
+    ...overrides,
+  };
+}
+
+function createApprovalDecision(overrides: Partial<ApprovalDecision> = {}): ApprovalDecision {
+  return {
+    outcome: "approved",
+    reason: "Validation explicite.",
+    missionPolicyChange: {
+      previous: "policy.old",
+      next: "policy.new",
+    },
+    ticketCapabilityChange: {
+      previous: ["cap.old"],
+      next: ["cap.new"],
+    },
+    ticketSkillPackChange: {
+      previous: ["pack.old"],
+      next: ["pack.new"],
+    },
+    budgetObservations: ["RAS"],
+    ...overrides,
+  };
+}
+
+function createCapabilityInvocationDetails(
+  overrides: Partial<CapabilityInvocationDetails> = {},
+): CapabilityInvocationDetails {
+  return {
+    capabilityId: "cap.guard",
+    registrationId: "ext.cap.guard",
+    provider: "local",
+    approvalSensitive: false,
+    permissions: ["docs.read"],
+    constraints: ["local_only"],
+    requiredEnvNames: [],
+    ...overrides,
+  };
+}
+
+function createWorkspaceIsolationMetadata(
+  overrides: Partial<WorkspaceIsolationMetadata> = {},
+): WorkspaceIsolationMetadata {
+  return {
+    workspaceIsolationId: "iso_guard",
+    kind: "workspace_copy",
+    sourceRoot: "C:/tmp/source",
+    workspacePath: "C:/tmp/workspace",
+    createdAt: "2026-04-15T10:00:00.000Z",
+    retained: true,
+    ...overrides,
+  };
+}
+
 function createRegisteredCapability(
   overrides: Partial<RegisteredCapability> = {},
 ): RegisteredCapability {
@@ -179,8 +257,59 @@ test("isMission valide le snapshot mission et documente les raisons de rejet", (
   );
 });
 
+test("validateMission accepte authorizedExtensions null et tolere un statut futur en lecture", () => {
+  const warnings: StructuralValidationWarning[] = [];
+
+  const nullAuthorizedExtensions = validateMission({
+    ...createMission(),
+    authorizedExtensions: null,
+  });
+  const futureMissionStatus = validateMission(
+    {
+      ...createMission(),
+      status: "archived_v2",
+    },
+    { strict: false, warnings },
+  );
+  const futureTicketStatus = validateTicket(
+    {
+      ...createTicket(),
+      status: "on_hold",
+    },
+    { strict: false, warnings },
+  );
+  const futureArtifactKind = validateArtifact(
+    {
+      ...createArtifact(),
+      kind: "binary_blob_v2",
+    },
+    { strict: false, warnings },
+  );
+
+  assert.equal(nullAuthorizedExtensions.ok, true);
+  assertInvalid(
+    validateMission({ ...createMission(), authorizedExtensions: 42 }),
+    /type incorrect.*authorizedExtensions/i,
+  );
+  assert.equal(futureMissionStatus.ok, true);
+  assert.equal(futureTicketStatus.ok, true);
+  assert.equal(futureArtifactKind.ok, true);
+  assert.equal(isMission({ ...createMission(), status: "archived_v2" }), false);
+  assert.equal(isTicket({ ...createTicket(), status: "on_hold" }), false);
+  assert.equal(isArtifact({ ...createArtifact(), kind: "binary_blob_v2" }), false);
+  assert.deepEqual(
+    warnings.map((warning) => ({ path: warning.path, value: warning.value })),
+    [
+      { path: "status", value: "archived_v2" },
+      { path: "status", value: "on_hold" },
+      { path: "kind", value: "binary_blob_v2" },
+    ],
+  );
+});
+
 test("isTicket valide le snapshot ticket et rejette champs, types et discriminants inconnus", () => {
   assert.equal(isTicket(createTicket()), true);
+  assert.equal(isTicket(createTicket({ workspaceIsolationId: "iso_guard" })), true);
   assertInvalid(validateTicket({ ...createTicket(), goal: undefined }), /champ manquant.*goal/i);
   assertInvalid(validateTicket({ ...createTicket(), dependsOn: ["a", 1] }), /type incorrect.*dependsOn/i);
   assertInvalid(validateTicket({ ...createTicket(), kind: "fix" }), /discriminant invalide.*kind/i);
@@ -188,6 +317,39 @@ test("isTicket valide le snapshot ticket et rejette champs, types et discriminan
   assertInvalid(
     validateTicket({ ...createTicket(), executionHandle: { adapter: "unknown", adapterState: {} } }),
     /discriminant invalide.*executionHandle\.adapter/i,
+  );
+});
+
+test("validateTicket rejette les champs herites du prototype et distingue champ manquant vs type incorrect", () => {
+  const inheritedTicket = Object.create({
+    id: "ticket_proto",
+  }) as Record<string, unknown>;
+
+  Object.assign(inheritedTicket, {
+    missionId: "mission_guard",
+    kind: "implement",
+    goal: "Ticket prototype pollution",
+    status: "todo",
+    owner: "agent_guard",
+    dependsOn: [],
+    successCriteria: [],
+    allowedCapabilities: [],
+    skillPackRefs: [],
+    workspaceIsolationId: null,
+    artifactIds: [],
+    eventIds: ["event_guard"],
+    createdAt: "2026-04-15T10:00:00.000Z",
+    updatedAt: "2026-04-15T10:00:00.000Z",
+  });
+
+  assertInvalid(validateTicket(inheritedTicket), /champ manquant.*id/i);
+  assertInvalid(
+    validateTicket({ ...createTicket(), executionHandle: undefined }),
+    /champ manquant.*executionHandle/i,
+  );
+  assertInvalid(
+    validateTicket({ ...createTicket(), executionHandle: "invalid" as unknown as Ticket["executionHandle"] }),
+    /type incorrect.*executionHandle/i,
   );
 });
 
@@ -213,9 +375,58 @@ test("isExecutionAttempt valide les tentatives et rejette les statuts/adapters i
 
 test("isArtifact valide les artefacts et rejette les kinds ou champs optionnels invalides", () => {
   assert.equal(isArtifact(createArtifact()), true);
+  assert.equal(isArtifact(createArtifact({ workspaceIsolationId: "iso_guard" })), true);
   assertInvalid(validateArtifact({ ...createArtifact(), missionId: undefined }), /champ manquant.*missionId/i);
   assertInvalid(validateArtifact({ ...createArtifact(), sizeBytes: "12" }), /type incorrect.*sizeBytes/i);
   assertInvalid(validateArtifact({ ...createArtifact(), kind: "binary_blob" }), /discriminant invalide.*kind/i);
+});
+
+test("isApprovalRequest valide le contrat approval et rejette les tableaux mal typés", () => {
+  assert.equal(isApprovalRequest(createApprovalRequest()), true);
+  assert.equal(isApprovalRequest({ ...createApprovalRequest(), relatedArtifactIds: [] }), true);
+  assert.equal(isApprovalRequest({ ...createApprovalRequest(), title: undefined }), false);
+  assert.equal(
+    isApprovalRequest({ ...createApprovalRequest(), guardrails: ["ok", 42] }),
+    false,
+  );
+});
+
+test("isApprovalDecision valide les changements optionnels et les outcomes supportés", () => {
+  assert.equal(isApprovalDecision(createApprovalDecision()), true);
+  assert.equal(isApprovalDecision({ outcome: "deferred" }), true);
+  assert.equal(isApprovalDecision({ ...createApprovalDecision(), outcome: "cancelled" }), false);
+  assert.equal(
+    isApprovalDecision({
+      ...createApprovalDecision(),
+      ticketCapabilityChange: { previous: ["cap.old"], next: [42] },
+    }),
+    false,
+  );
+});
+
+test("isCapabilityInvocationDetails valide provider, booleens et tableaux string[]", () => {
+  assert.equal(isCapabilityInvocationDetails(createCapabilityInvocationDetails()), true);
+  assert.equal(
+    isCapabilityInvocationDetails({ ...createCapabilityInvocationDetails(), provider: "mcp" }),
+    true,
+  );
+  assert.equal(
+    isCapabilityInvocationDetails({ ...createCapabilityInvocationDetails(), provider: "remote" }),
+    false,
+  );
+  assert.equal(
+    isCapabilityInvocationDetails({ ...createCapabilityInvocationDetails(), permissions: ["docs.read", 42] }),
+    false,
+  );
+});
+
+test("isWorkspaceIsolationMetadata valide la structure d'isolation de workspace", () => {
+  assert.equal(isWorkspaceIsolationMetadata(createWorkspaceIsolationMetadata()), true);
+  assert.equal(isWorkspaceIsolationMetadata({ ...createWorkspaceIsolationMetadata(), retained: "yes" }), false);
+  assert.equal(
+    isWorkspaceIsolationMetadata({ ...createWorkspaceIsolationMetadata(), workspacePath: undefined }),
+    false,
+  );
 });
 
 test("isRegisteredCapability valide le registre capability et ses branches provider", () => {

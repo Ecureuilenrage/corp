@@ -2,6 +2,7 @@ import type { Dirent } from "node:fs";
 import { mkdir, readdir, rm, writeFile } from "node:fs/promises";
 
 import { validateRegisteredSkillPack } from "../../../contracts/src/guards/persisted-document-guards";
+import { normalizeOpaqueReferenceKey } from "../../../contracts/src/extension/extension-registration";
 import type { RegisteredSkillPack } from "../../../contracts/src/extension/registered-skill-pack";
 import { deepStrictEqualForComparison } from "../../../ticket-runtime/src/utils/structural-compare";
 import { isAlreadyExistsError, writeJsonAtomic } from "../fs-layout/atomic-json";
@@ -12,6 +13,7 @@ import {
 } from "../fs-layout/workspace-layout";
 import {
   assertValidPersistedDocument,
+  isPersistedDocumentReadError,
   readPersistedJsonDocument,
 } from "./persisted-document-errors";
 
@@ -26,8 +28,17 @@ export interface SkillPackRegistryReader {
   findByPackRef(packRef: string): Promise<RegisteredSkillPack | null>;
 }
 
+export interface SkillPackListDiagnostic {
+  packRef: string;
+  filePath: string;
+  code: string;
+  message: string;
+  error: Error;
+}
+
 export interface SkillPackRegistryRepository extends SkillPackRegistryReader {
   save(registeredSkillPack: RegisteredSkillPack): Promise<SaveRegisteredSkillPackResult>;
+  listAll(): Promise<{ valid: RegisteredSkillPack[]; invalid: SkillPackListDiagnostic[] }>;
   list(): Promise<RegisteredSkillPack[]>;
 }
 
@@ -46,6 +57,15 @@ export class FileSkillPackRegistryRepository implements SkillPackRegistryReposit
     );
 
     if (existingSkillPack) {
+      if (hasCaseCollision(
+        existingSkillPack.packRef,
+        registeredSkillPack.packRef,
+      )) {
+        throw new Error(
+          `Collision de casse detectee pour le skill pack \`${registeredSkillPack.packRef}\`: deja enregistre comme \`${existingSkillPack.packRef}\`.`,
+        );
+      }
+
       if (
         deepStrictEqualForComparison(
           toComparableRegisteredSkillPack(existingSkillPack),
@@ -127,23 +147,53 @@ export class FileSkillPackRegistryRepository implements SkillPackRegistryReposit
     }
   }
 
-  public async list(): Promise<RegisteredSkillPack[]> {
+  public async listAll(): Promise<{ valid: RegisteredSkillPack[]; invalid: SkillPackListDiagnostic[] }> {
     const skillPackEntries = await readDirectoryEntries(this.layout.skillPacksDir);
-    const skillPacks: RegisteredSkillPack[] = [];
+    const valid: RegisteredSkillPack[] = [];
+    const invalid: SkillPackListDiagnostic[] = [];
 
     for (const skillPackEntry of skillPackEntries) {
       if (!skillPackEntry.isDirectory()) {
         continue;
       }
 
-      const skillPack = await this.findByPackRef(skillPackEntry.name);
+      try {
+        const skillPack = await this.findByPackRef(skillPackEntry.name);
 
-      if (skillPack) {
-        skillPacks.push(skillPack);
+        if (skillPack) {
+          valid.push(skillPack);
+        }
+      } catch (error) {
+        if (!isPersistedDocumentReadError(error)) {
+          throw error;
+        }
+
+        invalid.push({
+          packRef: skillPackEntry.name,
+          filePath: error.filePath,
+          code: error.code,
+          message: error.message,
+          error,
+        });
       }
     }
 
-    return skillPacks.sort((left, right) => left.packRef.localeCompare(right.packRef));
+    return {
+      valid: valid.sort((left, right) => left.packRef.localeCompare(right.packRef)),
+      invalid: invalid.sort((left, right) => left.packRef.localeCompare(right.packRef)),
+    };
+  }
+
+  public async list(): Promise<RegisteredSkillPack[]> {
+    // Deprecated: utilisez `listAll()` pour obtenir les diagnostics multi-pack
+    // sans masquer les enregistrements valides.
+    const result = await this.listAll();
+
+    if (result.invalid.length > 0) {
+      throw result.invalid[0].error;
+    }
+
+    return result.valid;
   }
 }
 
@@ -158,6 +208,12 @@ function toComparableRegisteredSkillPack(
 ): Omit<RegisteredSkillPack, "registeredAt"> {
   const { registeredAt: _registeredAt, ...comparableSkillPack } = registeredSkillPack;
   return comparableSkillPack;
+}
+
+function hasCaseCollision(existingValue: string, requestedValue: string): boolean {
+  return existingValue !== requestedValue
+    && normalizeOpaqueReferenceKey(existingValue)
+      === normalizeOpaqueReferenceKey(requestedValue);
 }
 
 async function resolveConcurrentSkillPackRegistration(

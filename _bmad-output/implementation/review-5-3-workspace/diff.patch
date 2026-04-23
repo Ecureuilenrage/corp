@@ -1,0 +1,2053 @@
+warning: in the working copy of 'packages/contracts/src/extension/extension-registration.ts', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'packages/contracts/src/guards/persisted-document-guards.ts', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'packages/journal/src/projections/approval-queue-projection.ts', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'packages/journal/src/projections/artifact-index-projection.ts', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'packages/journal/src/projections/audit-log-projection.ts', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'packages/mission-kernel/src/approval-service/resolve-approval-request.ts', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'packages/mission-kernel/src/mission-service/ensure-mission-workspace.ts', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'packages/mission-kernel/src/mission-service/update-mission-lifecycle.ts', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'packages/mission-kernel/src/resume-service/read-mission-audit.ts', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'packages/mission-kernel/src/resume-service/read-mission-resume.ts', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'packages/ticket-runtime/src/ticket-service/ticket-service-support.ts', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'tests/unit/ensure-mission-workspace.test.ts', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'tests/unit/persisted-document-guards.test.ts', LF will be replaced by CRLF the next time Git touches it
+diff --git a/packages/contracts/src/extension/extension-registration.ts b/packages/contracts/src/extension/extension-registration.ts
+index 6cfe246..90c9fc4 100644
+--- a/packages/contracts/src/extension/extension-registration.ts
++++ b/packages/contracts/src/extension/extension-registration.ts
+@@ -103,7 +103,11 @@ export function normalizeOpaqueExtensionReference(value: string): string {
+   return value.trim();
+ }
+ 
+-export function normalizeOpaqueExtensionReferences(values: string[]): string[] {
++/**
++ * Contrat canonique des references opaques partagees entre registre et runtime:
++ * trim, suppression des vides, deduplication stable et preservation de l'ordre.
++ */
++export function normalizeOpaqueReferences(values: string[]): string[] {
+   const normalizedValues: string[] = [];
+   const seenValues = new Set<string>();
+ 
+@@ -120,3 +124,7 @@ export function normalizeOpaqueExtensionReferences(values: string[]): string[] {
+ 
+   return normalizedValues;
+ }
++
++export function normalizeOpaqueExtensionReferences(values: string[]): string[] {
++  return normalizeOpaqueReferences(values);
++}
+diff --git a/packages/contracts/src/guards/persisted-document-guards.ts b/packages/contracts/src/guards/persisted-document-guards.ts
+index ce0f685..696efc5 100644
+--- a/packages/contracts/src/guards/persisted-document-guards.ts
++++ b/packages/contracts/src/guards/persisted-document-guards.ts
+@@ -1,16 +1,40 @@
++import type { ApprovalDecision } from "../approval/approval-decision";
++import type { ApprovalRequest } from "../approval/approval-request";
+ import type { Artifact } from "../artifact/artifact";
+-import type { RegisteredCapability } from "../extension/registered-capability";
++import type {
++  CapabilityInvocationDetails,
++  RegisteredCapability,
++} from "../extension/registered-capability";
+ import type { RegisteredSkillPack } from "../extension/registered-skill-pack";
+ import { EXTENSION_REGISTRATION_SCHEMA_VERSION } from "../extension/extension-registration";
+ import type { ExecutionAttempt } from "../execution-attempt/execution-attempt";
+ import type { Mission } from "../mission/mission";
+ import type { Ticket } from "../ticket/ticket";
++import type { WorkspaceIsolationMetadata } from "../../../workspace-isolation/src/workspace-isolation";
+ 
+-export type ValidationResult =
+-  | { ok: true }
++export type ValidationResult<T = void> =
++  | { ok: true; value: T }
+   | { ok: false; reason: string };
+ 
+-const valid: ValidationResult = { ok: true };
++export interface StructuralValidationWarning {
++  code: "open_discriminant_unknown";
++  path: string;
++  value: string;
++  message: string;
++}
++
++export interface ValidationOptions {
++  strict?: boolean;
++  warnings?: StructuralValidationWarning[];
++}
++
++/**
++ * Les guards runtime partages vivent dans `packages/contracts/src/guards` pour
++ * rester co-localises aux types metier qu'ils valident. Les lecteurs/projections
++ * cross-package importent ces definitions canoniques au lieu de les recopier.
++ */
++const valid: ValidationResult = { ok: true, value: undefined };
++const STRUCTURAL_VALIDATION_WARNINGS = Symbol("corp.structural_validation_warnings");
+ 
+ const MISSION_STATUSES = new Set([
+   "draft",
+@@ -65,21 +89,30 @@ const ARTIFACT_KINDS = new Set([
+ ]);
+ 
+ export function isMission(value: unknown): value is Mission {
+-  return validateMission(value).ok;
++  return validateMission(value, { strict: false }).ok;
+ }
+ 
+-export function validateMission(value: unknown): ValidationResult {
++export function validateMission(
++  value: unknown,
++  options: ValidationOptions = {},
++): ValidationResult<Mission> {
+   const recordResult = validateRecord(value, "Mission");
+   if (!recordResult.ok) {
+     return recordResult;
+   }
+ 
+   const candidate = value as Record<string, unknown>;
+-  return firstInvalid([
++  const validation = firstInvalid([
+     validateString(candidate, "id"),
+     validateString(candidate, "title"),
+     validateString(candidate, "objective"),
+-    validateStringUnion(candidate, "status", MISSION_STATUSES, "statut inconnu"),
++    validateOpenStringUnion(
++      candidate,
++      "status",
++      MISSION_STATUSES,
++      "statut inconnu",
++      options,
++    ),
+     validateStringArray(candidate, "successCriteria"),
+     validateString(candidate, "policyProfileId"),
+     validateOptionalAuthorizedExtensions(candidate, "authorizedExtensions"),
+@@ -90,25 +123,38 @@ export function validateMission(value: unknown): ValidationResult {
+     validateString(candidate, "createdAt"),
+     validateString(candidate, "updatedAt"),
+   ]);
++
++  return validation.ok
++    ? success(candidate as unknown as Mission)
++    : validation;
+ }
+ 
+ export function isTicket(value: unknown): value is Ticket {
+-  return validateTicket(value).ok;
++  return validateTicket(value, { strict: false }).ok;
+ }
+ 
+-export function validateTicket(value: unknown): ValidationResult {
++export function validateTicket(
++  value: unknown,
++  options: ValidationOptions = {},
++): ValidationResult<Ticket> {
+   const recordResult = validateRecord(value, "Ticket");
+   if (!recordResult.ok) {
+     return recordResult;
+   }
+ 
+   const candidate = value as Record<string, unknown>;
+-  return firstInvalid([
++  const validation = firstInvalid([
+     validateString(candidate, "id"),
+     validateString(candidate, "missionId"),
+     validateStringUnion(candidate, "kind", TICKET_KINDS, "discriminant invalide"),
+     validateString(candidate, "goal"),
+-    validateStringUnion(candidate, "status", TICKET_STATUSES, "statut inconnu"),
++    validateOpenStringUnion(
++      candidate,
++      "status",
++      TICKET_STATUSES,
++      "statut inconnu",
++      options,
++    ),
+     validateString(candidate, "owner"),
+     validateStringArray(candidate, "dependsOn"),
+     validateStringArray(candidate, "successCriteria"),
+@@ -121,51 +167,151 @@ export function validateTicket(value: unknown): ValidationResult {
+     validateString(candidate, "createdAt"),
+     validateString(candidate, "updatedAt"),
+   ]);
++
++  return validation.ok
++    ? success(candidate as unknown as Ticket)
++    : validation;
+ }
+ 
+ export function isExecutionAttempt(value: unknown): value is ExecutionAttempt {
+-  return validateExecutionAttempt(value).ok;
++  return validateExecutionAttempt(value, { strict: false }).ok;
+ }
+ 
+-export function validateExecutionAttempt(value: unknown): ValidationResult {
++export function validateExecutionAttempt(
++  value: unknown,
++  options: ValidationOptions = {},
++): ValidationResult<ExecutionAttempt> {
+   const recordResult = validateRecord(value, "ExecutionAttempt");
+   if (!recordResult.ok) {
+     return recordResult;
+   }
+ 
+   const candidate = value as Record<string, unknown>;
+-  return firstInvalid([
++  const validation = firstInvalid([
+     validateString(candidate, "id"),
+     validateString(candidate, "ticketId"),
+-    validateStringUnion(candidate, "adapter", EXECUTION_ADAPTER_IDS, "discriminant invalide"),
+-    validateStringUnion(candidate, "status", EXECUTION_ATTEMPT_STATUSES, "statut inconnu"),
++    validateOpenStringUnion(
++      candidate,
++      "adapter",
++      EXECUTION_ADAPTER_IDS,
++      "discriminant invalide",
++      options,
++    ),
++    validateOpenStringUnion(
++      candidate,
++      "status",
++      EXECUTION_ATTEMPT_STATUSES,
++      "statut inconnu",
++      options,
++    ),
+     validateString(candidate, "workspaceIsolationId"),
+     validateBoolean(candidate, "backgroundRequested"),
+     validateRecordField(candidate, "adapterState"),
+     validateString(candidate, "startedAt"),
+     validateNullableString(candidate, "endedAt"),
+   ]);
++
++  return validation.ok
++    ? success(candidate as unknown as ExecutionAttempt)
++    : validation;
+ }
+ 
+ export function isArtifact(value: unknown): value is Artifact {
+-  return validateArtifact(value).ok;
++  return validateArtifact(value, { strict: false }).ok;
++}
++
++export function isApprovalRequest(value: unknown): value is ApprovalRequest {
++  if (!isRecord(value)) {
++    return false;
++  }
++
++  const candidate = value as Record<string, unknown>;
++
++  return typeof candidate.approvalId === "string"
++    && typeof candidate.missionId === "string"
++    && typeof candidate.ticketId === "string"
++    && typeof candidate.attemptId === "string"
++    && typeof candidate.status === "string"
++    && typeof candidate.title === "string"
++    && typeof candidate.actionType === "string"
++    && typeof candidate.actionSummary === "string"
++    && isStringArrayValue(candidate.guardrails)
++    && isStringArrayValue(candidate.relatedEventIds)
++    && isStringArrayValue(candidate.relatedArtifactIds)
++    && typeof candidate.createdAt === "string"
++    && typeof candidate.updatedAt === "string";
++}
++
++export function isWorkspaceIsolationMetadata(value: unknown): value is WorkspaceIsolationMetadata {
++  if (!isRecord(value)) {
++    return false;
++  }
++
++  const candidate = value as Record<string, unknown>;
++
++  return typeof candidate.workspaceIsolationId === "string"
++    && typeof candidate.kind === "string"
++    && typeof candidate.sourceRoot === "string"
++    && typeof candidate.workspacePath === "string"
++    && typeof candidate.createdAt === "string"
++    && typeof candidate.retained === "boolean";
++}
++
++export function isApprovalDecision(value: unknown): value is ApprovalDecision {
++  if (!isRecord(value)) {
++    return false;
++  }
++
++  const candidate = value as Record<string, unknown>;
++
++  return isApprovalDecisionOutcome(candidate.outcome)
++    && isOptionalStringValue(candidate.reason)
++    && isOptionalStringChange(candidate.missionPolicyChange)
++    && isOptionalStringArrayChange(candidate.ticketCapabilityChange)
++    && isOptionalStringArrayChange(candidate.ticketSkillPackChange)
++    && isOptionalStringArrayValue(candidate.budgetObservations);
++}
++
++export function isCapabilityInvocationDetails(value: unknown): value is CapabilityInvocationDetails {
++  if (!isRecord(value)) {
++    return false;
++  }
++
++  const candidate = value as Record<string, unknown>;
++
++  return typeof candidate.capabilityId === "string"
++    && typeof candidate.registrationId === "string"
++    && (candidate.provider === "local" || candidate.provider === "mcp")
++    && typeof candidate.approvalSensitive === "boolean"
++    && isStringArrayValue(candidate.permissions)
++    && isStringArrayValue(candidate.constraints)
++    && isStringArrayValue(candidate.requiredEnvNames);
+ }
+ 
+-export function validateArtifact(value: unknown): ValidationResult {
++export function validateArtifact(
++  value: unknown,
++  options: ValidationOptions = {},
++): ValidationResult<Artifact> {
+   const recordResult = validateRecord(value, "Artifact");
+   if (!recordResult.ok) {
+     return recordResult;
+   }
+ 
+   const candidate = value as Record<string, unknown>;
+-  return firstInvalid([
++  const validation = firstInvalid([
+     validateString(candidate, "id"),
+     validateString(candidate, "missionId"),
+     validateString(candidate, "ticketId"),
+     validateString(candidate, "producingEventId"),
+     validateNullableString(candidate, "attemptId"),
+     validateNullableString(candidate, "workspaceIsolationId"),
+-    validateStringUnion(candidate, "kind", ARTIFACT_KINDS, "discriminant invalide"),
++    validateOpenStringUnion(
++      candidate,
++      "kind",
++      ARTIFACT_KINDS,
++      "discriminant invalide",
++      options,
++    ),
+     validateString(candidate, "title"),
+     validateString(candidate, "createdAt"),
+     validateOptionalString(candidate, "label"),
+@@ -178,13 +324,17 @@ export function validateArtifact(value: unknown): ValidationResult {
+     validateOptionalString(candidate, "sourceEventType"),
+     validateOptionalString(candidate, "sourceEventOccurredAt"),
+   ]);
++
++  return validation.ok
++    ? success(candidate as unknown as Artifact)
++    : validation;
+ }
+ 
+ export function isRegisteredCapability(value: unknown): value is RegisteredCapability {
+   return validateRegisteredCapability(value).ok;
+ }
+ 
+-export function validateRegisteredCapability(value: unknown): ValidationResult {
++export function validateRegisteredCapability(value: unknown): ValidationResult<RegisteredCapability> {
+   const recordResult = validateRecord(value, "RegisteredCapability");
+   if (!recordResult.ok) {
+     return recordResult;
+@@ -219,29 +369,32 @@ export function validateRegisteredCapability(value: unknown): ValidationResult {
+ 
+   if (candidate.provider === "local") {
+     return candidate.mcp === null
+-      ? valid
++      ? success(candidate as unknown as RegisteredCapability)
+       : invalid("type incorrect `mcp`: attendu null pour provider local.");
+   }
+ 
+-  if (!("mcp" in candidate) || candidate.mcp === undefined || candidate.mcp === null) {
++  if (!hasOwnField(candidate, "mcp") || candidate.mcp === undefined || candidate.mcp === null) {
+     return invalid("champ manquant `mcp`.");
+   }
+ 
+-  return validateMcpBinding(candidate.mcp, "mcp");
++  const validation = validateMcpBinding(candidate.mcp, "mcp");
++  return validation.ok
++    ? success(candidate as unknown as RegisteredCapability)
++    : validation;
+ }
+ 
+ export function isRegisteredSkillPack(value: unknown): value is RegisteredSkillPack {
+   return validateRegisteredSkillPack(value).ok;
+ }
+ 
+-export function validateRegisteredSkillPack(value: unknown): ValidationResult {
++export function validateRegisteredSkillPack(value: unknown): ValidationResult<RegisteredSkillPack> {
+   const recordResult = validateRecord(value, "RegisteredSkillPack");
+   if (!recordResult.ok) {
+     return recordResult;
+   }
+ 
+   const candidate = value as Record<string, unknown>;
+-  return firstInvalid([
++  const validation = firstInvalid([
+     validateString(candidate, "packRef"),
+     validateString(candidate, "registrationId"),
+     validateLiteral(
+@@ -259,9 +412,49 @@ export function validateRegisteredSkillPack(value: unknown): ValidationResult {
+     validateString(candidate, "registeredAt"),
+     validateString(candidate, "sourceManifestPath"),
+   ]);
++
++  return validation.ok
++    ? success(candidate as unknown as RegisteredSkillPack)
++    : validation;
++}
++
++export function attachStructuralValidationWarnings<T>(
++  value: T,
++  warnings: StructuralValidationWarning[],
++): T {
++  if (warnings.length === 0 || typeof value !== "object" || value === null) {
++    return value;
++  }
++
++  Object.defineProperty(value, STRUCTURAL_VALIDATION_WARNINGS, {
++    value: warnings.map((warning) => ({ ...warning })),
++    enumerable: false,
++    configurable: true,
++    writable: false,
++  });
++
++  return value;
++}
++
++export function getStructuralValidationWarnings(
++  value: unknown,
++): StructuralValidationWarning[] {
++  if (typeof value !== "object" || value === null) {
++    return [];
++  }
++
++  const warnings = (value as Record<PropertyKey, unknown>)[STRUCTURAL_VALIDATION_WARNINGS];
++
++  return Array.isArray(warnings)
++    ? warnings.filter(isStructuralValidationWarning)
++    : [];
+ }
+ 
+ function validateExecutionHandle(value: unknown, fieldPath: string): ValidationResult {
++  if (value === undefined) {
++    return invalid(`champ manquant \`${fieldPath}\`.`);
++  }
++
+   const recordResult = validateRecord(value, fieldPath);
+   if (!recordResult.ok) {
+     return recordResult;
+@@ -284,7 +477,7 @@ function validateOptionalAuthorizedExtensions(
+   record: Record<string, unknown>,
+   fieldName: string,
+ ): ValidationResult {
+-  if (!(fieldName in record) || record[fieldName] === undefined || record[fieldName] === null) {
++  if (!hasOwnField(record, fieldName) || record[fieldName] === undefined || record[fieldName] === null) {
+     return valid;
+   }
+ 
+@@ -369,7 +562,7 @@ function validateString(
+   fieldPath: string,
+   fieldName = fieldPath,
+ ): ValidationResult {
+-  if (!(fieldName in record) || record[fieldName] === undefined) {
++  if (!hasOwnField(record, fieldName) || record[fieldName] === undefined) {
+     return invalid(`champ manquant \`${fieldPath}\`.`);
+   }
+ 
+@@ -383,7 +576,7 @@ function validateOptionalString(
+   fieldPath: string,
+   fieldName = fieldPath,
+ ): ValidationResult {
+-  if (!(fieldName in record) || record[fieldName] === undefined) {
++  if (!hasOwnField(record, fieldName) || record[fieldName] === undefined) {
+     return valid;
+   }
+ 
+@@ -397,7 +590,7 @@ function validateNullableString(
+   fieldPath: string,
+   fieldName = fieldPath,
+ ): ValidationResult {
+-  if (!(fieldName in record) || record[fieldName] === undefined) {
++  if (!hasOwnField(record, fieldName) || record[fieldName] === undefined) {
+     return invalid(`champ manquant \`${fieldPath}\`.`);
+   }
+ 
+@@ -411,7 +604,7 @@ function validateBoolean(
+   fieldPath: string,
+   fieldName = fieldPath,
+ ): ValidationResult {
+-  if (!(fieldName in record) || record[fieldName] === undefined) {
++  if (!hasOwnField(record, fieldName) || record[fieldName] === undefined) {
+     return invalid(`champ manquant \`${fieldPath}\`.`);
+   }
+ 
+@@ -425,7 +618,7 @@ function validateOptionalNumber(
+   fieldPath: string,
+   fieldName = fieldPath,
+ ): ValidationResult {
+-  if (!(fieldName in record) || record[fieldName] === undefined) {
++  if (!hasOwnField(record, fieldName) || record[fieldName] === undefined) {
+     return valid;
+   }
+ 
+@@ -439,7 +632,7 @@ function validateStringArray(
+   fieldPath: string,
+   fieldName = fieldPath,
+ ): ValidationResult {
+-  if (!(fieldName in record) || record[fieldName] === undefined) {
++  if (!hasOwnField(record, fieldName) || record[fieldName] === undefined) {
+     return invalid(`champ manquant \`${fieldPath}\`.`);
+   }
+ 
+@@ -458,7 +651,7 @@ function validateRecordField(
+   fieldPath: string,
+   fieldName = fieldPath,
+ ): ValidationResult {
+-  if (!(fieldName in record) || record[fieldName] === undefined) {
++  if (!hasOwnField(record, fieldName) || record[fieldName] === undefined) {
+     return invalid(`champ manquant \`${fieldPath}\`.`);
+   }
+ 
+@@ -485,6 +678,38 @@ function validateStringUnion(
+     : invalid(`${invalidKind} \`${fieldPath}\`: \`${value}\`.`);
+ }
+ 
++function validateOpenStringUnion(
++  record: Record<string, unknown>,
++  fieldPath: string,
++  allowedValues: ReadonlySet<string>,
++  invalidKind: "statut inconnu" | "discriminant invalide",
++  options: ValidationOptions,
++  fieldName = fieldPath,
++): ValidationResult {
++  const stringResult = validateString(record, fieldPath, fieldName);
++  if (!stringResult.ok) {
++    return stringResult;
++  }
++
++  const value = record[fieldName] as string;
++  if (allowedValues.has(value)) {
++    return valid;
++  }
++
++  if (options.strict !== false) {
++    return invalid(`${invalidKind} \`${fieldPath}\`: \`${value}\`.`);
++  }
++
++  options.warnings?.push({
++    code: "open_discriminant_unknown",
++    path: fieldPath,
++    value,
++    message: `Valeur future toleree pour \`${fieldPath}\`: \`${value}\`.`,
++  });
++
++  return valid;
++}
++
+ function validateLiteral(
+   record: Record<string, unknown>,
+   fieldName: string,
+@@ -501,14 +726,81 @@ function validateLiteral(
+     : invalid(`${invalidKind} \`${fieldName}\`: \`${String(record[fieldName])}\`.`);
+ }
+ 
+-function firstInvalid(results: ValidationResult[]): ValidationResult {
++function firstInvalid(results: ValidationResult<unknown>[]): ValidationResult {
+   return results.find((result) => !result.ok) ?? valid;
+ }
+ 
+-function invalid(reason: string): ValidationResult {
++function success<T>(value: T): ValidationResult<T> {
++  return { ok: true, value };
++}
++
++function invalid(reason: string): ValidationResult<never> {
+   return { ok: false, reason };
+ }
+ 
++function hasOwnField(record: Record<string, unknown>, fieldName: string): boolean {
++  return Object.prototype.hasOwnProperty.call(record, fieldName);
++}
++
++function isStringArrayValue(value: unknown): value is string[] {
++  return Array.isArray(value) && value.every((entry) => typeof entry === "string");
++}
++
++function isOptionalStringValue(value: unknown): value is string | undefined {
++  return value === undefined || typeof value === "string";
++}
++
++function isApprovalDecisionOutcome(value: unknown): value is ApprovalDecision["outcome"] {
++  return value === "approved" || value === "rejected" || value === "deferred";
++}
++
++function isOptionalStringChange(
++  value: unknown,
++): boolean {
++  if (value === undefined) {
++    return true;
++  }
++
++  if (!isRecord(value)) {
++    return false;
++  }
++
++  return typeof value.previous === "string" && typeof value.next === "string";
++}
++
++function isOptionalStringArrayChange(
++  value: unknown,
++): boolean {
++  if (value === undefined) {
++    return true;
++  }
++
++  if (!isRecord(value)) {
++    return false;
++  }
++
++  return isStringArrayValue(value.previous) && isStringArrayValue(value.next);
++}
++
++function isOptionalStringArrayValue(
++  value: unknown,
++): value is string[] | undefined {
++  return value === undefined || isStringArrayValue(value);
++}
++
+ function isRecord(value: unknown): value is Record<string, unknown> {
+   return typeof value === "object" && value !== null && !Array.isArray(value);
+ }
++
++function isStructuralValidationWarning(
++  value: unknown,
++): value is StructuralValidationWarning {
++  if (!isRecord(value)) {
++    return false;
++  }
++
++  return value.code === "open_discriminant_unknown"
++    && typeof value.path === "string"
++    && typeof value.value === "string"
++    && typeof value.message === "string";
++}
+diff --git a/packages/journal/src/projections/approval-queue-projection.ts b/packages/journal/src/projections/approval-queue-projection.ts
+index 1ea5973..a0353d7 100644
+--- a/packages/journal/src/projections/approval-queue-projection.ts
++++ b/packages/journal/src/projections/approval-queue-projection.ts
+@@ -4,6 +4,7 @@ import type {
+   ApprovalRequestStatus,
+ } from "../../../contracts/src/approval/approval-request";
+ import { TERMINAL_APPROVAL_REQUEST_STATUSES } from "../../../contracts/src/approval/approval-request";
++import { isApprovalRequest } from "../../../contracts/src/guards/persisted-document-guards";
+ import type { JournalEventRecord } from "../event-log/append-event";
+ 
+ export interface ApprovalQueueProjection {
+@@ -81,29 +82,3 @@ function readApprovalFromPayload(
+     relatedArtifactIds: [...candidate.relatedArtifactIds],
+   };
+ }
+-
+-function isApprovalRequest(value: unknown): value is ApprovalRequest {
+-  if (typeof value !== "object" || value === null) {
+-    return false;
+-  }
+-
+-  const candidate = value as Record<string, unknown>;
+-
+-  return typeof candidate.approvalId === "string"
+-    && typeof candidate.missionId === "string"
+-    && typeof candidate.ticketId === "string"
+-    && typeof candidate.attemptId === "string"
+-    && typeof candidate.status === "string"
+-    && typeof candidate.title === "string"
+-    && typeof candidate.actionType === "string"
+-    && typeof candidate.actionSummary === "string"
+-    && isStringArray(candidate.guardrails)
+-    && isStringArray(candidate.relatedEventIds)
+-    && isStringArray(candidate.relatedArtifactIds)
+-    && typeof candidate.createdAt === "string"
+-    && typeof candidate.updatedAt === "string";
+-}
+-
+-function isStringArray(value: unknown): value is string[] {
+-  return Array.isArray(value) && value.every((entry) => typeof entry === "string");
+-}
+diff --git a/packages/journal/src/projections/artifact-index-projection.ts b/packages/journal/src/projections/artifact-index-projection.ts
+index 4f06e2e..f09df20 100644
+--- a/packages/journal/src/projections/artifact-index-projection.ts
++++ b/packages/journal/src/projections/artifact-index-projection.ts
+@@ -1,4 +1,5 @@
+ import type { Artifact } from "../../../contracts/src/artifact/artifact";
++import { isArtifact } from "../../../contracts/src/guards/persisted-document-guards";
+ import type { Mission } from "../../../contracts/src/mission/mission";
+ import type { MissionResumeArtifact } from "../../../contracts/src/mission/mission-resume";
+ import type { Ticket } from "../../../contracts/src/ticket/ticket";
+@@ -150,23 +151,6 @@ function readArtifactFromPayload(payload: Record<string, unknown>): Artifact | n
+   return candidate;
+ }
+ 
+-function isArtifact(value: unknown): value is Artifact {
+-  if (typeof value !== "object" || value === null) {
+-    return false;
+-  }
+-
+-  const candidate = value as Record<string, unknown>;
+-
+-  return typeof candidate.id === "string"
+-    && typeof candidate.missionId === "string"
+-    && typeof candidate.ticketId === "string"
+-    && typeof candidate.producingEventId === "string"
+-    && (typeof candidate.attemptId === "string" || candidate.attemptId === null)
+-    && (typeof candidate.workspaceIsolationId === "string" || candidate.workspaceIsolationId === null)
+-    && typeof candidate.kind === "string"
+-    && typeof candidate.title === "string"
+-    && typeof candidate.createdAt === "string";
+-}
+ 
+ export function readSourceReferences(
+   payload: Record<string, unknown> | undefined,
+diff --git a/packages/journal/src/projections/audit-log-projection.ts b/packages/journal/src/projections/audit-log-projection.ts
+index 8149236..e8b54c2 100644
+--- a/packages/journal/src/projections/audit-log-projection.ts
++++ b/packages/journal/src/projections/audit-log-projection.ts
+@@ -1,8 +1,17 @@
+ import type { ApprovalRequest } from "../../../contracts/src/approval/approval-request";
+ import type { Artifact } from "../../../contracts/src/artifact/artifact";
++import { normalizeOpaqueReferences } from "../../../contracts/src/extension/extension-registration";
+ import type { CapabilityInvocationDetails } from "../../../contracts/src/extension/registered-capability";
+ import type { SkillPackUsageDetails } from "../../../contracts/src/extension/registered-skill-pack";
+ import type { ExecutionAttempt } from "../../../contracts/src/execution-attempt/execution-attempt";
++import {
++  isApprovalRequest,
++  isArtifact,
++  isCapabilityInvocationDetails,
++  isExecutionAttempt,
++  isTicket,
++  isWorkspaceIsolationMetadata,
++} from "../../../contracts/src/guards/persisted-document-guards";
+ import {
+   hydrateMission,
+   type Mission,
+@@ -646,24 +655,6 @@ function readTicketOwnerFromPayload(payload: Record<string, unknown>): string |
+   return ticket?.owner?.trim().length ? ticket.owner : undefined;
+ }
+ 
+-function normalizeOpaqueReferences(values: string[]): string[] {
+-  const normalizedValues: string[] = [];
+-  const seenValues = new Set<string>();
+-
+-  for (const value of values) {
+-    const normalizedValue = value.trim();
+-
+-    if (!normalizedValue || seenValues.has(normalizedValue)) {
+-      continue;
+-    }
+-
+-    seenValues.add(normalizedValue);
+-    normalizedValues.push(normalizedValue);
+-  }
+-
+-  return normalizedValues;
+-}
+-
+ function readStringArray(
+   payload: Record<string, unknown>,
+   key: string,
+@@ -706,46 +697,6 @@ function readOptionalBoolean(
+   return typeof candidate === "boolean" ? candidate : undefined;
+ }
+ 
+-function isApprovalRequest(value: unknown): value is ApprovalRequest {
+-  if (typeof value !== "object" || value === null) {
+-    return false;
+-  }
+-
+-  const candidate = value as Record<string, unknown>;
+-
+-  return typeof candidate.approvalId === "string"
+-    && typeof candidate.missionId === "string"
+-    && typeof candidate.ticketId === "string"
+-    && typeof candidate.attemptId === "string"
+-    && typeof candidate.status === "string"
+-    && typeof candidate.title === "string"
+-    && typeof candidate.actionType === "string"
+-    && typeof candidate.actionSummary === "string"
+-    && Array.isArray(candidate.guardrails)
+-    && Array.isArray(candidate.relatedEventIds)
+-    && Array.isArray(candidate.relatedArtifactIds)
+-    && typeof candidate.createdAt === "string"
+-    && typeof candidate.updatedAt === "string";
+-}
+-
+-function isArtifact(value: unknown): value is Artifact {
+-  if (typeof value !== "object" || value === null) {
+-    return false;
+-  }
+-
+-  const candidate = value as Record<string, unknown>;
+-
+-  return typeof candidate.id === "string"
+-    && typeof candidate.missionId === "string"
+-    && typeof candidate.ticketId === "string"
+-    && typeof candidate.producingEventId === "string"
+-    && (typeof candidate.attemptId === "string" || candidate.attemptId === null)
+-    && (typeof candidate.workspaceIsolationId === "string" || candidate.workspaceIsolationId === null)
+-    && typeof candidate.kind === "string"
+-    && typeof candidate.title === "string"
+-    && typeof candidate.createdAt === "string";
+-}
+-
+ function isMission(value: unknown): value is Mission {
+   if (typeof value !== "object" || value === null) {
+     return false;
+@@ -771,82 +722,6 @@ function isMission(value: unknown): value is Mission {
+     && typeof candidate.updatedAt === "string";
+ }
+ 
+-function isTicket(value: unknown): value is Ticket {
+-  if (typeof value !== "object" || value === null) {
+-    return false;
+-  }
+-
+-  const candidate = value as Record<string, unknown>;
+-
+-  return typeof candidate.id === "string"
+-    && typeof candidate.missionId === "string"
+-    && typeof candidate.kind === "string"
+-    && typeof candidate.goal === "string"
+-    && typeof candidate.status === "string"
+-    && typeof candidate.owner === "string"
+-    && Array.isArray(candidate.dependsOn)
+-    && Array.isArray(candidate.successCriteria)
+-    && Array.isArray(candidate.allowedCapabilities)
+-    && Array.isArray(candidate.skillPackRefs)
+-    && (typeof candidate.workspaceIsolationId === "string" || candidate.workspaceIsolationId === null)
+-    && typeof candidate.executionHandle === "object"
+-    && candidate.executionHandle !== null
+-    && Array.isArray(candidate.artifactIds)
+-    && Array.isArray(candidate.eventIds)
+-    && typeof candidate.createdAt === "string"
+-    && typeof candidate.updatedAt === "string";
+-}
+-
+-function isExecutionAttempt(value: unknown): value is ExecutionAttempt {
+-  if (typeof value !== "object" || value === null) {
+-    return false;
+-  }
+-
+-  const candidate = value as Record<string, unknown>;
+-
+-  return typeof candidate.id === "string"
+-    && typeof candidate.ticketId === "string"
+-    && typeof candidate.adapter === "string"
+-    && typeof candidate.status === "string"
+-    && typeof candidate.workspaceIsolationId === "string"
+-    && typeof candidate.backgroundRequested === "boolean"
+-    && typeof candidate.adapterState === "object"
+-    && candidate.adapterState !== null
+-    && typeof candidate.startedAt === "string"
+-    && (typeof candidate.endedAt === "string" || candidate.endedAt === null);
+-}
+-
+-function isWorkspaceIsolationMetadata(value: unknown): value is WorkspaceIsolationMetadata {
+-  if (typeof value !== "object" || value === null) {
+-    return false;
+-  }
+-
+-  const candidate = value as Record<string, unknown>;
+-
+-  return typeof candidate.workspaceIsolationId === "string"
+-    && typeof candidate.kind === "string"
+-    && typeof candidate.sourceRoot === "string"
+-    && typeof candidate.workspacePath === "string"
+-    && typeof candidate.createdAt === "string"
+-    && typeof candidate.retained === "boolean";
+-}
+-
+-function isCapabilityInvocationDetails(value: unknown): value is CapabilityInvocationDetails {
+-  if (typeof value !== "object" || value === null) {
+-    return false;
+-  }
+-
+-  const candidate = value as Record<string, unknown>;
+-
+-  return typeof candidate.capabilityId === "string"
+-    && typeof candidate.registrationId === "string"
+-    && (candidate.provider === "local" || candidate.provider === "mcp")
+-    && typeof candidate.approvalSensitive === "boolean"
+-    && Array.isArray(candidate.permissions)
+-    && Array.isArray(candidate.constraints)
+-    && Array.isArray(candidate.requiredEnvNames);
+-}
+-
+ function isAuthorizedExtensions(value: unknown): value is MissionAuthorizedExtensions {
+   if (typeof value !== "object" || value === null) {
+     return false;
+diff --git a/packages/mission-kernel/src/approval-service/resolve-approval-request.ts b/packages/mission-kernel/src/approval-service/resolve-approval-request.ts
+index 79291b1..5cde38c 100644
+--- a/packages/mission-kernel/src/approval-service/resolve-approval-request.ts
++++ b/packages/mission-kernel/src/approval-service/resolve-approval-request.ts
+@@ -3,6 +3,7 @@ import { randomUUID } from "node:crypto";
+ import type { ApprovalDecision, ApprovalDecisionOutcome } from "../../../contracts/src/approval/approval-decision";
+ import type { ApprovalRequest } from "../../../contracts/src/approval/approval-request";
+ import type { ExecutionAttempt } from "../../../contracts/src/execution-attempt/execution-attempt";
++import { isApprovalRequest } from "../../../contracts/src/guards/persisted-document-guards";
+ import type { Mission } from "../../../contracts/src/mission/mission";
+ import type { MissionResume } from "../../../contracts/src/mission/mission-resume";
+ import type { Ticket } from "../../../contracts/src/ticket/ticket";
+@@ -390,28 +391,6 @@ function readApprovalFromPayload(payload: Record<string, unknown>): ApprovalRequ
+   return isApprovalRequest(candidate) ? candidate : null;
+ }
+ 
+-function isApprovalRequest(value: unknown): value is ApprovalRequest {
+-  if (typeof value !== "object" || value === null) {
+-    return false;
+-  }
+-
+-  const candidate = value as Record<string, unknown>;
+-
+-  return typeof candidate.approvalId === "string"
+-    && typeof candidate.missionId === "string"
+-    && typeof candidate.ticketId === "string"
+-    && typeof candidate.attemptId === "string"
+-    && typeof candidate.status === "string"
+-    && typeof candidate.title === "string"
+-    && typeof candidate.actionType === "string"
+-    && typeof candidate.actionSummary === "string"
+-    && Array.isArray(candidate.guardrails)
+-    && Array.isArray(candidate.relatedEventIds)
+-    && Array.isArray(candidate.relatedArtifactIds)
+-    && typeof candidate.createdAt === "string"
+-    && typeof candidate.updatedAt === "string";
+-}
+-
+ function resolveCommandName(outcome: ApprovalDecisionOutcome): "approval approve" | "approval reject" | "approval defer" {
+   if (outcome === "approved") {
+     return "approval approve";
+diff --git a/packages/mission-kernel/src/mission-service/ensure-mission-workspace.ts b/packages/mission-kernel/src/mission-service/ensure-mission-workspace.ts
+index 03e14f8..5763638 100644
+--- a/packages/mission-kernel/src/mission-service/ensure-mission-workspace.ts
++++ b/packages/mission-kernel/src/mission-service/ensure-mission-workspace.ts
+@@ -1,15 +1,33 @@
+-import { writeFile } from "node:fs/promises";
++import { access, writeFile } from "node:fs/promises";
+ 
++import { EventLogReadError } from "../../../journal/src/event-log/event-log-errors";
+ import { DEFAULT_PROJECTIONS } from "../../../journal/src/projections/default-projections";
+ import { isAlreadyExistsError } from "../../../storage/src/fs-layout/atomic-json";
++import {
++  createFileSystemReadError,
++  isFileSystemReadError,
++  readAccessError,
++} from "../../../storage/src/fs-layout/file-system-read-errors";
+ import { resolveProjectionPath } from "../../../storage/src/projection-store/file-projection-store";
+ import type { WorkspaceLayout } from "../../../storage/src/fs-layout/workspace-layout";
++import { cleanupStaleMissionLocks } from "../../../storage/src/repositories/file-mission-repository";
+ 
+ export interface EnsureMissionWorkspaceOptions {
+   commandLabel: string;
+-  skipProjections?: ReadonlySet<string>;
++  initializeJournal?: boolean;
+ }
+ 
++interface WorkspaceAccessCheck {
++  error: NodeJS.ErrnoException | null;
++  filePath: string;
++  isJournal?: boolean;
++  label: string;
++}
++
++const REQUIRED_PROJECTION_NAMES = Object.freeze(
++  Object.keys(DEFAULT_PROJECTIONS),
++);
++
+ // Garantit que le workspace mission est initialise en utilisant le pattern exclusif
+ // writeFile({flag: "wx"}) aligne sur ensureAppendOnlyEventLog et seedProjectionStore.
+ // Deux initialisations concurrentes produisent une seule creation effective : la
+@@ -19,23 +37,25 @@ export async function ensureMissionWorkspaceInitialized(
+   layout: WorkspaceLayout,
+   options: EnsureMissionWorkspaceOptions,
+ ): Promise<void> {
++  await cleanupStaleMissionLocks(layout);
++
+   const initializationError = new Error(
+     `Workspace mission non initialise. Lancez \`corp mission bootstrap --root ${layout.rootDir}\` avant \`corp mission ${options.commandLabel}\`.`,
+   );
+ 
+-  await ensureWorkspaceFileIdempotent(layout.journalPath, "", initializationError);
++  if (options.initializeJournal !== false) {
++    await ensureWorkspaceFileIdempotent(layout.journalPath, "", initializationError);
++  }
+ 
+   for (const [projectionName, snapshot] of Object.entries(DEFAULT_PROJECTIONS)) {
+-    if (options.skipProjections?.has(projectionName)) {
+-      continue;
+-    }
+-
+     await ensureWorkspaceFileIdempotent(
+       resolveProjectionPath(layout.projectionsDir, projectionName),
+       `${JSON.stringify(snapshot, null, 2)}\n`,
+       initializationError,
+     );
+   }
++
++  await assertWorkspaceReady(layout, initializationError);
+ }
+ 
+ async function ensureWorkspaceFileIdempotent(
+@@ -53,3 +73,78 @@ async function ensureWorkspaceFileIdempotent(
+     throw initializationError;
+   }
+ }
++
++async function assertWorkspaceReady(
++  layout: WorkspaceLayout,
++  initializationError: Error,
++): Promise<void> {
++  const checks = await collectWorkspaceAccessChecks(layout);
++  const firstFileSystemError = checks.find((entry) =>
++    entry.error && entry.error.code !== "ENOENT" && isFileSystemReadError(entry.error)
++  );
++
++  if (firstFileSystemError?.error) {
++    if (firstFileSystemError.isJournal) {
++      throw EventLogReadError.fileSystem(layout.journalPath, firstFileSystemError.error);
++    }
++
++    throw createFileSystemReadError(
++      firstFileSystemError.error,
++      firstFileSystemError.filePath,
++      firstFileSystemError.label,
++    );
++  }
++
++  const journalCheck = checks.find((entry) => entry.isJournal);
++  const missingNonJournalEntry = checks.find((entry) => entry.error?.code === "ENOENT" && !entry.isJournal);
++
++  if (journalCheck?.error?.code === "ENOENT" && !missingNonJournalEntry) {
++    throw EventLogReadError.missing(layout.journalPath, journalCheck.error);
++  }
++
++  if (journalCheck?.error || missingNonJournalEntry) {
++    throw initializationError;
++  }
++}
++
++async function collectWorkspaceAccessChecks(
++  layout: WorkspaceLayout,
++): Promise<WorkspaceAccessCheck[]> {
++  const projectionChecks = REQUIRED_PROJECTION_NAMES.map(async (projectionName) => ({
++    error: await readAccessError(() =>
++      access(resolveProjectionPath(layout.projectionsDir, projectionName))
++    ),
++    filePath: resolveProjectionPath(layout.projectionsDir, projectionName),
++    label: `projection ${projectionName}`,
++  }));
++
++  return [
++    {
++      error: await readAccessError(() => access(layout.journalPath)),
++      filePath: layout.journalPath,
++      label: "journal append-only",
++      isJournal: true,
++    },
++    {
++      error: await readAccessError(() => access(layout.projectionsDir)),
++      filePath: layout.projectionsDir,
++      label: "repertoire projections",
++    },
++    {
++      error: await readAccessError(() => access(layout.missionsDir)),
++      filePath: layout.missionsDir,
++      label: "repertoire missions",
++    },
++    {
++      error: await readAccessError(() => access(layout.capabilitiesDir)),
++      filePath: layout.capabilitiesDir,
++      label: "repertoire capabilities",
++    },
++    {
++      error: await readAccessError(() => access(layout.skillPacksDir)),
++      filePath: layout.skillPacksDir,
++      label: "repertoire skill packs",
++    },
++    ...(await Promise.all(projectionChecks)),
++  ];
++}
+diff --git a/packages/mission-kernel/src/mission-service/update-mission-lifecycle.ts b/packages/mission-kernel/src/mission-service/update-mission-lifecycle.ts
+index 63d04a3..a44558c 100644
+--- a/packages/mission-kernel/src/mission-service/update-mission-lifecycle.ts
++++ b/packages/mission-kernel/src/mission-service/update-mission-lifecycle.ts
+@@ -12,8 +12,6 @@ import { createFileTicketRepository } from "../../../storage/src/repositories/fi
+ import { rewriteMissionReadModels } from "../../../ticket-runtime/src/ticket-service/ticket-service-support";
+ import { ensureMissionWorkspaceInitialized } from "./ensure-mission-workspace";
+ 
+-const LIFECYCLE_SKIP_PROJECTIONS = new Set(["resume-view"]);
+-
+ export type MissionLifecycleAction = "pause" | "relaunch" | "close";
+ export type MissionCloseOutcome = "completed" | "cancelled";
+ 
+@@ -82,7 +80,6 @@ export async function updateMissionLifecycle(
+   const layout = resolveWorkspaceLayout(options.rootDir);
+   await ensureMissionWorkspaceInitialized(layout, {
+     commandLabel: options.action,
+-    skipProjections: LIFECYCLE_SKIP_PROJECTIONS,
+   });
+ 
+   const repository = createFileMissionRepository(layout);
+@@ -175,4 +172,3 @@ function ensureAllowedTransition(
+ 
+   return transition;
+ }
+-
+diff --git a/packages/mission-kernel/src/resume-service/read-mission-audit.ts b/packages/mission-kernel/src/resume-service/read-mission-audit.ts
+index 6facf87..87f4f51 100644
+--- a/packages/mission-kernel/src/resume-service/read-mission-audit.ts
++++ b/packages/mission-kernel/src/resume-service/read-mission-audit.ts
+@@ -6,6 +6,15 @@ import type { Artifact } from "../../../contracts/src/artifact/artifact";
+ import type { CapabilityInvocationDetails } from "../../../contracts/src/extension/registered-capability";
+ import type { SkillPackUsageDetails } from "../../../contracts/src/extension/registered-skill-pack";
+ import type { ExecutionAttempt } from "../../../contracts/src/execution-attempt/execution-attempt";
++import {
++  isApprovalDecision,
++  isApprovalRequest,
++  isArtifact,
++  isCapabilityInvocationDetails,
++  isExecutionAttempt,
++  isTicket,
++  isWorkspaceIsolationMetadata,
++} from "../../../contracts/src/guards/persisted-document-guards";
+ import {
+   type Mission,
+   type MissionAuthorizedExtensions,
+@@ -677,134 +686,6 @@ function formatList(values: string[], emptyValue: string): string {
+   return values.length > 0 ? values.join(", ") : emptyValue;
+ }
+ 
+-function isApprovalRequest(value: unknown): value is ApprovalRequest {
+-  if (typeof value !== "object" || value === null) {
+-    return false;
+-  }
+-
+-  const candidate = value as Record<string, unknown>;
+-
+-  return typeof candidate.approvalId === "string"
+-    && typeof candidate.missionId === "string"
+-    && typeof candidate.ticketId === "string"
+-    && typeof candidate.attemptId === "string"
+-    && typeof candidate.status === "string"
+-    && typeof candidate.title === "string"
+-    && typeof candidate.actionType === "string"
+-    && typeof candidate.actionSummary === "string"
+-    && Array.isArray(candidate.guardrails)
+-    && Array.isArray(candidate.relatedEventIds)
+-    && Array.isArray(candidate.relatedArtifactIds)
+-    && typeof candidate.createdAt === "string"
+-    && typeof candidate.updatedAt === "string";
+-}
+-
+-function isArtifact(value: unknown): value is Artifact {
+-  if (typeof value !== "object" || value === null) {
+-    return false;
+-  }
+-
+-  const candidate = value as Record<string, unknown>;
+-
+-  return typeof candidate.id === "string"
+-    && typeof candidate.missionId === "string"
+-    && typeof candidate.ticketId === "string"
+-    && typeof candidate.producingEventId === "string"
+-    && (typeof candidate.attemptId === "string" || candidate.attemptId === null)
+-    && (typeof candidate.workspaceIsolationId === "string" || candidate.workspaceIsolationId === null)
+-    && typeof candidate.kind === "string"
+-    && typeof candidate.title === "string"
+-    && typeof candidate.createdAt === "string";
+-}
+-
+-function isTicket(value: unknown): value is Ticket {
+-  if (typeof value !== "object" || value === null) {
+-    return false;
+-  }
+-
+-  const candidate = value as Record<string, unknown>;
+-
+-  return typeof candidate.id === "string"
+-    && typeof candidate.missionId === "string"
+-    && typeof candidate.kind === "string"
+-    && typeof candidate.goal === "string"
+-    && typeof candidate.status === "string"
+-    && typeof candidate.owner === "string"
+-    && Array.isArray(candidate.dependsOn)
+-    && Array.isArray(candidate.successCriteria)
+-    && Array.isArray(candidate.allowedCapabilities)
+-    && Array.isArray(candidate.skillPackRefs)
+-    && (typeof candidate.workspaceIsolationId === "string" || candidate.workspaceIsolationId === null)
+-    && typeof candidate.executionHandle === "object"
+-    && candidate.executionHandle !== null
+-    && Array.isArray(candidate.artifactIds)
+-    && Array.isArray(candidate.eventIds)
+-    && typeof candidate.createdAt === "string"
+-    && typeof candidate.updatedAt === "string";
+-}
+-
+-function isExecutionAttempt(value: unknown): value is ExecutionAttempt {
+-  if (typeof value !== "object" || value === null) {
+-    return false;
+-  }
+-
+-  const candidate = value as Record<string, unknown>;
+-
+-  return typeof candidate.id === "string"
+-    && typeof candidate.ticketId === "string"
+-    && typeof candidate.adapter === "string"
+-    && typeof candidate.status === "string"
+-    && typeof candidate.workspaceIsolationId === "string"
+-    && typeof candidate.backgroundRequested === "boolean"
+-    && typeof candidate.adapterState === "object"
+-    && candidate.adapterState !== null
+-    && typeof candidate.startedAt === "string"
+-    && (typeof candidate.endedAt === "string" || candidate.endedAt === null);
+-}
+-
+-function isWorkspaceIsolationMetadata(value: unknown): value is WorkspaceIsolationMetadata {
+-  if (typeof value !== "object" || value === null) {
+-    return false;
+-  }
+-
+-  const candidate = value as Record<string, unknown>;
+-
+-  return typeof candidate.workspaceIsolationId === "string"
+-    && typeof candidate.kind === "string"
+-    && typeof candidate.sourceRoot === "string"
+-    && typeof candidate.workspacePath === "string"
+-    && typeof candidate.createdAt === "string"
+-    && typeof candidate.retained === "boolean";
+-}
+-
+-function isApprovalDecision(value: unknown): value is ApprovalDecision {
+-  if (typeof value !== "object" || value === null) {
+-    return false;
+-  }
+-
+-  const candidate = value as Record<string, unknown>;
+-  return typeof candidate.outcome === "string"
+-    && (candidate.outcome === "approved"
+-      || candidate.outcome === "rejected"
+-      || candidate.outcome === "deferred");
+-}
+-
+-function isCapabilityInvocationDetails(value: unknown): value is CapabilityInvocationDetails {
+-  if (typeof value !== "object" || value === null) {
+-    return false;
+-  }
+-
+-  const candidate = value as Record<string, unknown>;
+-
+-  return typeof candidate.capabilityId === "string"
+-    && typeof candidate.registrationId === "string"
+-    && (candidate.provider === "local" || candidate.provider === "mcp")
+-    && typeof candidate.approvalSensitive === "boolean"
+-    && Array.isArray(candidate.permissions)
+-    && Array.isArray(candidate.constraints)
+-    && Array.isArray(candidate.requiredEnvNames);
+-}
+-
+ function isAuthorizedExtensions(value: unknown): value is MissionAuthorizedExtensions {
+   if (typeof value !== "object" || value === null) {
+     return false;
+diff --git a/packages/mission-kernel/src/resume-service/read-mission-resume.ts b/packages/mission-kernel/src/resume-service/read-mission-resume.ts
+index 8f14c7e..c901628 100644
+--- a/packages/mission-kernel/src/resume-service/read-mission-resume.ts
++++ b/packages/mission-kernel/src/resume-service/read-mission-resume.ts
+@@ -1,5 +1,3 @@
+-import { access } from "node:fs/promises";
+-
+ import { TERMINAL_APPROVAL_REQUEST_STATUSES } from "../../../contracts/src/approval/approval-request";
+ import type { Mission } from "../../../contracts/src/mission/mission";
+ import type {
+@@ -9,7 +7,7 @@ import type {
+ } from "../../../contracts/src/mission/mission-resume";
+ import { TERMINAL_TICKET_STATUSES } from "../../../contracts/src/ticket/ticket";
+ import type { JournalEventRecord } from "../../../journal/src/event-log/append-event";
+-import { EventLogReadError, isEventLogReadError } from "../../../journal/src/event-log/event-log-errors";
++import { isEventLogReadError } from "../../../journal/src/event-log/event-log-errors";
+ import {
+   readMissionEvents,
+   reconstructMissionFromJournal,
+@@ -25,19 +23,20 @@ import {
+   resolveProjectionPath,
+   writeProjectionSnapshot,
+ } from "../../../storage/src/projection-store/file-projection-store";
+-import {
+-  resolveWorkspaceLayout,
+-  type WorkspaceLayout,
+-} from "../../../storage/src/fs-layout/workspace-layout";
++import { resolveWorkspaceLayout } from "../../../storage/src/fs-layout/workspace-layout";
+ import {
+   createFileSystemReadError,
+   isFileSystemReadError,
+   isMissingFileError,
+-  readAccessError,
+ } from "../../../storage/src/fs-layout/file-system-read-errors";
+ import { createFileMissionRepository } from "../../../storage/src/repositories/file-mission-repository";
+-import { isRecoverablePersistedDocumentError } from "../../../storage/src/repositories/persisted-document-errors";
++import {
++  CorruptedPersistedDocumentError,
++  type InvalidPersistedDocumentError,
++  isRecoverablePersistedDocumentError,
++} from "../../../storage/src/repositories/persisted-document-errors";
+ import { readTicketBoard } from "../../../ticket-runtime/src/planner/read-ticket-board";
++import { ensureMissionWorkspaceInitialized } from "../mission-service/ensure-mission-workspace";
+ import { readApprovalQueue } from "./read-approval-queue";
+ import { readMissionArtifacts } from "./read-mission-artifacts";
+ 
+@@ -55,6 +54,11 @@ export interface ReadMissionResumeResult {
+   ticketBoardReconstructed: boolean;
+ }
+ 
++export interface ReadStoredResumeViewResult {
++  projection: ResumeViewProjection | null;
++  readError: CorruptedPersistedDocumentError | null;
++}
++
+ const CLOSED_OPEN_TICKET_STATUSES = new Set<string>([
+   ...TERMINAL_TICKET_STATUSES,
+ ]);
+@@ -67,10 +71,14 @@ export async function readMissionResume(
+   options: ReadMissionResumeOptions,
+ ): Promise<ReadMissionResumeResult> {
+   const layout = resolveWorkspaceLayout(options.rootDir);
+-  await ensureMissionWorkspaceInitialized(layout, options.commandName);
++  await ensureMissionWorkspaceInitialized(layout, {
++    commandLabel: options.commandName,
++    initializeJournal: false,
++  });
+ 
+   const repository = createFileMissionRepository(layout);
+-  const storedMission = await readStoredMissionSnapshot(repository, options.missionId);
++  const storedMissionResult = await readStoredMissionSnapshot(repository, options.missionId);
++  const storedMission = storedMissionResult.mission;
+ 
+   let missionEvents: JournalEventRecord[];
+ 
+@@ -83,6 +91,7 @@ export async function readMissionResume(
+ 
+     throw new Error(
+       `Journal mission irreconciliable pour ${options.missionId}. Impossible de reconstruire la reprise.`,
++      { cause: error },
+     );
+   }
+ 
+@@ -94,6 +103,10 @@ export async function readMissionResume(
+ 
+   const baseMission = storedMission ?? missionFromJournal;
+ 
++  if (!baseMission && missionEvents.length === 0 && storedMissionResult.readError) {
++    throw storedMissionResult.readError;
++  }
++
+   if (!baseMission) {
+     throw new Error(`Mission introuvable: ${options.missionId}.`);
+   }
+@@ -122,12 +135,14 @@ export async function readMissionResume(
+   }
+ 
+   const projectionPath = resolveProjectionPath(layout.projectionsDir, "resume-view");
+-  const rawResumeView = await readStoredResumeView(layout.projectionsDir);
++  const rawResumeViewResult = await readStoredResumeView(layout.projectionsDir);
++  const rawResumeView = rawResumeViewResult.projection;
+   const shouldReconstruct = !storedMission
+     || isMissionSnapshotSuspicious(storedMission, lastMissionEvent.eventId)
+     || approvalQueueResult.reconstructed
+     || ticketBoardResult.reconstructed
+     || artifactIndexResult.reconstructed
++    || rawResumeViewResult.readError !== null
+     || isResumeViewSuspicious(
+       rawResumeView,
+       options.missionId,
+@@ -180,57 +195,36 @@ export async function readMissionResume(
+   };
+ }
+ 
+-async function ensureMissionWorkspaceInitialized(
+-  layout: WorkspaceLayout,
+-  commandName: "status" | "resume" | "compare" | "compare relaunch",
+-): Promise<void> {
+-  const journalError = await readAccessError(() => access(layout.journalPath));
+-  const projectionsError = await readAccessError(() => access(layout.projectionsDir));
+-  const missionsError = await readAccessError(() => access(layout.missionsDir));
+-
+-  const fileSystemError = [
+-    { error: journalError, filePath: layout.journalPath, label: "journal append-only" },
+-    { error: projectionsError, filePath: layout.projectionsDir, label: "repertoire projections" },
+-    { error: missionsError, filePath: layout.missionsDir, label: "repertoire missions" },
+-  ].find((entry) => entry.error && entry.error.code !== "ENOENT" && isFileSystemReadError(entry.error));
+-
+-  if (fileSystemError?.error) {
+-    if (fileSystemError.filePath === layout.journalPath) {
+-      throw EventLogReadError.fileSystem(layout.journalPath, fileSystemError.error);
+-    }
+-
+-    throw createFileSystemReadError(
+-      fileSystemError.error,
+-      fileSystemError.filePath,
+-      fileSystemError.label,
+-    );
+-  }
+-
+-  if (journalError?.code === "ENOENT" && !projectionsError && !missionsError) {
+-    throw EventLogReadError.missing(layout.journalPath, journalError);
+-  }
+-
+-  if (journalError || projectionsError || missionsError) {
+-    throw new Error(
+-      `Workspace mission non initialise. Lancez \`corp mission bootstrap --root ${layout.rootDir}\` avant \`corp mission ${commandName}\`.`,
+-    );
+-  }
+-}
+-
+-async function readStoredResumeView(
++export async function readStoredResumeView(
+   projectionsDir: string,
+-): Promise<ResumeViewProjection | null> {
++): Promise<ReadStoredResumeViewResult> {
+   const projectionPath = resolveProjectionPath(projectionsDir, "resume-view");
+ 
+   try {
+-    return JSON.parse(await readProjectionFile(projectionsDir, "resume-view")) as ResumeViewProjection;
++    return {
++      projection: JSON.parse(await readProjectionFile(projectionsDir, "resume-view")) as ResumeViewProjection,
++      readError: null,
++    };
+   } catch (error) {
+     if (isMissingFileError(error)) {
+-      return null;
++      return {
++        projection: null,
++        readError: null,
++      };
+     }
+ 
+     if (error instanceof SyntaxError) {
+-      return null;
++      return {
++        projection: null,
++        readError: new CorruptedPersistedDocumentError(
++          {
++            filePath: projectionPath,
++            entityLabel: "Projection resume-view",
++            corruptionLabel: "projection resume-view",
++          },
++          error,
++        ),
++      };
+     }
+ 
+     if (isFileSystemReadError(error)) {
+@@ -312,12 +306,21 @@ function isMissionSnapshotSuspicious(mission: Mission, lastEventId: string): boo
+ async function readStoredMissionSnapshot(
+   repository: ReturnType<typeof createFileMissionRepository>,
+   missionId: string,
+-): Promise<Mission | null> {
++): Promise<{
++  mission: Mission | null;
++  readError: CorruptedPersistedDocumentError | InvalidPersistedDocumentError | null;
++}> {
+   try {
+-    return await repository.findById(missionId);
++    return {
++      mission: await repository.findById(missionId),
++      readError: null,
++    };
+   } catch (error) {
+     if (isRecoverablePersistedDocumentError(error)) {
+-      return null;
++      return {
++        mission: null,
++        readError: error,
++      };
+     }
+ 
+     throw error;
+diff --git a/packages/ticket-runtime/src/ticket-service/ticket-service-support.ts b/packages/ticket-runtime/src/ticket-service/ticket-service-support.ts
+index 9da268e..f9c7963 100644
+--- a/packages/ticket-runtime/src/ticket-service/ticket-service-support.ts
++++ b/packages/ticket-runtime/src/ticket-service/ticket-service-support.ts
+@@ -1,6 +1,7 @@
+ import { access } from "node:fs/promises";
+ 
+ import type { Mission } from "../../../contracts/src/mission/mission";
++export { normalizeOpaqueReferences } from "../../../contracts/src/extension/extension-registration";
+ import {
+   TERMINAL_TICKET_STATUSES,
+   TICKET_KINDS,
+@@ -125,10 +126,6 @@ export function normalizeTrimmedList(
+   return normalizedValues;
+ }
+ 
+-export function normalizeOpaqueReferences(values: string[]): string[] {
+-  return normalizeTrimmedList(values, { dedupe: true });
+-}
+-
+ export function isBuiltInAllowedCapability(capabilityId: string): boolean {
+   return BUILT_IN_ALLOWED_CAPABILITIES.has(capabilityId);
+ }
+diff --git a/tests/unit/ensure-mission-workspace.test.ts b/tests/unit/ensure-mission-workspace.test.ts
+index b54d830..12d6d1c 100644
+--- a/tests/unit/ensure-mission-workspace.test.ts
++++ b/tests/unit/ensure-mission-workspace.test.ts
+@@ -21,6 +21,9 @@ test("ensureMissionWorkspaceInitialized ne cree qu'un journal et qu'une projecti
+   // Bootstrap partiel: les dossiers parents existent, les fichiers sont absents.
+   await mkdir(layout.journalDir, { recursive: true });
+   await mkdir(layout.projectionsDir, { recursive: true });
++  await mkdir(layout.missionsDir, { recursive: true });
++  await mkdir(layout.capabilitiesDir, { recursive: true });
++  await mkdir(layout.skillPacksDir, { recursive: true });
+ 
+   // 20 initialisations concurrentes doivent toutes reussir sans corrompre les fichiers.
+   await Promise.all(
+@@ -59,8 +62,8 @@ test("ensureMissionWorkspaceInitialized surface l'erreur d'initialisation quand
+   );
+ });
+ 
+-test("ensureMissionWorkspaceInitialized respecte skipProjections pour le scenario lifecycle", async (t) => {
+-  const rootDir = await mkdtemp(path.join(tmpdir(), "corp-ensure-workspace-skip-"));
++test("ensureMissionWorkspaceInitialized refuse un workspace legacy sans registres d'extensions", async (t) => {
++  const rootDir = await mkdtemp(path.join(tmpdir(), "corp-ensure-workspace-legacy-layout-"));
+ 
+   t.after(async () => {
+     await rm(rootDir, { recursive: true, force: true });
+@@ -70,23 +73,23 @@ test("ensureMissionWorkspaceInitialized respecte skipProjections pour le scenari
+ 
+   await mkdir(layout.journalDir, { recursive: true });
+   await mkdir(layout.projectionsDir, { recursive: true });
++  await mkdir(layout.missionsDir, { recursive: true });
+ 
+-  await ensureMissionWorkspaceInitialized(layout, {
+-    commandLabel: "pause",
+-    skipProjections: new Set(["resume-view"]),
+-  });
+-
+-  // resume-view ne doit PAS avoir ete cree.
+   await assert.rejects(
+-    () => readFile(resolveProjectionPath(layout.projectionsDir, "resume-view"), "utf8"),
+-    /ENOENT/,
++    () => ensureMissionWorkspaceInitialized(layout, {
++      commandLabel: "resume",
++    }),
++    /Workspace mission non initialise\. Lancez `corp mission bootstrap --root .*` avant `corp mission resume`\./,
+   );
+ 
+-  // Les autres projections DOIVENT avoir ete creees.
++  await mkdir(layout.capabilitiesDir, { recursive: true });
++  await mkdir(layout.skillPacksDir, { recursive: true });
++
++  await ensureMissionWorkspaceInitialized(layout, {
++    commandLabel: "resume",
++  });
++
+   for (const projectionName of Object.keys(DEFAULT_PROJECTIONS)) {
+-    if (projectionName === "resume-view") {
+-      continue;
+-    }
+     await readFile(resolveProjectionPath(layout.projectionsDir, projectionName), "utf8");
+   }
+ });
+diff --git a/tests/unit/persisted-document-guards.test.ts b/tests/unit/persisted-document-guards.test.ts
+index 266ac06..768c44a 100644
+--- a/tests/unit/persisted-document-guards.test.ts
++++ b/tests/unit/persisted-document-guards.test.ts
+@@ -1,29 +1,38 @@
+ import assert from "node:assert/strict";
+ import test from "node:test";
+ 
++import type { ApprovalDecision } from "../../packages/contracts/src/approval/approval-decision";
++import type { ApprovalRequest } from "../../packages/contracts/src/approval/approval-request";
+ import type { Artifact } from "../../packages/contracts/src/artifact/artifact";
++import type { CapabilityInvocationDetails } from "../../packages/contracts/src/extension/registered-capability";
+ import type { RegisteredCapability } from "../../packages/contracts/src/extension/registered-capability";
+ import type { RegisteredSkillPack } from "../../packages/contracts/src/extension/registered-skill-pack";
+ import type { ExecutionAttempt } from "../../packages/contracts/src/execution-attempt/execution-attempt";
+ import type { Mission } from "../../packages/contracts/src/mission/mission";
+ import type { Ticket } from "../../packages/contracts/src/ticket/ticket";
++import type { WorkspaceIsolationMetadata } from "../../packages/workspace-isolation/src/workspace-isolation";
+ import {
++  isApprovalDecision,
++  isApprovalRequest,
+   isArtifact,
++  isCapabilityInvocationDetails,
+   isExecutionAttempt,
+   isMission,
+   isRegisteredCapability,
+   isRegisteredSkillPack,
+   isTicket,
++  isWorkspaceIsolationMetadata,
+   validateArtifact,
+   validateExecutionAttempt,
+   validateMission,
+   validateRegisteredCapability,
+   validateRegisteredSkillPack,
+   validateTicket,
++  type StructuralValidationWarning,
+   type ValidationResult,
+ } from "../../packages/contracts/src/guards/persisted-document-guards";
+ 
+-function assertInvalid(result: ValidationResult, reasonPattern: RegExp): void {
++function assertInvalid(result: ValidationResult<unknown>, reasonPattern: RegExp): void {
+   assert.equal(result.ok, false);
+   if (!result.ok) {
+     assert.match(result.reason, reasonPattern);
+@@ -109,6 +118,75 @@ function createArtifact(overrides: Partial<Artifact> = {}): Artifact {
+   };
+ }
+ 
++function createApprovalRequest(overrides: Partial<ApprovalRequest> = {}): ApprovalRequest {
++  return {
++    approvalId: "approval_guard",
++    missionId: "mission_guard",
++    ticketId: "ticket_guard",
++    attemptId: "attempt_guard",
++    status: "requested",
++    title: "Validation guard",
++    actionType: "fs.write",
++    actionSummary: "Verifier le guard approval request",
++    guardrails: ["local_only"],
++    relatedEventIds: ["event_guard"],
++    relatedArtifactIds: ["artifact_guard"],
++    createdAt: "2026-04-15T10:00:00.000Z",
++    updatedAt: "2026-04-15T10:00:00.000Z",
++    ...overrides,
++  };
++}
++
++function createApprovalDecision(overrides: Partial<ApprovalDecision> = {}): ApprovalDecision {
++  return {
++    outcome: "approved",
++    reason: "Validation explicite.",
++    missionPolicyChange: {
++      previous: "policy.old",
++      next: "policy.new",
++    },
++    ticketCapabilityChange: {
++      previous: ["cap.old"],
++      next: ["cap.new"],
++    },
++    ticketSkillPackChange: {
++      previous: ["pack.old"],
++      next: ["pack.new"],
++    },
++    budgetObservations: ["RAS"],
++    ...overrides,
++  };
++}
++
++function createCapabilityInvocationDetails(
++  overrides: Partial<CapabilityInvocationDetails> = {},
++): CapabilityInvocationDetails {
++  return {
++    capabilityId: "cap.guard",
++    registrationId: "ext.cap.guard",
++    provider: "local",
++    approvalSensitive: false,
++    permissions: ["docs.read"],
++    constraints: ["local_only"],
++    requiredEnvNames: [],
++    ...overrides,
++  };
++}
++
++function createWorkspaceIsolationMetadata(
++  overrides: Partial<WorkspaceIsolationMetadata> = {},
++): WorkspaceIsolationMetadata {
++  return {
++    workspaceIsolationId: "iso_guard",
++    kind: "workspace_copy",
++    sourceRoot: "C:/tmp/source",
++    workspacePath: "C:/tmp/workspace",
++    createdAt: "2026-04-15T10:00:00.000Z",
++    retained: true,
++    ...overrides,
++  };
++}
++
+ function createRegisteredCapability(
+   overrides: Partial<RegisteredCapability> = {},
+ ): RegisteredCapability {
+@@ -179,8 +257,59 @@ test("isMission valide le snapshot mission et documente les raisons de rejet", (
+   );
+ });
+ 
++test("validateMission accepte authorizedExtensions null et tolere un statut futur en lecture", () => {
++  const warnings: StructuralValidationWarning[] = [];
++
++  const nullAuthorizedExtensions = validateMission({
++    ...createMission(),
++    authorizedExtensions: null,
++  });
++  const futureMissionStatus = validateMission(
++    {
++      ...createMission(),
++      status: "archived_v2",
++    },
++    { strict: false, warnings },
++  );
++  const futureTicketStatus = validateTicket(
++    {
++      ...createTicket(),
++      status: "on_hold",
++    },
++    { strict: false, warnings },
++  );
++  const futureArtifactKind = validateArtifact(
++    {
++      ...createArtifact(),
++      kind: "binary_blob_v2",
++    },
++    { strict: false, warnings },
++  );
++
++  assert.equal(nullAuthorizedExtensions.ok, true);
++  assertInvalid(
++    validateMission({ ...createMission(), authorizedExtensions: 42 }),
++    /type incorrect.*authorizedExtensions/i,
++  );
++  assert.equal(futureMissionStatus.ok, true);
++  assert.equal(futureTicketStatus.ok, true);
++  assert.equal(futureArtifactKind.ok, true);
++  assert.equal(isMission({ ...createMission(), status: "archived_v2" }), true);
++  assert.equal(isTicket({ ...createTicket(), status: "on_hold" }), true);
++  assert.equal(isArtifact({ ...createArtifact(), kind: "binary_blob_v2" }), true);
++  assert.deepEqual(
++    warnings.map((warning) => ({ path: warning.path, value: warning.value })),
++    [
++      { path: "status", value: "archived_v2" },
++      { path: "status", value: "on_hold" },
++      { path: "kind", value: "binary_blob_v2" },
++    ],
++  );
++});
++
+ test("isTicket valide le snapshot ticket et rejette champs, types et discriminants inconnus", () => {
+   assert.equal(isTicket(createTicket()), true);
++  assert.equal(isTicket(createTicket({ workspaceIsolationId: "iso_guard" })), true);
+   assertInvalid(validateTicket({ ...createTicket(), goal: undefined }), /champ manquant.*goal/i);
+   assertInvalid(validateTicket({ ...createTicket(), dependsOn: ["a", 1] }), /type incorrect.*dependsOn/i);
+   assertInvalid(validateTicket({ ...createTicket(), kind: "fix" }), /discriminant invalide.*kind/i);
+@@ -191,6 +320,39 @@ test("isTicket valide le snapshot ticket et rejette champs, types et discriminan
+   );
+ });
+ 
++test("validateTicket rejette les champs herites du prototype et distingue champ manquant vs type incorrect", () => {
++  const inheritedTicket = Object.create({
++    id: "ticket_proto",
++  }) as Record<string, unknown>;
++
++  Object.assign(inheritedTicket, {
++    missionId: "mission_guard",
++    kind: "implement",
++    goal: "Ticket prototype pollution",
++    status: "todo",
++    owner: "agent_guard",
++    dependsOn: [],
++    successCriteria: [],
++    allowedCapabilities: [],
++    skillPackRefs: [],
++    workspaceIsolationId: null,
++    artifactIds: [],
++    eventIds: ["event_guard"],
++    createdAt: "2026-04-15T10:00:00.000Z",
++    updatedAt: "2026-04-15T10:00:00.000Z",
++  });
++
++  assertInvalid(validateTicket(inheritedTicket), /champ manquant.*id/i);
++  assertInvalid(
++    validateTicket({ ...createTicket(), executionHandle: undefined }),
++    /champ manquant.*executionHandle/i,
++  );
++  assertInvalid(
++    validateTicket({ ...createTicket(), executionHandle: "invalid" as unknown as Ticket["executionHandle"] }),
++    /type incorrect.*executionHandle/i,
++  );
++});
++
+ test("isExecutionAttempt valide les tentatives et rejette les statuts/adapters inconnus", () => {
+   assert.equal(isExecutionAttempt(createExecutionAttempt()), true);
+   assertInvalid(
+@@ -213,11 +375,60 @@ test("isExecutionAttempt valide les tentatives et rejette les statuts/adapters i
+ 
+ test("isArtifact valide les artefacts et rejette les kinds ou champs optionnels invalides", () => {
+   assert.equal(isArtifact(createArtifact()), true);
++  assert.equal(isArtifact(createArtifact({ workspaceIsolationId: "iso_guard" })), true);
+   assertInvalid(validateArtifact({ ...createArtifact(), missionId: undefined }), /champ manquant.*missionId/i);
+   assertInvalid(validateArtifact({ ...createArtifact(), sizeBytes: "12" }), /type incorrect.*sizeBytes/i);
+   assertInvalid(validateArtifact({ ...createArtifact(), kind: "binary_blob" }), /discriminant invalide.*kind/i);
+ });
+ 
++test("isApprovalRequest valide le contrat approval et rejette les tableaux mal typés", () => {
++  assert.equal(isApprovalRequest(createApprovalRequest()), true);
++  assert.equal(isApprovalRequest({ ...createApprovalRequest(), relatedArtifactIds: [] }), true);
++  assert.equal(isApprovalRequest({ ...createApprovalRequest(), title: undefined }), false);
++  assert.equal(
++    isApprovalRequest({ ...createApprovalRequest(), guardrails: ["ok", 42] }),
++    false,
++  );
++});
++
++test("isApprovalDecision valide les changements optionnels et les outcomes supportés", () => {
++  assert.equal(isApprovalDecision(createApprovalDecision()), true);
++  assert.equal(isApprovalDecision({ outcome: "deferred" }), true);
++  assert.equal(isApprovalDecision({ ...createApprovalDecision(), outcome: "cancelled" }), false);
++  assert.equal(
++    isApprovalDecision({
++      ...createApprovalDecision(),
++      ticketCapabilityChange: { previous: ["cap.old"], next: [42] },
++    }),
++    false,
++  );
++});
++
++test("isCapabilityInvocationDetails valide provider, booleens et tableaux string[]", () => {
++  assert.equal(isCapabilityInvocationDetails(createCapabilityInvocationDetails()), true);
++  assert.equal(
++    isCapabilityInvocationDetails({ ...createCapabilityInvocationDetails(), provider: "mcp" }),
++    true,
++  );
++  assert.equal(
++    isCapabilityInvocationDetails({ ...createCapabilityInvocationDetails(), provider: "remote" }),
++    false,
++  );
++  assert.equal(
++    isCapabilityInvocationDetails({ ...createCapabilityInvocationDetails(), permissions: ["docs.read", 42] }),
++    false,
++  );
++});
++
++test("isWorkspaceIsolationMetadata valide la structure d'isolation de workspace", () => {
++  assert.equal(isWorkspaceIsolationMetadata(createWorkspaceIsolationMetadata()), true);
++  assert.equal(isWorkspaceIsolationMetadata({ ...createWorkspaceIsolationMetadata(), retained: "yes" }), false);
++  assert.equal(
++    isWorkspaceIsolationMetadata({ ...createWorkspaceIsolationMetadata(), workspacePath: undefined }),
++    false,
++  );
++});
++
+ test("isRegisteredCapability valide le registre capability et ses branches provider", () => {
+   assert.equal(isRegisteredCapability(createRegisteredCapability()), true);
+   assert.equal(
+
+=== UNTRACKED NEW FILE: tests/unit/read-mission-resume.test.ts ===
+warning: in the working copy of 'tests/unit/read-mission-resume.test.ts', LF will be replaced by CRLF the next time Git touches it
+diff --git a/tests/unit/read-mission-resume.test.ts b/tests/unit/read-mission-resume.test.ts
+new file mode 100644
+index 0000000..259cb73
+--- /dev/null
++++ b/tests/unit/read-mission-resume.test.ts
+@@ -0,0 +1,142 @@
++import assert from "node:assert/strict";
++import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
++import path from "node:path";
++import { tmpdir } from "node:os";
++import test from "node:test";
++
++import { runCli } from "../../apps/corp-cli/src/index";
++import { DEFAULT_PROJECTIONS } from "../../packages/journal/src/projections/default-projections";
++import { CorruptedPersistedDocumentError } from "../../packages/storage/src/repositories/persisted-document-errors";
++import { resolveProjectionPath } from "../../packages/storage/src/projection-store/file-projection-store";
++import { resolveWorkspaceLayout } from "../../packages/storage/src/fs-layout/workspace-layout";
++import {
++  readMissionResume,
++  readStoredResumeView,
++} from "../../packages/mission-kernel/src/resume-service/read-mission-resume";
++
++interface CommandResult {
++  exitCode: number;
++  lines: string[];
++}
++
++async function runCommand(args: string[]): Promise<CommandResult> {
++  const lines: string[] = [];
++  const exitCode = await runCli(args, {
++    writeLine: (line: string) => lines.push(line),
++  });
++
++  return {
++    exitCode,
++    lines,
++  };
++}
++
++async function bootstrapAndCreateMission(rootDir: string): Promise<string> {
++  const bootstrapResult = await runCommand(["mission", "bootstrap", "--root", rootDir]);
++  assert.equal(bootstrapResult.exitCode, 0);
++
++  const createResult = await runCommand([
++    "mission",
++    "create",
++    "--root",
++    rootDir,
++    "--title",
++    "Mission read resume",
++    "--objective",
++    "Verifier la lecture defensive du resume",
++    "--success-criterion",
++    "Le resume reste lisible",
++    "--policy-profile",
++    "policy_profile_local",
++  ]);
++
++  assert.equal(createResult.exitCode, 0);
++
++  const missionLine = createResult.lines.find((line) => line.startsWith("Mission creee: "));
++  assert.ok(missionLine);
++
++  return missionLine.slice("Mission creee: ".length);
++}
++
++test("readStoredResumeView classe explicitement une projection resume-view corrompue", async (t) => {
++  const rootDir = await mkdtemp(path.join(tmpdir(), "corp-read-stored-resume-view-"));
++  const projectionsDir = path.join(rootDir, "projections");
++  const projectionPath = path.join(projectionsDir, "resume-view.json");
++
++  t.after(async () => {
++    await rm(rootDir, { recursive: true, force: true });
++  });
++
++  await mkdir(projectionsDir, { recursive: true });
++  await writeFile(projectionPath, "{corrupted", "utf8");
++
++  const result = await readStoredResumeView(projectionsDir);
++
++  assert.equal(result.projection, null);
++  assert.ok(result.readError instanceof CorruptedPersistedDocumentError);
++  assert.equal(result.readError.filePath, projectionPath);
++});
++
++test("readMissionResume preserve la cause d'une erreur inattendue issue de readMissionEvents", async (t) => {
++  const rootDir = await mkdtemp(path.join(tmpdir(), "corp-read-mission-resume-cause-"));
++  const missionId = await bootstrapAndCreateMission(rootDir);
++  const missionReconstructionModule = require("../../packages/journal/src/reconstruction/mission-reconstruction") as {
++    readMissionEvents: (
++      journalPath: string,
++      missionId: string,
++    ) => Promise<unknown[]>;
++  };
++  const originalReadMissionEvents = missionReconstructionModule.readMissionEvents;
++  const rootCause = new TypeError("synthetic mission resume failure");
++
++  t.after(async () => {
++    missionReconstructionModule.readMissionEvents = originalReadMissionEvents;
++    await rm(rootDir, { recursive: true, force: true });
++  });
++
++  missionReconstructionModule.readMissionEvents = async () => {
++    throw rootCause;
++  };
++
++  await assert.rejects(
++    () => readMissionResume({
++      rootDir,
++      missionId,
++      commandName: "resume",
++    }),
++    (error: unknown) => {
++      assert.ok(error instanceof Error);
++      assert.match(error.message, /Journal mission irreconciliable/);
++      assert.equal(error.cause, rootCause);
++      return true;
++    },
++  );
++});
++
++test("readMissionResume signale explicitement un workspace legacy sans registres d'extensions", async (t) => {
++  const rootDir = await mkdtemp(path.join(tmpdir(), "corp-read-mission-resume-legacy-layout-"));
++  const layout = resolveWorkspaceLayout(rootDir);
++
++  t.after(async () => {
++    await rm(rootDir, { recursive: true, force: true });
++  });
++
++  await mkdir(layout.journalDir, { recursive: true });
++  await mkdir(layout.projectionsDir, { recursive: true });
++  await mkdir(layout.missionsDir, { recursive: true });
++  await writeFile(layout.journalPath, "", "utf8");
++  await writeFile(
++    resolveProjectionPath(layout.projectionsDir, "resume-view"),
++    `${JSON.stringify(DEFAULT_PROJECTIONS["resume-view"], null, 2)}\n`,
++    "utf8",
++  );
++
++  await assert.rejects(
++    () => readMissionResume({
++      rootDir,
++      missionId: "mission_legacy",
++      commandName: "resume",
++    }),
++    /Workspace mission non initialise\. Lancez `corp mission bootstrap --root .*` avant `corp mission resume`\./,
++  );
++});
+
+=== UNTRACKED NEW FILE: tests/unit/shared-runtime-factorization.test.ts ===
+warning: in the working copy of 'tests/unit/shared-runtime-factorization.test.ts', LF will be replaced by CRLF the next time Git touches it
+diff --git a/tests/unit/shared-runtime-factorization.test.ts b/tests/unit/shared-runtime-factorization.test.ts
+new file mode 100644
+index 0000000..3b914e6
+--- /dev/null
++++ b/tests/unit/shared-runtime-factorization.test.ts
+@@ -0,0 +1,61 @@
++import assert from "node:assert/strict";
++import { readFile } from "node:fs/promises";
++import path from "node:path";
++import test from "node:test";
++
++async function readSource(relativePath: string): Promise<string> {
++  return readFile(path.join(process.cwd(), relativePath), "utf8");
++}
++
++test("les consommateurs importent les guards et helpers factorises au lieu de les reimplementer", async () => {
++  const [
++    auditProjectionSource,
++    readMissionAuditSource,
++    approvalQueueSource,
++    artifactIndexSource,
++    resolveApprovalSource,
++    readMissionResumeSource,
++    ticketSupportSource,
++  ] = await Promise.all([
++    readSource("packages/journal/src/projections/audit-log-projection.ts"),
++    readSource("packages/mission-kernel/src/resume-service/read-mission-audit.ts"),
++    readSource("packages/journal/src/projections/approval-queue-projection.ts"),
++    readSource("packages/journal/src/projections/artifact-index-projection.ts"),
++    readSource("packages/mission-kernel/src/approval-service/resolve-approval-request.ts"),
++    readSource("packages/mission-kernel/src/resume-service/read-mission-resume.ts"),
++    readSource("packages/ticket-runtime/src/ticket-service/ticket-service-support.ts"),
++  ]);
++
++  assert.match(auditProjectionSource, /persisted-document-guards/);
++  assert.doesNotMatch(auditProjectionSource, /function isApprovalRequest\(/);
++  assert.doesNotMatch(auditProjectionSource, /function isArtifact\(/);
++  assert.doesNotMatch(auditProjectionSource, /function isTicket\(/);
++  assert.doesNotMatch(auditProjectionSource, /function isExecutionAttempt\(/);
++  assert.doesNotMatch(auditProjectionSource, /function isWorkspaceIsolationMetadata\(/);
++  assert.doesNotMatch(auditProjectionSource, /function isCapabilityInvocationDetails\(/);
++  assert.doesNotMatch(auditProjectionSource, /function normalizeOpaqueReferences\(/);
++
++  assert.match(readMissionAuditSource, /persisted-document-guards/);
++  assert.doesNotMatch(readMissionAuditSource, /function isApprovalRequest\(/);
++  assert.doesNotMatch(readMissionAuditSource, /function isArtifact\(/);
++  assert.doesNotMatch(readMissionAuditSource, /function isTicket\(/);
++  assert.doesNotMatch(readMissionAuditSource, /function isExecutionAttempt\(/);
++  assert.doesNotMatch(readMissionAuditSource, /function isWorkspaceIsolationMetadata\(/);
++  assert.doesNotMatch(readMissionAuditSource, /function isApprovalDecision\(/);
++  assert.doesNotMatch(readMissionAuditSource, /function isCapabilityInvocationDetails\(/);
++
++  assert.match(approvalQueueSource, /persisted-document-guards/);
++  assert.doesNotMatch(approvalQueueSource, /function isApprovalRequest\(/);
++
++  assert.match(artifactIndexSource, /persisted-document-guards/);
++  assert.doesNotMatch(artifactIndexSource, /function isArtifact\(/);
++
++  assert.match(resolveApprovalSource, /persisted-document-guards/);
++  assert.doesNotMatch(resolveApprovalSource, /function isApprovalRequest\(/);
++
++  assert.match(readMissionResumeSource, /mission-service\/ensure-mission-workspace/);
++  assert.doesNotMatch(readMissionResumeSource, /async function ensureMissionWorkspaceInitialized\(/);
++
++  assert.match(ticketSupportSource, /contracts\/src\/extension\/extension-registration/);
++  assert.doesNotMatch(ticketSupportSource, /function normalizeOpaqueReferences\(/);
++});
